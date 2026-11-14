@@ -15,7 +15,7 @@
  *
  * If WebAssembly is unavailable a JS implementation of the same step runs.
  */
-import { resolveFabric } from '../core/fabrics.js';
+import { resolveFabric, fabricPhysics } from '../core/fabrics.js';
 import { resolveStitch } from '../core/stitches.js';
 import { buildAvatar, packColliders, binColliders } from './avatar.js';
 import { INSULATION } from '../core/materials.js';
@@ -148,18 +148,17 @@ export function buildCloth(project) {
       local.push(x, y);
       UV.push(x / 10, y / 10);
       inv.push(1 / ((fab.weightGsm / 1000) * (Math.max(area[q], h * h * 0.2) / 1e4)));
-      fric.push(Math.min(0.95, fab.friction * 0.6));
+      fric.push(Math.min(0.95, fab.mech ? fab.mech.mu * 1.1 : fab.friction * 0.6));
       thk.push(0.006 + rank * 0.007 + (panel.zBias ? 0.0035 : 0));
       gar.push(panel.garment);
     }
 
     // Per-substep stiffness. With small-step PBD, stretch must stay near 1 or
     // long panels sag like rubber; stretchy knits get a lower value.
-    const kS = 0.55 + 0.45 * fab.stretch;
-    const kSh = 0.15 + 0.6 * fab.shear;
-    const kB = 0.004 + 0.35 * Math.pow(fab.bend, 1.5);
-    // Max stretch before hard limiting: ~5% for rigid wovens, ~60% for spandex.
-    const lim = 0.04 + 0.6 * (1 - fab.stretch) ** 1.5;
+    const { kS, kSh, lim } = fabricPhysics(fab);
+    let { kB } = fabricPhysics(fab);
+    if (panel.insulation) kB = Math.min(0.9, kB + 0.05 + (panel.insulation.weight || 120) / 3000);
+    if (panel.lining) kB = Math.min(0.9, kB * 1.3 + 0.01);
     const cStart = R.length;
     const flat = (p, q) => Math.hypot(mesh.xy[p * 2] - mesh.xy[q * 2], mesh.xy[p * 2 + 1] - mesh.xy[q * 2 + 1]) / 100;
     const add = (p, q, k, l = lim) => { C.push(p + offset, q + offset); R.push(flat(p, q)); K.push(k); L.push(l); };

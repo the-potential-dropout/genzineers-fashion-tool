@@ -453,8 +453,8 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
 export const BOTTOM_OPTIONS = {
   fit: { label: 'Fit', type: 'select', values: ['slim', 'regular', 'relaxed', 'oversized'], default: 'regular' },
   inseam: { label: 'Inseam (cm)', type: 'range', min: 8, max: 84, step: 0.5, default: 78 },
-  rise: { label: 'Rise', type: 'select', values: ['low', 'mid', 'high'], default: 'mid' },
-  leg: { label: 'Leg shape', type: 'select', values: ['skinny', 'slim', 'tapered', 'straight', 'wide', 'bootcut', 'flare'], default: 'straight' },
+  rise: { label: 'Rise', type: 'select', values: ['ultra-low', 'low', 'mid', 'high', 'ultra-high'], default: 'mid' },
+  leg: { label: 'Leg shape', type: 'select', values: ['skinny', 'cigarette', 'slim', 'tapered', 'straight', 'relaxed', 'carpenter', 'wide', 'baggy', 'barrel', 'bootcut', 'flare', 'bell-bottom'], default: 'straight' },
   waistband: { label: 'Waistband', type: 'select', values: ['button', 'hook-bar', 'elastic', 'drawstring', 'side-adjusters'], default: 'button' },
   fly: { label: 'Fly', type: 'select', values: ['zip', 'button', 'none'], default: 'zip' },
   hem: { label: 'Hem', type: 'select', values: ['plain', 'turn-up', 'rib-cuff', 'raw', 'split'], default: 'plain' },
@@ -471,33 +471,57 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
   const BODY = bodyOf(o);
   const id = (s) => `${prefix}${s}`;
   const ease = (FIT[o.fit] ?? 14) * 0.6;
-  const riseCm = { low: 20, mid: 25, high: 31 }[o.rise] ?? 25;
+  const riseCm = { 'ultra-low': 17.5, low: 20.5, mid: 25, high: 30, 'ultra-high': 34 }[o.rise] ?? 25;
   const I = o.inseam;
-  const legHalf = ({ skinny: 7, slim: 8.5, tapered: 8, straight: 10.5, wide: 15, bootcut: 11.5, flare: 16 }[o.leg] ?? 10.5) + (o.hemAdj || 0) / 4;
-  const kneeHalf = Math.min(legHalf + 1.5, { bootcut: 9.5, flare: 9.5 }[o.leg] ?? legHalf + 1.5);
-  const thighHalf = 13 + ease * 0.4 + (o.thighAdj || 0) / 4;
+  // leg silhouettes: [knee half-width, hem half-width] in cm for one pattern piece (opening = 4 x hem)
+  const LEGS = { skinny: [8.6, 7.2], cigarette: [9, 7.8], slim: [9.6, 8.2], tapered: [10.2, 7.8], straight: [10.4, 9.6], relaxed: [11.6, 10.6], carpenter: [12, 11], wide: [13.5, 13.5], baggy: [14.5, 12.5], barrel: [15, 8.8], bootcut: [9.2, 10.8], flare: [9, 13.6], 'bell-bottom': [8.8, 17] };
+  const [kneeBase, hemBase] = LEGS[o.leg] || LEGS.straight;
+  const fitAdd = { slim: -0.4, regular: 0, relaxed: 0.8, oversized: 1.8 }[o.fit] ?? 0;
+  const legHalf = hemBase + fitAdd * 0.6 + (o.hemAdj || 0) / 4;
+  const kneeHalf = kneeBase + fitAdd;
   const hipQ = (BODY.hip + ease * 2 + (o.hipAdj || 0)) / 4;
   const waistQ = (BODY.waist + 4 + (o.waistAdj || 0) + (o.waistband === 'elastic' || o.waistband === 'drawstring' ? 14 : 0)) / 4;
+  const thighHalf = 13 + ease * 0.4 + (o.thighAdj || 0) / 4;
   const shortLeg = I < 30;
-  // leg-centred coordinates: x=0 at leg centre, +x outseam, -x towards crotch
+  const kneeY = I * 0.56;
+  // Trouser draft. Centre front/back seam runs at x = -10; +x is the outseam, the fork
+  // extends to -x. The back has a longer fork, a deeper seat curve and a raised, angled waist.
   const legPoly = (crotchExt, extraRise) => {
     const p = new Poly();
-    const hem = shortLeg ? thighHalf + 1 : legHalf;
-    p.add(-hem, 0, 'hem');
-    p.add(hem, 0, 'out');
-    if (!shortLeg && I > 45) p.add(kneeHalf, I * 0.45, 'out');
-    p.add(thighHalf, I, 'out');
-    p.add(hipQ - 10, I + riseCm * 0.6, 'out');
-    p.add(waistQ - 10 + 1, I + riseCm + extraRise, 'waist');
-    p.add(-10, I + riseCm + extraRise, 'cf');
-    p.add(-10.5, I + riseCm * 0.45, 'cf');
-    p.add(-10 - crotchExt * 0.6, I + 2.5, 'cf');
-    p.add(-10 - crotchExt, I, 'in');
-    if (!shortLeg && I > 45) p.add(-kneeHalf, I * 0.45, 'in');
+    const isBack = extraRise > 0;
+    const fork = [-10 - crotchExt, I - (isBack ? 0.8 : 0)];
+    const hipY = I + riseCm * 0.36;
+    const outHip = [hipQ - 10 + (isBack ? 0.8 : -0.4), hipY];
+    const thighOut = (o.thighAdj || 0) / 4 + outHip[0] - 0.6;
+    const cx = (fork[0] + thighOut) / 2; // crease line
+    const hem = shortLeg ? Math.max(legHalf, (thighOut - fork[0]) / 2 - I * 0.07) : legHalf;
+    const top = I + riseCm;
+    const waistOut = [waistQ - 10 + 1, top + extraRise * 0.25];
+    const waistIn = [-10 + (isBack ? 2.6 : 0.4), top + extraRise - (isBack ? 0 : 0.8)];
+    p.add(cx - hem, 0, 'hem');
+    // outseam
+    if (!shortLeg && I > 45) {
+      bez(p, [cx + hem, 0], [cx + hem - (hem - kneeHalf) * 0.2, kneeY * 0.45], [cx + kneeHalf + (hem - kneeHalf) * 0.15, kneeY * 0.8], [cx + kneeHalf, kneeY], 'out', 6);
+      bez(p, [cx + kneeHalf, kneeY], [cx + kneeHalf + (thighOut - cx - kneeHalf) * 0.35, kneeY + (I - kneeY) * 0.45], [thighOut - 0.4, I - (I - kneeY) * 0.25], [thighOut, I], 'out', 6);
+    } else { p.add(cx + hem, 0, 'out'); }
+    bez(p, [thighOut, I], [thighOut + 0.3, I + (hipY - I) * 0.5], [outHip[0], hipY - (hipY - I) * 0.3], outHip, 'out', 4);
+    bez(p, outHip, [outHip[0], hipY + (top - hipY) * 0.45], [waistOut[0] + 0.6, top - (top - hipY) * 0.35], waistOut, 'out', 6);
+    p.add(waistOut[0], waistOut[1], 'waist');
+    // centre seam: straight (angled on the back) down to the hip line, then the crotch curve
+    p.add(waistIn[0], waistIn[1], 'cf');
+    const turn = [-10 - (isBack ? 0.3 : 0), I + riseCm * (isBack ? 0.42 : 0.34)];
+    p.add(turn[0], turn[1], 'cf');
+    bez(p, turn, [turn[0] - 0.2, I + riseCm * 0.12], [fork[0] + crotchExt * 0.55, fork[1] + (isBack ? 0.1 : 0.6)], fork, 'cf', isBack ? 9 : 7);
+    // inseam
+    if (!shortLeg && I > 45) {
+      bez(p, fork, [fork[0] + (cx - kneeHalf - fork[0]) * 0.55, I - (I - kneeY) * 0.35], [cx - kneeHalf - 0.3, kneeY + (I - kneeY) * 0.3], [cx - kneeHalf, kneeY], 'in', 7);
+      bez(p, [cx - kneeHalf, kneeY], [cx - kneeHalf - (hem - kneeHalf) * 0.15, kneeY * 0.8], [cx - hem + (hem - kneeHalf) * 0.2, kneeY * 0.45], [cx - hem, 0], 'in', 6);
+    } else p.add(fork[0], fork[1], 'in');
+    p.cx = cx;
     return p;
   };
-  const front = legPoly(4, 0);
-  const back = legPoly(9, 5);
+  const front = legPoly(4.2 * (BODY.hip / 100), 0);
+  const back = legPoly(9.4 * (BODY.hip / 100), 4);
   const hemY = BODY.crotchY - I / 100 + 0.005;
   const panels = [];
   const seams = [];
@@ -530,11 +554,14 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
   for (const pid of ['front-r', 'front-l', 'back-r', 'back-l']) {
     const s = pid.endsWith('-r') === pid.startsWith('front') ? 1 : -1;
     const isBack = pid.startsWith('back');
-    const w0 = -10; const w1 = waistQ - 9;
-    const pts = s > 0 ? rect(w0, top - 4 + (isBack ? 5 : 0), w1, top + (isBack ? 5 : 0)) : rect(-w1, top - 4 + (isBack ? 5 : 0), -w0, top + (isBack ? 5 : 0));
-    overlays.push({ kind: 'waistband', style: o.waistband, panel: id(pid), points: pts });
-    if (o.hem === 'turn-up') overlays.push({ kind: 'cuff', style: 'turn-up', panel: id(pid), points: rect(-legHalf, 0, legHalf, 4) });
-    if (o.hem === 'rib-cuff') overlays.push({ kind: 'cuff', style: 'rib', panel: id(pid), points: rect(-legHalf, 0, legHalf, 7) });
+    // waistband follows the (angled) waist seam of its piece
+    const src = isBack ? back : front;
+    const wp = pathOf(src, 'waist');
+    const band = [...wp, ...wp.slice().reverse().map(([x, y]) => [x, y - 4])].map(([x, y]) => [s > 0 ? x : -x, y]);
+    overlays.push({ kind: 'waistband', style: o.waistband, panel: id(pid), points: s > 0 ? band : band.reverse() });
+    const legHalfC = legHalf; const cxs = (s > 0 ? 1 : -1) * src.cx;
+    if (o.hem === 'turn-up') overlays.push({ kind: 'cuff', style: 'turn-up', panel: id(pid), points: rect(cxs - legHalfC, 0, cxs + legHalfC, 4.5) });
+    if (o.hem === 'rib-cuff') overlays.push({ kind: 'cuff', style: 'rib', panel: id(pid), points: rect(cxs - legHalfC, 0, cxs + legHalfC, 7) });
     if (o.beltLoops === 'yes' && o.waistband !== 'elastic') trims.push({ type: 'belt-loop', panel: id(pid), at: [s * 4, top - 2 + (isBack ? 5 : 0)] });
   }
   if (o.waistband === 'button') trims.push({ type: o.pockets === 'five-pocket' ? 'jeans-button' : 'button-4hole', panel: id('front-r'), at: [-9, top - 2] });

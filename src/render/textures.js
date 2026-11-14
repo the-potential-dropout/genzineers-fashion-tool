@@ -283,16 +283,17 @@ export function fabricTextures(fab, finish = {}, dyeEffectKey, onUpdate, repeatO
   // Prints get their own real-world repeat (a leopard rosette is cm-sized, a weave is mm-sized):
   // the canvas then holds k weave tiles under one print tile.
   const rep = repeatOverride || look.patternScale || 6;
-  const tileCm = printed ? printTileCm(p?.design || finish.paint.design) * (Number(p?.scale) || 1) : 0;
-  const k = printed ? Math.max(1, Math.round((tileCm * rep) / 10)) : 1;
-  const key = JSON.stringify([look.pattern, look.motif, look.ribW, look.fx, color, look.patternColors, dyeEffectKey, p?.design, p?.colors, p?.image?.slice(0, 64), p?.scale, finish.paint?.design, finish.paint?.colors, k]);
+  // washes, wear and dye effects are garment-scale too (a fade spans the thigh, not a thread)
+  const bigFx = ['faded', 'mottled', 'distressed', 'waxed', 'crushed', 'crinkle'].includes(look.fx) || (dyeEffectKey && dyeEffectKey !== 'solid');
+  const tileCm = printed ? printTileCm(p?.design || finish.paint.design) * (Number(p?.scale) || 1) : bigFx ? 42 : 0;
+  const k = printed || bigFx ? Math.max(1, Math.round((tileCm * rep) / 10)) : 1;
+  const key = JSON.stringify([look.pattern, look.motif, look.ribW, look.fx, color, look.patternColors, dyeEffectKey, p?.design, p?.colors, p?.image?.slice(0, 64), p?.scale, finish.paint?.design, finish.paint?.colors, k, bigFx]);
   if (cache.has(key)) return cache.get(key);
   const tile = document.createElement('canvas');
   tile.width = tile.height = SIZE;
   const tg = tile.getContext('2d');
   weave(tg, look.pattern, color, look);
-  if (look.fx) applyFx(tg, look.fx, color);
-  if (dyeEffectKey && dyeEffectKey !== 'solid') dyeEffect(tg, dyeEffectKey, color);
+  if (look.fx && !bigFx) applyFx(tg, look.fx, color);
   let cv = tile; let g = tg;
   if (k > 1) {
     const BIG = 1024;
@@ -300,7 +301,11 @@ export function fabricTextures(fab, finish = {}, dyeEffectKey, onUpdate, repeatO
     g = cv.getContext('2d');
     const w = BIG / k;
     for (let y = 0; y < k; y++) for (let x = 0; x < k; x++) g.drawImage(tile, x * w, y * w, w, w);
-    g.setTransform(BIG / SIZE, 0, 0, BIG / SIZE, 0, 0); // print designs draw in SIZE units
+    g.setTransform(BIG / SIZE, 0, 0, BIG / SIZE, 0, 0); // effects and prints draw in SIZE units
+  }
+  if (bigFx) {
+    if (look.fx) applyFx(g, look.fx, color);
+    if (dyeEffectKey && dyeEffectKey !== 'solid') dyeEffect(g, dyeEffectKey, color);
   }
   const map = new THREE.CanvasTexture(cv);
   map.colorSpace = THREE.SRGBColorSpace;

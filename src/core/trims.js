@@ -101,6 +101,7 @@ export const TRIMS = {
   'label': t('Labels', 'Woven main label', 'label', 40, '#111111', 0, 0.8, 'Neck / back label', {}),
   'label-care': t('Labels', 'Care / composition label', 'label', 30, '#ffffff', 0, 0.8, 'Legally required content & care info', {}),
   'label-leather': t('Labels', 'Leather / jacron patch', 'label', 60, '#8a5a34', 0, 0.6, 'Jeans back waistband', {}),
+  'stitch-line': t('Hidden', 'Decorative stitch line', 'knot', 1, '#000000', 0, 0.5, '', { internal: true }),
   'tie-knot': t('Hidden', 'Tie knot', 'knot', 35, '#000000', 0, 0.5, '', { useFabric: true, internal: true }),
   'strap': t('Bags', 'Strap / handle', 'linear', 30, '#3a2418', 0, 0.6, 'Bag handles and straps', { line: true, strap: true, useFabric: true }),
   'cap-button': t('Hidden', 'Cap top button (squatchee)', 'stud-dome', 18, '#000000', 0, 0.5, '', { useFabric: true }),

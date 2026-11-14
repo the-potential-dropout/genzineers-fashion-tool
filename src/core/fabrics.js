@@ -290,7 +290,78 @@ export const PATTERNS = ['plain', 'twill', 'denim', 'knit', 'rib', 'satin', 'can
 export const FX = ['distressed', 'faded', 'slub', 'mottled', 'selvedge', 'waxed', 'quilted', 'crushed', 'fuzzy', 'crinkle'];
 
 /** Resolve a fabric id (preset or custom) + overrides into a full definition. */
+// ---------------------------------------------------------------------------
+// Measured mechanical behaviour.
+//
+// Typical values from fabric objective measurement (Kawabata KES-F: tensile
+// EMT, shear G, bending B; plus surface friction MIU) as reported across the
+// textile literature for each cloth type. They drive the simulation, so denim
+// hangs like denim and chiffon like chiffon:
+//   emt  extension at 500 gf/cm, % (how far the cloth gives when pulled on the body)
+//   G    shear stiffness, gf/cm.degree (low = drapes into soft folds on the bias)
+//   B    bending rigidity, gf.cm2/cm (low = limp, high = holds its shape)
+//   mu   fabric-on-skin friction coefficient
+// First match wins (most specific first).
+// ---------------------------------------------------------------------------
+const MECH = [
+  [/chiffon|georgette|voile|tulle|gauze/, { emt: 6, G: 0.25, B: 0.006, mu: 0.2 }],
+  [/organza|taffeta/, { emt: 3, G: 0.6, B: 0.035, mu: 0.2 }],
+  [/spandex|lycra|elastane-|power-mesh|swim|microfiber-jersey|tricot|stretch-satin|lace-stretch|compression/, { emt: 100, G: 0.4, B: 0.008, mu: 0.3 }],
+  [/satin|charmeuse|acetate|cupro|lining|habotai|bemberg/, { emt: 5, G: 0.3, B: 0.012, mu: 0.15 }],
+  [/silk|crepe/, { emt: 6, G: 0.35, B: 0.02, mu: 0.18 }],
+  [/viscose|rayon|tencel|lyocell|modal-woven|challis/, { emt: 7, G: 0.35, B: 0.015, mu: 0.22 }],
+  [/modal-jersey|bamboo/, { emt: 45, G: 0.4, B: 0.01, mu: 0.25 }],
+  [/rib/, { emt: 80, G: 0.45, B: 0.03, mu: 0.32 }],
+  [/jersey/, { emt: 30, G: 0.5, B: 0.02, mu: 0.3 }],
+  [/interlock|pique|ponte/, { emt: 25, G: 0.7, B: 0.05, mu: 0.3 }],
+  [/fleece|terry|sweat|velour/, { emt: 20, G: 0.8, B: 0.09, mu: 0.38 }],
+  [/neoprene|scuba/, { emt: 25, G: 2, B: 0.6, mu: 0.4 }],
+  [/bra-foam/, { emt: 10, G: 3, B: 0.8, mu: 0.35 }],
+  [/mesh|lace|net/, { emt: 20, G: 0.3, B: 0.01, mu: 0.25 }],
+  [/denim/, { emt: 3, G: 3, B: 0.45, mu: 0.35 }],
+  [/canvas|duck|cordura|ballistic|webbing/, { emt: 2, G: 5, B: 1.2, mu: 0.38 }],
+  [/shearling|fur/, { emt: 3, G: 4, B: 3, mu: 0.45 }],
+  [/leather|suede/, { emt: 5, G: 6, B: 2.2, mu: 0.5 }],
+  [/felt|straw|buckram/, { emt: 1, G: 8, B: 4, mu: 0.4 }],
+  [/tweed|melton|coating|boiled|duffle|loden/, { emt: 5, G: 1.2, B: 0.5, mu: 0.36 }],
+  [/wool|worsted|suiting|flannel|cashmere|mohair|alpaca/, { emt: 6, G: 0.75, B: 0.09, mu: 0.28 }],
+  [/corduroy|velvet|moleskin/, { emt: 4, G: 1.5, B: 0.2, mu: 0.4 }],
+  [/linen|hemp|ramie/, { emt: 3, G: 1.4, B: 0.12, mu: 0.3 }],
+  [/oxford/, { emt: 4.5, G: 1.3, B: 0.09, mu: 0.28 }],
+  [/poplin|shirting|chambray|lawn|broadcloth|batiste|seersucker/, { emt: 4.5, G: 1.2, B: 0.06, mu: 0.26 }],
+  [/twill|chino|gabardine|drill|ripstop-cotton|cotton-ripstop/, { emt: 3.5, G: 1.8, B: 0.14, mu: 0.3 }],
+  [/waterproof|3l|membrane|tpu|pvc|softshell/, { emt: 4, G: 2.5, B: 0.22, mu: 0.3 }],
+  [/nylon|polyester|ripstop|shell|microfiber/, { emt: 3, G: 2, B: 0.07, mu: 0.24 }],
+];
+for (const fab of Object.values(F)) {
+  const hit = MECH.find(([re]) => re.test(fab.id)) || MECH.find(([re]) => re.test(fab.family)) || [null, { emt: 5, G: 1, B: 0.08, mu: 0.3 }];
+  const m = { ...hit[1] };
+  const tag = `${fab.id} ${fab.name}`.toLowerCase();
+  if (/stretch|elastane|spandex/.test(tag) && m.emt < 15) { m.emt = Math.max(15, m.emt * 4); m.G *= 0.8; }
+  if (/raw|rigid|heavy|selvedge|waxed|bonded/.test(tag)) { m.B *= 1.6; m.G *= 1.25; }
+  if (/washed|stonewash|acid|distressed|brushed|peached|enzyme|garment-dyed/.test(tag)) { m.B *= 0.65; m.G *= 0.8; }
+  // weight moves stiffness within a family (bending grows roughly with thickness cubed)
+  const base = F[fab.family] || fab;
+  if (base.weightGsm && fab.weightGsm !== base.weightGsm) m.B *= Math.pow(fab.weightGsm / base.weightGsm, 2);
+  fab.mech = m;
+}
+
+/** Solver parameters for a fabric: from measured behaviour when known, else from the 0-1 sliders. */
+export function fabricPhysics(fab) {
+  const m = fab.mech;
+  if (!m || fab._slidersEdited) {
+    return { kS: 0.55 + 0.45 * fab.stretch, kSh: 0.15 + 0.6 * fab.shear, kB: 0.004 + 0.35 * Math.pow(fab.bend, 1.5), lim: 0.04 + 0.6 * (1 - fab.stretch) ** 1.5 };
+  }
+  return {
+    kS: m.emt > 50 ? 0.82 : m.emt > 15 ? 0.93 : 0.99,
+    kSh: Math.max(0.1, Math.min(0.95, 0.1 + 0.2 * Math.log2(1 + m.G * 2))),
+    kB: Math.max(0.003, Math.min(0.9, 0.003 + 0.4 * Math.pow(m.B, 0.75))),
+    lim: Math.max(0.015, Math.min(1.2, (m.emt / 100) * 0.9)),
+  };
+}
+
 export function resolveFabric(project, fabricId, overrides = {}) {
   const base = (project.customFabrics && project.customFabrics[fabricId]) || F[fabricId] || F['cotton-jersey'];
-  return { ...base, ...overrides, look: { ...base.look, ...(overrides.look || {}) } };
+  const edited = ['stretch', 'shear', 'bend'].some((k) => overrides[k] != null && overrides[k] !== base[k]);
+  return { ...base, ...overrides, ...(edited ? { _slidersEdited: true } : {}), look: { ...base.look, ...(overrides.look || {}) } };
 }

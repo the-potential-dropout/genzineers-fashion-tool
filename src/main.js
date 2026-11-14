@@ -23,6 +23,7 @@ import { parseDXF, parseSVG, piecesToActions, MODEL_EXT, readAs } from './io/imp
 import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitChartSVG } from './core/knit.js';
 import { invoke } from './io/tauri.js';
 import { collection, kindOf } from './app/collection.js';
+import { POCKETS, POCKET_CLOSURES } from './core/pockets.js';
 import { LAYER_NAMES } from './core/project.js';
 import { layerOf } from './sim/cloth.js';
 
@@ -30,7 +31,7 @@ const LINKS_OUT = {
   genzineers: 'https://genzineers.com/?utm_source=fashion-tool&utm_medium=app&utm_campaign=gft',
   tpd: 'https://thepotentialdropout.com/?utm_source=fashion-tool&utm_medium=app&utm_campaign=gft',
   pd: 'https://potentialdropout.com/?utm_source=fashion-tool&utm_medium=app&utm_campaign=gft',
-  licence: 'https://genzineers.com/?utm_source=fashion-tool&utm_medium=app&utm_campaign=commercial-licence',
+  licence: 'mailto:genzineers@gmail.com?subject=Commercial%20licence%20-%20Genzineers%20Fashion%20Tool',
   repo: 'https://github.com/the-potential-dropout/genzineers-fashion-tool',
 };
 
@@ -173,7 +174,7 @@ function openMenu() {
     h('a', { href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener' }, 'Genzineers: more tools ↗'),
     h('a', { href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'The Potential Dropout: learn to build & launch ↗'),
     h('a', { href: LINKS_OUT.pd, target: '_blank', rel: 'noopener' }, 'Potential Dropout ↗'),
-    h('a', { href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Get a commercial licence ↗'),
+    h('a', { href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Commercial licence: email genzineers@gmail.com'),
     item('About & licence', () => showAbout()),
   );
   document.body.append(menuEl);
@@ -240,6 +241,11 @@ viewEl.addEventListener('click', (e) => {
   if (!ui.placing) return;
   const hit = viewer.pick(e.clientX, e.clientY);
   if (!hit) return toast('Click on the garment');
+  if (ui.placing.startsWith('pocket:')) {
+    const r = store.dispatch({ type: 'add_pocket', pocket: ui.placing.slice(7), panel: hit.panelId, at: hit.local.map((v) => Math.round(v * 10) / 10), ...(ui.pocketClosure ? { closure: ui.pocketClosure } : {}), ...(ui.pocketAngle ? { angle: ui.pocketAngle } : {}), mirror: hit.local[0] < 0 });
+    toast(r[0]?.ok ? r[0].result : r[0]?.error || 'Could not add pocket');
+    return;
+  }
   const def = TRIMS[ui.placing];
   const a = { type: 'add_trim', trim: ui.placing, panel: hit.panelId, at: hit.local.map((v) => Math.round(v * 10) / 10) };
   if (def.line) a.to = [a.at[0] + 10, a.at[1]];
@@ -255,7 +261,7 @@ addEventListener('keydown', (e) => {
 });
 function renderPlaceHint() {
   placeHint.classList.toggle('hide', !ui.placing);
-  if (ui.placing) placeHint.replaceChildren(`Click the garment to place ${TRIMS[ui.placing].name} · `, h('button', { class: 'btn sm', onclick: () => { ui.placing = null; renderPanel(); renderPlaceHint(); } }, 'Done'));
+  if (ui.placing) placeHint.replaceChildren(`Click the garment to place ${ui.placing.startsWith('pocket:') ? POCKETS[ui.placing.slice(7)].name : TRIMS[ui.placing].name} · `, h('button', { class: 'btn sm', onclick: () => { ui.placing = null; renderPanel(); renderPlaceHint(); } }, 'Done'));
 }
 
 // ---------- panel ----------
@@ -480,6 +486,18 @@ function cDetails(el, p) {
     h('details', { style: 'margin-top:8px' }, h('summary', {}, `Each seam (${p.seams.length})`), h('div', { class: 'list' }, p.seams.map((s) => { const a = p.panels.find((x) => x.id === s.a.panel); const b = p.panels.find((x) => x.id === s.b.panel); return h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${a?.name} ↔ ${b?.name}`), sel(s.stitch, groups, (v) => store.dispatch({ type: 'set_stitch', seam: s.id, stitch: v }), { class: 'inp' })), h('button', { class: 'btn sm', title: 'Remove seam', onclick: () => store.dispatch({ type: 'remove_seam', id: s.id }) }, '✕')); }))),
   ));
   // trims
+  // ---- pockets: outside and inside ----
+  ui.pocketWhere = ui.pocketWhere || 'outside';
+  el.append(h('div', { class: 'sec' },
+    h('h3', {}, 'Pockets'),
+    h('div', { class: 'seg', style: 'margin-bottom:8px' }, [['outside', 'Outside'], ['inside', 'Inside']].map(([k, l]) => h('button', { class: ui.pocketWhere === k ? 'on' : '', onclick: () => { ui.pocketWhere = k; renderPanel(); } }, l))),
+    h('div', { class: 'grid2' }, Object.entries(POCKETS).filter(([, d]) => d.where === ui.pocketWhere).map(([id, d]) => h('button', { class: `tile ${ui.placing === `pocket:${id}` ? 'on' : ''}`, title: `${d.note} Used on: ${d.uses}.`, onclick: () => { ui.placing = ui.placing === `pocket:${id}` ? null : `pocket:${id}`; renderPanel(); renderPlaceHint(); } }, h('div', { class: 't' }, d.name), h('div', { class: 's' }, d.uses)))),
+    h('div', { class: 'grid2', style: 'margin-top:8px' },
+      field('Closure', sel(ui.pocketClosure || '', [{ value: '', label: 'Default for this pocket' }, ...Object.entries(POCKET_CLOSURES).map(([k, l]) => ({ value: k, label: l }))], (v) => { ui.pocketClosure = v || null; })),
+      field('Angle (degrees)', h('input', { type: 'number', min: -90, max: 90, step: 5, value: ui.pocketAngle || 0, onchange: (e) => { ui.pocketAngle = Number(e.target.value) || 0; } }))),
+    h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:6px' }, ui.placing?.startsWith('pocket:') ? `${POCKETS[ui.placing.slice(7)].note} Now click the garment where the top of the pocket opening should be.` : 'Pick a pocket, then click the garment (jacket, shirt, trousers, sleeve…) to place it. Inside pockets show as faint stitching and are added to the tech pack.'),
+    (p.pockets || []).length ? h('div', { class: 'list', style: 'margin-top:8px' }, p.pockets.map((k) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, POCKETS[k.type]?.name || k.type), h('div', { class: 's' }, `${k.inside ? 'Inside' : 'Outside'} · ${p.panels.find((x) => x.id === k.panel)?.name || k.panel} · ${k.width} × ${k.height} cm`)), h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_pocket', id: k.id }) }, 'Remove')))) : null,
+  ));
   el.append(h('div', { class: 'sec' },
     h('h3', {}, 'Buttons, trims & decorations'),
     h('div', { class: 'chips scrollx', style: 'margin-bottom:8px' }, TRIM_GROUPS.map((g) => h('button', { class: `chip ${ui.trimGroup === g ? 'on' : ''}`, onclick: () => { ui.trimGroup = g; renderPanel(); } }, g))),
@@ -761,7 +779,7 @@ function showAbout() {
   modal(h('div', {}, h('h2', {}, 'Genzineers Fashion Tool'),
     h('p', {}, 'Design, simulate, assemble and produce clothing, hats, bags and jewelry. Real cloth physics (Rust/WebAssembly), real construction methods, and factory-ready files.'),
     h('ol', { class: 'steps-list' }, h('li', {}, h('b', {}, 'Style: '), 'pick a template, customise it, choose a size.'), h('li', {}, h('b', {}, 'Materials: '), 'fabric quality, blends, colour, dye, print, fill.'), h('li', {}, h('b', {}, 'Details: '), 'stitching, threads, buttons, trims, decorations.'), h('li', {}, h('b', {}, 'Make it: '), 'tech pack, patterns, BOM, supplier guide and RFQ emails.')),
-    h('p', { class: 's', style: 'color:var(--muted)' }, 'Free for personal, educational and non-commercial use. Commercial use, including modified versions, requires a licence from Genzineers. © 2026 Genzineers. All rights reserved.'),
+    h('p', { class: 's', style: 'color:var(--muted)' }, 'Free for personal, educational and non-commercial use. Commercial use (email genzineers@gmail.com), including modified versions, requires a licence from Genzineers. © 2026 Genzineers. All rights reserved.'),
     h('div', { class: 'chips' }, h('a', { class: 'btn sm', href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener' }, 'genzineers.com'), h('a', { class: 'btn sm', href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'thepotentialdropout.com'), h('a', { class: 'btn sm', href: LINKS_OUT.pd, target: '_blank', rel: 'noopener' }, 'potentialdropout.com'), h('a', { class: 'btn sm', href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Commercial licence'), h('a', { class: 'btn sm', href: LINKS_OUT.repo, target: '_blank', rel: 'noopener' }, 'Source code'))));
 }
 

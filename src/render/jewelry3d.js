@@ -155,27 +155,75 @@ function lathe(innerR, profile, w, t, mat, arc = Math.PI * 2, inside = profile =
   return new THREE.Mesh(g, mat);
 }
 
+/**
+ * A closed wire link swept along its true centreline.
+ *  - cable / rolo / paperclip: a planar oval, round or stadium of round wire
+ *  - curb / Cuban / figaro: the oval is twisted about its long axis (so each link passes
+ *    through the next and the chain lies flat), then its top and bottom are cut flat and
+ *    polished ("diamond cut"), which is what gives a Cuban its broad mirror faces
+ * a, b = half length / half width of the centreline (mm); d = wire diameter (mm).
+ */
+function wireLink({ a, b, d, twist = 0, flat = 0, stadium = false, ry = 1 }) {
+  class Path extends THREE.Curve {
+    getPoint(u, target = new THREE.Vector3()) {
+      const t = u * Math.PI * 2;
+      let x; let y;
+      if (stadium) { // straight sides, round ends
+        const c = Math.cos(t); const sn = Math.sin(t); const k = Math.max(Math.abs(c) / a, Math.abs(sn) / b) || 1;
+        const px = c / k; const py = sn / k; const cr = b; const sx = Math.max(-(a - cr), Math.min(a - cr, px));
+        const dx = px - sx; const dl = Math.hypot(dx, py) || 1; x = sx + (dx / dl) * cr; y = (py / dl) * cr;
+      } else { x = a * Math.cos(t); y = b * Math.sin(t); }
+      const ph = (x / a) * twist * 0.5; // roll about the long axis grows along the link
+      return target.set(x, y * Math.cos(ph), y * Math.sin(ph));
+    }
+  }
+  const g = new THREE.TubeGeometry(new Path(), 72, d / 2, 14, true);
+  if (ry !== 1) g.scale(1, ry, 1);
+  if (flat > 0) {
+    // diamond cut: plane off the crown of the link on both faces
+    const p = g.attributes.position; let zmax = 0;
+    for (let i = 0; i < p.count; i++) zmax = Math.max(zmax, Math.abs(p.getZ(i)));
+    const zc = zmax * (1 - flat);
+    for (let i = 0; i < p.count; i++) { const z = p.getZ(i); if (Math.abs(z) > zc) p.setZ(i, Math.sign(z) * zc); }
+  }
+  g.scale(MM, MM, MM);
+  g.computeVertexNormals();
+  return g;
+}
+
 function linkGeometry(link, gauge, customPts) {
   const lk = LINKS[link] || LINKS.cable;
-  const len = gauge * lk.pitch * 1.25; const wid = gauge * (lk.shape === 'paperclip' || lk.shape === 'rect' ? 2.2 : 2.6);
-  let g;
+  const d = gauge; // wire diameter, mm
+  let g; let step; let frame = 'roll'; // 'roll': links alternate 90 degrees; 'flat': all links lie the same way
   switch (lk.shape) {
-    case 'round': g = new THREE.TorusGeometry((wid / 2) * MM, (gauge / 2) * MM, 8, 16); break;
-    case 'ball': g = new THREE.SphereGeometry(gauge * 0.9 * MM, 10, 8); break;
-    case 'square': case 'rect': case 'custom': {
-      const outline = lk.shape === 'custom' && customPts?.length >= 3 ? customPts : [[-len / 2, -wid / 2], [len / 2, -wid / 2], [len / 2, wid / 2], [-len / 2, wid / 2]];
-      const sh = new THREE.Shape(outline.map(([x, y]) => new THREE.Vector2(x, y)));
-      const inner = outline.map(([x, y]) => [x * 0.55, y * 0.45]);
-      sh.holes.push(new THREE.Path(inner.map(([x, y]) => new THREE.Vector2(x, y))));
-      g = new THREE.ExtrudeGeometry(sh, { depth: gauge, bevelEnabled: true, bevelThickness: gauge * 0.15, bevelSize: gauge * 0.12, bevelSegments: 2 });
-      g.scale(MM, MM, MM); g.translate(0, 0, -gauge * MM / 2);
+    case 'oval-flat': {
+      // curb family. Cuban: heavier wire, tighter pitch, deeper diamond cut
+      const heavy = Boolean(lk.heavy);
+      const a = d * (heavy ? 1.75 : 2.05); const b = d * (heavy ? 1.28 : 1.3);
+      g = wireLink({ a, b, d: d * (heavy ? 1.12 : 1), twist: Math.PI / 2, flat: heavy ? 0.24 : 0.14 });
+      step = 2 * a - d * (heavy ? 1.52 : 1.35); frame = 'flat';
       break;
     }
-    case 'cup': g = new THREE.CylinderGeometry(gauge * 0.55 * MM, gauge * 0.45 * MM, gauge * 0.6 * MM, 12); break;
-    case 'tube': case 'tube-flat': g = new THREE.CylinderGeometry(gauge * 0.6 * MM, gauge * 0.6 * MM, len * MM, 10); g.rotateZ(Math.PI / 2); if (lk.flat) g.scale(1, 1, 0.35); break;
-    default: g = new THREE.TorusGeometry((wid / 2) * MM, (gauge / 2) * MM, 8, 16); g.scale(len / wid, 1, 1); if (lk.flat) g.scale(1, 1, 0.45);
+    case 'round': g = wireLink({ a: d * 1.55, b: d * 1.55, d }); step = d * 2.0; break;
+    case 'oval-bar': case 'oval': g = wireLink({ a: d * 2.1, b: d * 1.25, d }); step = d * 2.95; break;
+    case 'rect': g = wireLink({ a: d * 4.6, b: d * 1.45, d, stadium: true }); step = d * 7.6; break;
+    case 'ball': g = new THREE.SphereGeometry(d * 0.9 * MM, 20, 14); step = d * 1.95; frame = 'flat'; break;
+    case 'square': case 'custom': {
+      const len = d * lk.pitch * 1.25; const wid = d * 2.4;
+      const outline = lk.shape === 'custom' && customPts?.length >= 3 ? customPts : [[-len / 2, -wid / 2], [len / 2, -wid / 2], [len / 2, wid / 2], [-len / 2, wid / 2]];
+      const sh = new THREE.Shape(outline.map(([x, y]) => new THREE.Vector2(x, y)));
+      sh.holes.push(new THREE.Path(outline.map(([x, y]) => new THREE.Vector2(x * 0.55, y * 0.45))));
+      g = new THREE.ExtrudeGeometry(sh, { depth: d, bevelEnabled: true, bevelThickness: d * 0.15, bevelSize: d * 0.12, bevelSegments: 3 });
+      g.scale(MM, MM, MM); g.translate(0, 0, -d * MM / 2);
+      step = len * 0.62;
+      break;
+    }
+    case 'cup': g = new THREE.CylinderGeometry(d * 0.55 * MM, d * 0.45 * MM, d * 0.6 * MM, 20); step = d * 1.05; frame = 'flat'; break;
+    case 'tube': case 'tube-flat': { const len = d * lk.pitch * 1.25; g = new THREE.CylinderGeometry(d * 0.6 * MM, d * 0.6 * MM, len * MM, 16); g.rotateZ(Math.PI / 2); if (lk.flat) g.scale(1, 1, 0.35); step = len * 0.7; frame = 'flat'; break; }
+    case 'helix': g = wireLink({ a: d * 1.5, b: d * 1.15, d: d * 0.8, twist: Math.PI * 0.6 }); step = d * 0.9; break;
+    default: g = wireLink({ a: d * 2.1, b: d * 1.25, d }); step = d * 2.95;
   }
-  return { g, step: lk.shape === 'ball' ? gauge * 1.9 : lk.shape === 'cup' ? gauge * 1.05 : len * (lk.flat ? 0.7 : 0.62), lk };
+  return { g, step, lk, frame };
 }
 
 /** Necklace / bracelet path: a hanging loop (ellipse squashed at the back). */
@@ -193,25 +241,31 @@ function chainCurve(lengthCm, around = 'neck') {
 }
 
 function chainMesh(spec, metalMat) {
-  const { g, step, lk } = linkGeometry(spec.link, spec.gauge || 1, spec.customLink);
+  const { g, step, lk, frame } = linkGeometry(spec.link, spec.gauge || 1, spec.customLink);
   const curve = chainCurve(spec.length || 45, spec.piece === 'bracelet' ? 'wrist' : 'neck');
   const L = curve.getLength() / MM;
   const pattern = lk.pattern || [1];
-  const count = Math.max(8, Math.floor(L / step));
+  const avg = pattern.reduce((x, y) => x + y, 0) / pattern.length;
+  const count = Math.max(8, Math.round(L / (step * avg)));
+  const pitch = L / (count * avg); // spread evenly so the loop closes on a whole link
   const mesh = new THREE.InstancedMesh(g, metalMat, count);
   const m = new THREE.Matrix4(); const q = new THREE.Quaternion(); const up = new THREE.Vector3(0, 1, 0);
+  const basis = new THREE.Matrix4(); const N = new THREE.Vector3(); const B = new THREE.Vector3();
   const twist = (lk.twist || 0) * Math.PI / 180;
   let u = 0;
   for (let i = 0; i < count; i++) {
-    const t = u % 1;
-    const p = curve.getPointAt(t); const tan = curve.getTangentAt(t);
-    q.setFromUnitVectors(new THREE.Vector3(1, 0, 0), tan);
-    const roll = new THREE.Quaternion().setFromAxisAngle(tan, i * twist + (lk.shape === 'helix' ? i * 0.5 : 0));
-    q.premultiply(roll);
     const s = pattern[i % pattern.length];
+    const t = ((u + (s * pitch * MM * 0.5) / curve.getLength()) % 1 + 1) % 1;
+    const p = curve.getPointAt(t); const tan = curve.getTangentAt(t);
+    // frame: x along the chain, z facing outwards from the neck / wrist so the flat faces show
+    N.copy(p).setY(p.y * 0.25).normalize(); N.addScaledVector(tan, -N.dot(tan)).normalize();
+    B.crossVectors(N, tan).normalize();
+    basis.makeBasis(tan, B, N);
+    q.setFromRotationMatrix(basis);
+    if (frame === 'roll') q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (i % 2) * (twist || Math.PI / 2) + (lk.shape === 'helix' ? i * 0.55 : 0)));
     m.compose(p, q, new THREE.Vector3(s, 1, 1));
     mesh.setMatrixAt(i, m);
-    u += (step * s * MM) / curve.getLength();
+    u += (pitch * s * MM) / curve.getLength();
   }
   void up;
   mesh.instanceMatrix.needsUpdate = true;
@@ -246,6 +300,61 @@ function pendantShape(pd) {
   return sh;
 }
 
+/**
+ * Signet ring as one continuous solid. Going round the finger from the base to the top, the
+ * section grows from the slim band into broad shoulders and a thick head; the top of the head
+ * is planed flat (the face that takes an engraving). Face shapes: oval (Oxford), round,
+ * cushion, and marquise-like "bullet".
+ */
+function signetRing(inner, spec, mat) {
+  const sg = spec.signet;
+  const Wf = sg.w || 13; const Hf = sg.h || 11; // face: across the finger x along the finger (mm)
+  const w0 = Math.max(2.2, spec.bandWidth || 3); const t0 = Math.max(1.3, (spec.bandThickness || 1.8) * 0.85);
+  const T = Math.max(2.4, t0 * 1.7); // head thickness
+  const yTop = inner + T;
+  const power = { cushion: 0.55, round: 0.8, bullet: 1.25 }[sg.shape] ?? 0.8;
+  const span = Math.min(2.2, Math.atan2(Wf / 2, yTop) * 2.4 + 0.5); // how far round the shoulders run
+  const NA = 160; const NP = 28;
+  const pos = new Float32Array(NA * NP * 3);
+  for (let i = 0; i < NA; i++) {
+    const phi = (i / NA) * Math.PI * 2 - Math.PI; // 0 = top of the finger
+    const S = Math.pow(0.5 + 0.5 * Math.cos(Math.PI * Math.min(1, Math.abs(phi) / span)), power);
+    const half = w0 / 2 + (Hf / 2 - w0 / 2) * S; // half width along the finger
+    const shoulder = inner + t0 + (T * 1.18 - t0) * S;
+    const plane = Math.abs(phi) < 1.2 ? yTop / Math.cos(phi) : 1e9; // the flat face
+    const rOut = Math.min(shoulder, plane);
+    const flatTop = plane < shoulder;
+    const rIn = inner; const rc = (rIn + rOut) / 2; const th = (rOut - rIn) / 2;
+    const n = flatTop ? 7 : 3.2; // crisp edge round the face, soft comfort edges on the band
+    for (let j = 0; j < NP; j++) {
+      const psi = (j / NP) * Math.PI * 2;
+      const cy = Math.cos(psi); const cr = Math.sin(psi);
+      const y = half * Math.sign(cy) * Math.pow(Math.abs(cy), 2 / n);
+      let r = rc + th * Math.sign(cr) * Math.pow(Math.abs(cr), 2 / n);
+      if (cr < 0) r -= 0.12 * Math.sqrt(Math.max(0, 1 - (y / half) ** 2)) * -1 * 0 + 0; // inner stays a true cylinder for sizing
+      const o = (i * NP + j) * 3;
+      pos[o] = r * Math.sin(phi) * MM; pos[o + 1] = r * Math.cos(phi) * MM; pos[o + 2] = y * MM;
+    }
+  }
+  const idx = [];
+  for (let i = 0; i < NA; i++) for (let j = 0; j < NP; j++) {
+    const a = i * NP + j; const b = ((i + 1) % NA) * NP + j; const c = ((i + 1) % NA) * NP + ((j + 1) % NP); const d = i * NP + ((j + 1) % NP);
+    idx.push(a, b, d, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const grp = new THREE.Group();
+  grp.add(new THREE.Mesh(g, mat));
+  // engraved border just inside the edge of the face
+  const ring = []; const k = 0.8;
+  for (let e = 0; e <= 64; e++) { const a = (e / 64) * Math.PI * 2; const ex = Math.pow(Math.abs(Math.cos(a)), sg.shape === 'cushion' ? 0.6 : 1) * Math.sign(Math.cos(a)); const ey = Math.pow(Math.abs(Math.sin(a)), sg.shape === 'cushion' ? 0.6 : 1) * Math.sign(Math.sin(a)); ring.push(new THREE.Vector3(ex * Wf * 0.5 * k * 0.86 * MM, (yTop + 0.02) * MM, ey * Hf * 0.5 * k * MM)); }
+  const border = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(ring, true), 96, 0.11 * MM, 6, true), new THREE.MeshStandardMaterial({ color: 0x000000, transparent: true, opacity: 0.35, roughness: 1 }));
+  grp.add(border);
+  return grp;
+}
+
 /** Build a THREE.Group for any jewelry spec. */
 export function buildJewelry(spec) {
   const grp = new THREE.Group();
@@ -256,8 +365,12 @@ export function buildJewelry(spec) {
     const t = spec.bandThickness || 1.8; const w = spec.bandWidth || 2;
     grp.add(lathe(inner, spec.profile || 'court', w, t, metal));
     const topY = inner + t;
-    if (spec.signet) {
-      const sh = pendantShape({ shape: spec.signet.shape === 'custom' ? 'custom' : 'oval', w: spec.signet.w, h: spec.signet.h, points: spec.signet.points });
+    if (spec.signet && spec.signet.shape !== 'custom') {
+      // a real signet: the band swells through tapered shoulders into one solid head with a flat face
+      grp.clear();
+      grp.add(signetRing(inner, spec, metal));
+    } else if (spec.signet) {
+      const sh = pendantShape({ shape: 'custom', w: spec.signet.w, h: spec.signet.h, points: spec.signet.points });
       const g = new THREE.ExtrudeGeometry(sh, { depth: 3, bevelEnabled: true, bevelThickness: 0.5, bevelSize: 0.5, bevelSegments: 3 });
       g.scale(MM, MM, MM); g.rotateX(-Math.PI / 2); g.translate(0, (topY - 1.5) * MM, spec.signet.h / 2 * MM);
       grp.add(new THREE.Mesh(g, metal));

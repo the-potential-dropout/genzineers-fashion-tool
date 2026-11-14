@@ -20,3 +20,7 @@ The cloth solver (Rust/WebAssembly), application code, catalogs and templates ar
 Brand names mentioned in catalogs as references (e.g. Gore-Tex®, PrimaLoft®, Thinsulate™,
 Cordura®, Lycra®, Tencel™, Ventile®, Harris Tweed®, Argentium®) are trademarks of their owners and are
 used only to describe comparable material categories. The app uses generic names.
+
+## delaunator
+
+Fast 2D Delaunay triangulation, used to mesh pattern pieces. Copyright (c) Mapbox. ISC License. https://github.com/mapbox/delaunator

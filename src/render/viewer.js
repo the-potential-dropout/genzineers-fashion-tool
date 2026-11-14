@@ -387,6 +387,10 @@ export class Viewer {
       const panel = project.panels.find((p) => p.id === ov.panel);
       if (!panel) continue;
       if (ov.hidden) continue; // cut-list piece drawn elsewhere (e.g. 3D collars)
+      if (ov.inside) { // inside pocket: only its stitching shows through on the outside, faintly
+        if (this.showInside !== false) this.addPathLine(sim, ov.panel, [...ov.points, ov.points[0]], 0.0012, this.threadColor(project, panel).lerp(new THREE.Color(panel.finish?.color || resolveFabric(project, panel.fabric, panel.fabricOverrides).look.color), 0.45), true);
+        continue;
+      }
       const pts = ov.points;
       const xs = pts.map((p) => p[0]); const ys = pts.map((p) => p[1]);
       const h = 1.0;
@@ -429,12 +433,13 @@ export class Viewer {
   buildTrims(project, sim) {
     for (const t of project.trims || []) {
       const def = resolveTrim(t.type);
-      if (def.internal && t.type !== 'tie-knot') continue;
+      if (def.internal && t.type !== 'tie-knot' && t.type !== 'stitch-line') continue;
       const panel = project.panels.find((p) => p.id === t.panel);
       if (!panel) continue;
       const color = t.color || (def.useFabric ? (panel.finish?.color || resolveFabric(project, panel.fabric).look.color) : def.color);
       const mat = new THREE.MeshPhysicalMaterial({ color, metalness: def.metalness, roughness: def.roughness, clearcoat: def.metalness > 0.5 ? 0.4 : 0.2, transmission: def.shape === 'crystal' ? 0.9 : 0, ior: 1.7, thickness: 0.003, iridescence: def.iridescent ? 0.8 : 0 });
       const s = (t.size || def.size) / 1000;
+      if (t.type === 'stitch-line') { if (t.path?.length >= 2) this.addPathLine(sim, t.panel, t.path, 0.0042, t.color ? new THREE.Color(t.color) : this.threadColor(project, panel), true); continue; }
       if (t.type === 'edge-trim' && t.path?.length >= 2) { this.buildEdgeTrim(t, sim, color); continue; }
       if (t.type === 'lacing' && t.to) { this.buildLacing(t, sim); continue; }
       if (t.type.startsWith('zipper') && t.to) { this.buildZipper(t, sim); continue; }

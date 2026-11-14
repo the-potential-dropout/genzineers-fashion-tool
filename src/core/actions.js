@@ -12,6 +12,7 @@ import { TRIMS, STIFFENERS, ZIPPER_TYPES, ZIPPER_SIZES, ZIPPER_ENDS, ZIPPER_SLID
 import { TEMPLATES, templateGarments } from './templates.js';
 import { GENERATORS } from './blocks.js';
 import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS } from './color.js';
+import { POCKETS, POCKET_CLOSURES, draftPocket } from './pockets.js';
 import { recommendFor } from './guidance.js';
 import { BLENDS, FIBERS, INSULATION, QUILTING, WATERPROOF, blendFabric } from './materials.js';
 import { createProject, mergeGarment, regradeProject, syncForms, uid, validateProject, summarizeProject, addDesign, LAYER_NAMES } from './project.js';
@@ -24,6 +25,8 @@ export const ACTION_DOCS = {
   new_garment: '{ template } replace the project with a template (see catalog.templates)',
   add_garment: '{ template } add another garment (e.g. trousers to a jacket = suit)',
   remove_garment: '{ garment: "g0" }',
+  add_pocket: '{ panel, at: [x,y] cm (top centre of the opening), pocket: "<pocket id>", width?, height?, angle? deg, closure?: none|button|snap|zip|velcro|magnet, mirror? } add an outside or inside pocket (catalog pockets)',
+  remove_pocket: '{ id: "<pocket id from the project>" }',
   add_design: '{ design: <saved project> } put a saved design from the collection on as part of the outfit (keeps all its materials and details)',
   set_layer: '{ garment: "g0", layer: 0-5 | null } outfit layering order: 0 underwear, 1 base, 2 mid/knit, 3 jacket, 4 coat, 5 accessory (null = automatic)',
   set_option: '{ garment: "g0", key, value } or { garment, options: {key: value} } change a template option (fit, length, sleeve, cuff, collar, lapel, closure, inseam, leg, style, ...; see catalog.generators)',
@@ -75,6 +78,7 @@ export function catalog() {
     generators: o(GENERATORS, (g) => o(g.options, (x) => (x.type === 'select' ? x.values : x.type === 'color' ? '#rrggbb' : `${x.min}..${x.max}`))),
     fabrics: o(FABRICS, (v) => `${v.name} (${v.category}, ${v.fiber}, ${v.weightGsm}gsm)`),
     fabricFamilies: o(FABRIC_FAMILIES, (v) => v.variants),
+    pockets: o(POCKETS, (v) => `${v.name} [${v.where}] ${v.uses}`),
     assembly: o(ASSEMBLY, (v) => `${v.name} [${v.method}] - ${v.use}`),
     assemblyGroups: ASSEMBLY_GROUPS,
     threads: o(THREADS, (v) => `${v.name} - ${v.use}`),
@@ -443,6 +447,26 @@ export function applyAction(project, action) {
       const id = uid('ov');
       p.overlays.push({ id, custom: true, kind: a.kind || 'patch', style: a.style, panel: a.panel, points: a.points, ...(a.fabric ? { fabric: a.fabric } : {}), ...(a.color ? { color: a.color } : {}) });
       result = `overlay ${id} added`;
+      break;
+    }
+    case 'add_pocket': {
+      const pan = panelOf(p, a.panel);
+      if (!Array.isArray(a.at)) throw new Error('add_pocket needs at: [x, y]');
+      if (a.closure && !POCKET_CLOSURES[a.closure]) throw new Error(`closure must be one of ${Object.keys(POCKET_CLOSURES).join(', ')}`);
+      const d = draftPocket(a.pocket, a.at, a);
+      const pid = uid('pk');
+      const inside = d.def.where === 'inside';
+      for (const ov of d.overlays) p.overlays.push({ id: uid('ov'), custom: true, pocket: pid, panel: pan.id, ...ov, ...(inside ? { inside: true } : {}), ...(a.color ? { color: a.color } : {}) });
+      if (!inside) for (const tr of d.trims) p.trims.push({ id: uid('trim'), custom: true, pocket: pid, panel: pan.id, ...tr });
+      for (const path of d.stitches) p.trims.push({ id: uid('trim'), custom: true, pocket: pid, panel: pan.id, type: 'stitch-line', path });
+      p.pockets = [...(p.pockets || []), { id: pid, type: a.pocket, panel: pan.id, at: a.at, width: d.w, height: d.h, closure: a.closure || null, inside }];
+      result = `${d.def.name} added${inside ? ' (inside)' : ''}`;
+      break;
+    }
+    case 'remove_pocket': {
+      p.overlays = p.overlays.filter((o) => o.pocket !== a.id);
+      p.trims = p.trims.filter((t) => t.pocket !== a.id);
+      p.pockets = (p.pockets || []).filter((k) => k.id !== a.id);
       break;
     }
     case 'remove_overlay':
