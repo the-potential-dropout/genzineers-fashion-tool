@@ -683,23 +683,29 @@ export function panelAnchor(sim, panelId, x, y) {
   const pan = sim.panels.find((p) => p.id === panelId);
   if (!pan || !pan.count) return null;
   const L = sim.local; const o = pan.offset;
-  const list = pan.buckets.get(Math.floor(x / pan.cell) * 8192 + Math.floor(y / pan.cell));
+  const cx = Math.floor(x / pan.cell); const cy = Math.floor(y / pan.cell);
+  // Inside a triangle: its barycentric weights. On or beyond the cut edge: the closest point of the
+  // nearest triangle, so pieces that run to the edge (cuffs, hems, waistbands) follow the edge exactly.
   let best = null; let bd = Infinity;
-  for (const k of list || []) {
-    const a = pan.tris[k] + o; const b = pan.tris[k + 1] + o; const c = pan.tris[k + 2] + o;
-    const ax = L[a * 2]; const ay = L[a * 2 + 1];
-    const v0x = L[b * 2] - ax; const v0y = L[b * 2 + 1] - ay; const v1x = L[c * 2] - ax; const v1y = L[c * 2 + 1] - ay;
-    const den = v0x * v1y - v1x * v0y; if (Math.abs(den) < 1e-9) continue;
-    const u = ((x - ax) * v1y - v1x * (y - ay)) / den; const v = (v0x * (y - ay) - (x - ax) * v0y) / den;
-    const w = 1 - u - v;
-    const out = Math.max(0, -u, -v, -w);
-    if (out < bd) { bd = out; best = { ids: [a, b, c], w: [w, u, v] }; if (out === 0) break; }
+  for (let ring = 0; ring <= 2 && !best; ring++) {
+    for (let dx = -ring; dx <= ring; dx++) for (let dy = -ring; dy <= ring; dy++) {
+      if (ring && Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+      const list = pan.buckets.get((cx + dx) * 8192 + (cy + dy)); if (!list) continue;
+      for (const k of list) {
+        const a = pan.tris[k] + o; const b = pan.tris[k + 1] + o; const c = pan.tris[k + 2] + o;
+        const ax = L[a * 2]; const ay = L[a * 2 + 1]; const bx = L[b * 2]; const by = L[b * 2 + 1]; const qx = L[c * 2]; const qy = L[c * 2 + 1];
+        const v0x = bx - ax; const v0y = by - ay; const v1x = qx - ax; const v1y = qy - ay;
+        const den = v0x * v1y - v1x * v0y; if (Math.abs(den) < 1e-9) continue;
+        const u = ((x - ax) * v1y - v1x * (y - ay)) / den; const v = (v0x * (y - ay) - (x - ax) * v0y) / den; const w = 1 - u - v;
+        if (u >= 0 && v >= 0 && w >= 0) return { ids: [a, b, c], w: [w, u, v] };
+        // closest point on the triangle's three edges
+        const seg = (px, py, rx, ry, i0, i1) => { const ex = rx - px; const ey = ry - py; const ee = ex * ex + ey * ey || 1; let t = ((x - px) * ex + (y - py) * ey) / ee; t = t < 0 ? 0 : t > 1 ? 1 : t; const ddx = px + ex * t - x; const ddy = py + ey * t - y; const d = ddx * ddx + ddy * ddy; if (d < bd) { bd = d; best = { ids: [i0, i1], w: [1 - t, t] }; } };
+        seg(ax, ay, bx, by, a, b); seg(bx, by, qx, qy, b, c); seg(qx, qy, ax, ay, c, a);
+      }
+    }
   }
-  if (best && bd < 0.5) {
-    if (bd > 0) { const w = best.w.map((q) => Math.max(0, q)); const t = w[0] + w[1] + w[2] || 1; best.w = w.map((q) => q / t); }
-    return best;
-  }
-  // outside the piece: nearest particle
+  if (best) return best;
+  // far outside the piece: nearest particle
   let nb = o; let d0 = Infinity;
   for (let q = o; q < o + pan.count; q++) { const d = (L[q * 2] - x) ** 2 + (L[q * 2 + 1] - y) ** 2; if (d < d0) { d0 = d; nb = q; } }
   return { ids: [nb], w: [1] };

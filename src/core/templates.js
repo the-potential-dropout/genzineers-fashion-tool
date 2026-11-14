@@ -192,6 +192,10 @@ export const TEMPLATES = {
   'silk-scarf': { name: 'Silk scarf', group: 'Accessories', garments: [g('scarf', { length: 110, width: 18, ends: 'hemmed' }, { fabric: 'silk-twill', stitch: 'rolled-hem' })] },
   'necktie': { name: 'Necktie', group: 'Accessories', garments: [g('tie', { width: 8, length: 48, tip: 'pointed', knot: 'four-in-hand' }, { fabric: 'silk-twill', stitch: 'hand-slipstitch' })], why: 'Silk twill shell cut on the bias, wool interlining, hand-slipstitched back seam and bar tack.' },
   'skinny-tie': { name: 'Skinny tie', group: 'Accessories', garments: [g('tie', { width: 5, length: 48, tip: 'square', knot: 'four-in-hand' }, { fabric: 'wool-knit-tie', stitch: 'hand-slipstitch' })] },
+  'tie-windsor': { name: 'Necktie (full Windsor)', group: 'Accessories', garments: [g('tie', { knot: 'windsor', width: 8 }, { fabric: 'silk-twill', stitch: 'hand-slipstitch' })], why: 'Three-fold or seven-fold silk, wool interlining, slip-stitched; wide symmetric knot for cutaway collars.' },
+  'tie-clip-on': { name: 'Clip-on tie', group: 'Accessories', garments: [g('tie', { knot: 'four-in-hand', attach: 'clip-on', width: 7 }, { fabric: 'polyester-satin', stitch: 'lockstitch-301' })], why: 'Pre-formed knot on a metal clip; uniforms and safety (breaks away).' },
+  'bow-tie-batwing': { name: 'Bow tie (batwing)', group: 'Accessories', garments: [g('tie', { knot: 'bow', bow: 'batwing' }, { fabric: 'silk-satin', stitch: 'hand-slipstitch' })] },
+  'bow-tie-diamond': { name: 'Bow tie (diamond point)', group: 'Accessories', garments: [g('tie', { knot: 'bow', bow: 'diamond' }, { fabric: 'silk-satin', stitch: 'hand-slipstitch' })] },
   'bow-tie': { name: 'Bow tie', group: 'Accessories', garments: [g('tie', { knot: 'bow' }, { fabric: 'silk-satin', stitch: 'hand-slipstitch' })] },
   // ---------- Hats ----------
   'beanie': { name: 'Cuffed beanie / tuque', group: 'Hats', garments: [g('hat', { style: 'cuffed-beanie', height: 22 }, { fabric: 'rib-knit-wool', stitch: 'linking' })], why: 'Merino or acrylic 2x2 rib, linked crown seams, double-layer cuff.' },

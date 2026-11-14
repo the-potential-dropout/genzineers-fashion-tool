@@ -742,35 +742,43 @@ export const SCARF_OPTIONS = {
   length: { label: 'Length (cm)', type: 'range', min: 100, max: 220, step: 5, default: 170 },
   width: { label: 'Width (cm)', type: 'range', min: 15, max: 70, step: 1, default: 28 },
   ends: { label: 'Ends', type: 'select', values: ['hemmed', 'fringe', 'raw'], default: 'fringe' },
+  wear: { label: 'Worn', type: 'select', values: ['draped', 'one-end-back', 'short-drape'], default: 'draped' },
 };
 export function buildScarf(o, prefix = '', fabric = 'wool-cashmere') {
   const B = bodyOf(o);
   const id = (s) => `${prefix}${s}`;
   const L = o.length / 2;
-  const panels = [{ id: id('scarf'), name: 'Scarf', role: 'accessory', tack: { x0: -10, x1: 10, y0: -o.width, y1: o.width }, points: rect(-L, -o.width / 2, L, o.width / 2), placement: { position: [0, B.neckBase + 0.03, 0.095 * (B.neck / 38)], rotationY: 0, wrap: 0.095 * (B.neck / 38), wrapMax: Math.PI * 0.98 }, fabric }];
-  const trims = o.ends === 'fringe' ? [{ type: 'fringe', panel: id('scarf'), at: [-L + 1, -o.width / 2], to: [-L + 1, o.width / 2] }, { type: 'fringe', panel: id('scarf'), at: [L - 1, -o.width / 2], to: [L - 1, o.width / 2] }] : [];
+  // worn folded in half along its length: laid round the back of the neck, both ends brought to the front
+  const W = Math.min(o.width / 2, 16);
+  const Rn = 0.083 * ((B.neckC || 38) / 38);
+  const shift = o.wear === 'one-end-back' ? L * 0.45 : 0; // one end much longer, to throw over the shoulder
+  const pts = rect(-L + shift, 0, L + shift, W);
+  const panels = [{ id: id('scarf'), name: 'Scarf', role: 'accessory', points: pts, fold: 'worn folded in half lengthwise',
+    placement: { position: [0, B.neckBase - 0.075, -0.012 - Rn], rotationY: Math.PI, wrap: Rn, wrapMax: o.wear === 'short-drape' ? 1.75 : 1.95 }, fabric,
+    edges: { hem: [[-L + shift, 0], [-L + shift, W]], cuff: [[L + shift, 0], [L + shift, W]] } }];
+  const trims = o.ends === 'fringe' ? [{ type: 'fringe', panel: id('scarf'), at: [-L + shift + 0.6, 0], to: [-L + shift + 0.6, W] }, { type: 'fringe', panel: id('scarf'), at: [L + shift - 0.6, 0], to: [L + shift - 0.6, W] }] : [];
   return { panels, seams: [], trims, overlays: [] };
 }
 
 export const TIE_OPTIONS = {
+  knot: { label: 'Type / knot', type: 'select', values: ['four-in-hand', 'half-windsor', 'windsor', 'pratt', 'kelvin', 'eldredge', 'bow'], default: 'four-in-hand' },
+  attach: { label: 'How it fastens', type: 'select', values: ['self-tie', 'pre-tied', 'clip-on'], default: 'self-tie' },
+  bow: { label: 'Bow shape (bow ties)', type: 'select', values: ['butterfly', 'big-butterfly', 'batwing', 'diamond', 'rounded'], default: 'butterfly' },
   width: { label: 'Blade width (cm)', type: 'range', min: 4, max: 10, step: 0.5, default: 7.5 },
   length: { label: 'Hanging length (cm)', type: 'range', min: 35, max: 60, step: 1, default: 48 },
   tip: { label: 'Tip', type: 'select', values: ['pointed', 'square'], default: 'pointed' },
-  knot: { label: 'Knot', type: 'select', values: ['four-in-hand', 'half-windsor', 'windsor', 'bow'], default: 'four-in-hand' },
 };
 export function buildTie(o, prefix = '', fabric = 'silk-twill') {
   const B = bodyOf(o);
   const id = (s) => `${prefix}${s}`;
-  const w = o.width / 2;
-  const L = o.length;
-  const pts = o.knot === 'bow'
-    ? [[-9, -3], [-1, -0.8], [1, -0.8], [9, -3], [9, 3], [1, 0.8], [-1, 0.8], [-9, 3]]
-    : (o.tip === 'pointed' ? [[0, 0], [w, 5], [w * 0.55, L], [-w * 0.55, L], [-w, 5]] : [[-w, 0], [w, 0], [w * 0.55, L], [-w * 0.55, L]]);
-  const placement = o.knot === 'bow' ? { position: [0, 1.47 * B.hs, 0.085 * B.gs], rotationY: 0 } : { position: [0, 1.47 * B.hs - L / 100, 0.13 * B.gs], rotationY: 0 };
-  const pins = o.knot === 'bow' ? [[-1, 0], [1, 0]] : [[0, L - 1], [-w * 0.4, L - 1], [w * 0.4, L - 1]];
-  const panels = [{ id: id('tie'), name: o.knot === 'bow' ? 'Bow tie' : 'Tie blade', role: 'accessory', points: pts, placement, fabric, pins }];
-  const trims = o.knot === 'bow' ? [] : [{ type: 'tie-knot', panel: id('tie'), at: [0, L - 2], size: { 'four-in-hand': 35, 'half-windsor': 42, windsor: 50 }[o.knot] || 35 }];
-  return { panels, seams: [], trims, overlays: [] };
+  const y = B.shoulderY - 0.022; // the knot sits in the collar gap at the base of the neck
+  const band = o.attach !== 'clip-on'; // clip-ons have a metal clip behind the knot instead of a neckband
+  if (o.knot === 'bow') return { panels: [], seams: [], trims: [], overlays: [], props: [{ kind: 'bowtie', style: o.bow || 'butterfly', attach: o.attach || 'self-tie', y, fabric, band }] };
+  const w = o.width / 2; const L = o.length; const kw = 1.45; // half width where the blade leaves the knot
+  // blade: narrow under the knot, widening to the tip (a real blade, not a strip)
+  const pts = o.tip === 'pointed' ? [[0, 0], [w, w * 0.95], [w * 0.86, L * 0.45], [kw, L], [-kw, L], [-w * 0.86, L * 0.45], [-w, w * 0.95]] : [[-w, 0], [w, 0], [w * 0.86, L * 0.45], [kw, L], [-kw, L], [-w * 0.86, L * 0.45]];
+  const panels = [{ id: id('tie'), name: 'Tie blade (front)', role: 'accessory', points: pts, placement: { position: [0, y - 0.035 - L / 100, 0.135 * B.gs], rotationY: 0 }, fabric, pins: [[0, L - 0.5], [-kw * 0.7, L - 0.5], [kw * 0.7, L - 0.5]] }];
+  return { panels, seams: [], trims: [], overlays: [], props: [{ kind: 'tie-knot', style: o.knot, attach: o.attach || 'self-tie', y, fabric, band, panel: id('tie'), at: [0, L - 0.5] }] };
 }
 
 export const HAT_OPTIONS = {

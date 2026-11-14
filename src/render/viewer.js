@@ -23,6 +23,7 @@ import { legwearTop } from '../core/legwear.js';
 import { panelAnchor, layerRank } from '../sim/cloth.js';
 import { fabricTextures } from './textures.js';
 import { buildCollar } from './collars.js';
+import { tieKnot, bowTie } from './neckwear.js';
 import { designBitmap, previewCanvas, loadArtwork, artworkReady, STITCH_TYPES } from '../make/embroidery.js';
 import { customBodyMesh, bodyField, sampleField } from '../sim/bodyfield.js';
 import { buildJewelry, metalMaterial, gemMaterial } from './jewelry3d.js';
@@ -431,7 +432,7 @@ export class Viewer {
     this.showAvatar(project);
     if (project.mode === 'jewelry') { this.setJewelry(project.jewelry); return; }
     this.sim = sim;
-    if (!sim) return;
+    if (!sim) { this.buildProps(project, null); this.dirty = true; return; }
     for (const pan of sim.panels) {
       if (!pan.count) continue;
       const g = new THREE.BufferGeometry();
@@ -515,6 +516,8 @@ export class Viewer {
         if (!pointInPoly(x0 + (i + 0.5) * h, y0 + (j + 0.5) * h, pts)) continue;
         const a = V(i, j); const b = V(i + 1, j); const c = V(i + 1, j + 1); const d = V(i, j + 1);
         if (a < 0 || b < 0 || c < 0 || d < 0) continue;
+        // keep the piece inside the garment piece it is sewn to: skip cells whose centre is off the cloth
+        if (!pointInPoly(x0 + (i + 0.5) * h, y0 + (j + 0.5) * h, panel.points)) continue;
         idx.push(a, b, c, a, c, d);
       }
       if (!idx.length) continue;
@@ -765,6 +768,33 @@ export class Viewer {
     }
   }
 
+  /** Tied pieces drawn as the solid forms they are: tie knots and bow ties, with the band round the neck. */
+  buildProps(project, sim) {
+    for (const pr of project.props || []) {
+      const g = (project.garments || []).find((x) => x.id === pr.garment);
+      const pseudo = { fabric: g?.fabric || pr.fabric, fabricOverrides: {}, finish: g?.finish || {}, garment: pr.garment };
+      const host = project.panels.find((p) => p.id === pr.panel) || pseudo;
+      const mat = this.materialFor(project, host);
+      const base = new THREE.Color(host.finish?.color || resolveFabric(project, host.fabric, host.fabricOverrides || {}).look.color);
+      const edge = base.clone().multiplyScalar(0.5);
+      // where it sits: at the front of the neck, on the surface of the body
+      const front = [new THREE.Vector3(0, pr.y, 0.3)]; this.hugBody(front, pr.kind === 'bowtie' ? 0.011 : 0.013);
+      if (pr.band) {
+        const ring = []; for (let k = 0; k <= 40; k++) { const a = (k / 40) * Math.PI * 2; ring.push(new THREE.Vector3(Math.sin(a) * 0.12, pr.y + 0.012 + 0.012 * Math.cos(a) * -1, -0.01 + Math.cos(a) * 0.12)); }
+        const band = new THREE.Mesh(this.bodyRibbon(ring, pr.kind === 'bowtie' ? 0.019 : 0.03, 0.006), mat); band.frustumCulled = false;
+        this.garment.add(band);
+      }
+      const obj = pr.kind === 'bowtie' ? bowTie(pr.style, mat, edge) : tieKnot(pr.style, mat, edge);
+      obj.position.copy(front[0]);
+      this.garment.add(obj);
+      if (pr.kind === 'tie-knot' && sim && pr.panel) {
+        // the blade hangs from the bottom of the knot
+        const a = panelAnchor(sim, pr.panel, pr.at[0], pr.at[1]);
+        if (a) this.stitchLines.push({ line: obj, update: (P) => { let x = 0; let y = 0; let z = 0; a.ids.forEach((q, k) => { x += P[q * 3] * a.w[k]; y += P[q * 3 + 1] * a.w[k]; z += P[q * 3 + 2] * a.w[k]; }); obj.position.set(x, y + (obj.userData.height || 0.04) * 0.92, z - 0.004); } });
+      }
+    }
+  }
+
   /** Embroidery: the digitised design, sewn-look, following the cloth. */
   buildEmbroidery(project, sim) {
     for (const e of project.embroidery || []) {
@@ -798,6 +828,7 @@ export class Viewer {
 
   buildStitches(project, sim) {
     this.buildTopstitch(project, sim);
+    this.buildProps(project, sim);
     this.buildEmbroidery(project, sim);
     this.buildCollars(project, sim);
     // seam joins: a narrow strip of the fabric bridges the two sewn edges, so a seam never shows a gap

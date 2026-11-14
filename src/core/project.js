@@ -70,7 +70,7 @@ export function mergeGarment(p, g) {
   for (const s of out.seams) p.seams.push({ id: uid('seam'), threadColor: '#d8d2c4', thread: 'poly-corespun', ...s });
   for (const t of out.trims) p.trims.push({ id: uid('trim'), ...t });
   for (const o of out.overlays) p.overlays.push({ id: uid('ov'), ...o });
-  p.garmentForms = { ...(p.garmentForms || {}), [g.id]: { colliders: out.colliders || [], display: out.display || {}, meta: out.meta || {}, shells: out.shells || [], collars: out.collars || [] } };
+  p.garmentForms = { ...(p.garmentForms || {}), [g.id]: { colliders: out.colliders || [], display: out.display || {}, meta: out.meta || {}, shells: out.shells || [], collars: out.collars || [], props: (out.props || []).map((x) => ({ ...x, garment: g.id })) } };
   syncForms(p);
 }
 
@@ -80,6 +80,7 @@ export function syncForms(p) {
   p.colliders = forms.flatMap((f) => f.colliders);
   p.shells = forms.flatMap((f) => f.shells || []);
   p.collars = forms.flatMap((f) => f.collars || []);
+  p.props = forms.flatMap((f) => f.props || []); // tied / moulded pieces drawn as solid forms (tie knots, bow ties)
   // show the body if any garment is worn; bags-only projects show a product stand
   p.display = { avatar: !forms.length || forms.some((f) => f.display.avatar !== false) };
 }
