@@ -84,7 +84,7 @@ root.append(top, h('div', { class: 'layout' }, panel, stage, drawer));
 const viewer = new Viewer(viewEl);
 window.__gft = { viewer, store }; // handy for debugging from the console
 viewer.onError = (m) => toast(m, 5000);
-const pattern = createPatternEditor(patternCanvas, store);
+const pattern = createPatternEditor(patternCanvas, store, { toast: (m) => toast(m) });
 let sim = null;
 let simStatus = { text: 'Loading…', live: true };
 let lastMs = 0;
@@ -99,6 +99,7 @@ let rebuildTimer;
 function rebuild(info = {}) {
   const p = store.get();
   if (p.mode === 'jewelry') { sim?.dispose?.(); sim = null; viewer.setProject(p, null); simStatus = { text: 'Jewelry preview', live: false }; renderHud(); return; }
+  if (!p.panels.length) { clearTimeout(rebuildTimer); sim?.dispose?.(); sim = null; viewer.setProject(p, null); simStatus = { text: 'Blank design: draw pieces on the flat pattern', live: false }; renderHud(); return; }
   if (info.lookOnly && sim) { viewer.refreshLooks(p); return; }
   clearTimeout(rebuildTimer);
   rebuildTimer = setTimeout(async () => {
@@ -135,7 +136,7 @@ function renderTop() {
     h('div', { class: 'spacer' }),
     h('button', { class: 'btn ghost icon', title: 'Undo (Ctrl+Z)', 'aria-label': 'Undo', disabled: !store.canUndo(), onclick: () => store.undo() }, '↶'),
     h('button', { class: 'btn ghost icon', title: 'Redo (Ctrl+Shift+Z)', 'aria-label': 'Redo', disabled: !store.canRedo(), onclick: () => store.redo() }, '↷'),
-    h('button', { class: `btn desk-only ${ui.pattern !== 'off' ? 'primary' : ''}`, onclick: () => { ui.pattern = ui.pattern === 'off' ? 'split' : ui.pattern === 'split' ? 'only' : 'off'; applyPatternMode(); renderTop(); }, title: 'Show the 2D pattern editor' }, ui.pattern === 'off' ? 'Pattern' : ui.pattern === 'split' ? 'Pattern: split' : 'Pattern: full'),
+    h('button', { class: `btn desk-only ${ui.pattern !== 'off' ? 'primary' : ''}`, onclick: () => { ui.pattern = ui.pattern === 'off' ? 'split' : ui.pattern === 'split' ? 'only' : 'off'; applyPatternMode(); renderTop(); }, title: 'Flat pattern: every piece laid flat with cut lines, stitch lines and seam matching. Draw your own pieces here too.' }, ui.pattern === 'off' ? '✂ Flat pattern' : ui.pattern === 'split' ? '✂ Pattern: split' : '✂ Pattern: full'),
     h('button', { class: 'btn', onclick: () => openCollection(), title: 'My collection: everything you have saved (Ctrl+S saves)' }, '♡ ', h('span', { class: 'full' }, 'Collection')),
     h('button', { class: 'btn', onclick: () => toggleAI(true), title: 'AI assistant & image tools' }, '✦ AI'),
     h('button', { class: 'btn primary', onclick: () => { ui.step = 'make'; renderPanel(); } }, 'Make it →'),

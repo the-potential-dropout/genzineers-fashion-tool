@@ -92,6 +92,9 @@ button.pill:hover { background: var(--surface); }
 .dot.ok { background: var(--ok); }
 @keyframes pulse { 50% { opacity: .35; } }
 .place-hint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); }
+.pattern-tools { position: absolute; display: none; flex-wrap: wrap; gap: 6px; z-index: 6; }
+.pattern-tools .btn { background: var(--surface); box-shadow: var(--shadow); }
+.pattern-tools .btn.primary { background: var(--accent); }
 .stage canvas.pattern { position: absolute; inset: 0; width: 100%; height: 100%; background: var(--surface); display: none; touch-action: none; }
 .stage.split canvas.pattern { display: block; left: 50%; width: 50%; border-left: 1px solid var(--line); }
 .stage.split .view { right: 50%; }

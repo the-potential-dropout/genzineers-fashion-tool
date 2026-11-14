@@ -24,6 +24,7 @@ import { JEWELRY_TEMPLATES, METALS, GEMS, CUTS, SETTINGS, LINKS, CLASPS, BAILS, 
 export const ACTION_DOCS = {
   new_garment: '{ template } replace the project with a template (see catalog.templates)',
   add_garment: '{ template } add another garment (e.g. trousers to a jacket = suit)',
+  new_blank: '{ name? } start an empty design: draft your own pieces with add_panel and join them with add_seam',
   remove_garment: '{ garment: "g0" }',
   add_pocket: '{ panel, at: [x,y] cm (top centre of the opening), pocket: "<pocket id>", width?, height?, angle? deg, closure?: none|button|snap|zip|velcro|magnet, mirror? } add an outside or inside pocket (catalog pockets)',
   remove_pocket: '{ id: "<pocket id from the project>" }',
@@ -168,6 +169,14 @@ export function applyAction(project, action) {
       p.name = `${p.name} + ${TEMPLATES[a.template].name}`;
       result = `added ${TEMPLATES[a.template].name}`;
       break;
+    }
+    case 'new_blank': {
+      const np = createProject('crew-tee');
+      Object.assign(np, { name: a.name || 'Untitled design', template: null, garments: [], panels: [], seams: [], trims: [], overlays: [], garmentForms: {}, colliders: [], shells: [], collars: [], pockets: [] });
+      for (const k of ['sizeChart', 'size', 'customBody', 'mannequin', 'bodyShape', 'armAngle', 'production']) if (p[k] != null) np[k] = p[k];
+      np.customFabrics = { ...(p.customFabrics || {}) };
+      np.display = { avatar: true };
+      return { project: np, result: 'blank design: draw pieces on the flat pattern canvas' };
     }
     case 'add_design': {
       if (p.mode === 'jewelry') throw new Error('switch to clothing first');
@@ -593,7 +602,7 @@ export function applyAction(project, action) {
 
 /** Which actions only change looks (no physics rebuild needed). */
 export function isLookOnly(type) {
-  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim'].includes(type);
+  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket'].includes(type);
 }
 
 export function applyActions(project, actions) {
