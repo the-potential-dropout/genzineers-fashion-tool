@@ -368,6 +368,7 @@ export function applyAction(project, action) {
       const chart = SIZE_CHARTS[p.sizeChart || 'unisex'];
       if (a.size) { if (!chart.sizes[a.size]) throw new Error(`size must be one of ${Object.keys(chart.sizes).join(', ')}`); p.size = a.size; delete p.customBody; }
       if (a.custom) p.customBody = { ...(chart.sizes[p.size] || chart.sizes.M), ...a.custom };
+      if (a.mannequin) { if (a.mannequin === 'auto') delete p.mannequin; else if (['male', 'female'].includes(a.mannequin)) p.mannequin = a.mannequin; else throw new Error('mannequin must be male | female | auto'); }
       regradeProject(p);
       result = `size ${p.customBody ? 'custom' : p.size} (${chart.label})`;
       break;

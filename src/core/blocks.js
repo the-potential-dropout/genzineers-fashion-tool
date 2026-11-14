@@ -164,7 +164,7 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   const BODY = bodyOf(o);
   const t = topPanels(o);
   const id = (s) => `${prefix}${s}`;
-  const baseY = BODY.shoulderY - t.H / 100 + 0.005;
+  const baseY = BODY.shoulderY - t.H / 100 + 0.035; // arrange slightly above the shoulders, gravity settles it
   const R = 0.21 + t.ease / 400;
   const Rh = Math.max(R, (t.hw + o.flare) / 145); // hem radius (cone) so wide hems don't overlap
   const panels = [
@@ -187,7 +187,7 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
       const sid = id(side > 0 ? 'sleeve-r' : 'sleeve-l');
       // front body panel: wearer-left is +x in world; front 'arm-r' is at +x,
       // back 'arm-l' is at +x (back panel is rotated 180 degrees)
-      panels.push({ id: sid, name: side > 0 ? 'Sleeve (right)' : 'Sleeve (left)', role: 'sleeve', points: sl.poly.pts, placement: { arm: side, radius: sl.R + 0.01, position: [BODY.armStartX * side, 1.38 * BODY.hs, 0] }, fabric });
+      panels.push({ id: sid, name: side > 0 ? 'Sleeve (right)' : 'Sleeve (left)', role: 'sleeve', points: sl.poly.pts, placement: { arm: side, radius: sl.R + 0.01, position: [BODY.armStartX * side, BODY.armY, 0] }, fabric });
       seams.push(seam(sid, sl.poly, 'under-f', sid, sl.poly, 'under-b', sideStitch));
       seams.push(seam(sid, sl.poly, 'cap-f', id('front'), t.front, side > 0 ? 'arm-r' : 'arm-l', sideStitch));
       seams.push(seam(sid, sl.poly, 'cap-b', id('back'), t.back, side > 0 ? 'arm-l' : 'arm-r', sideStitch));
@@ -282,7 +282,7 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   if (o.insulation && o.insulation !== 'none') {
     for (const pan of panels) pan.insulation = { fill: o.insulation, weight: o.fillWeight, quilting: o.quilting };
   }
-  if (o.sleeve === 'none' && o.shoulder === 'strap') for (const pan of panels) if (pan.role === 'body') pan.tack = { y0: t.H - 2, y1: t.H + 1 };
+  if (o.sleeve === 'none') for (const pan of panels) if (pan.role === 'body') pan.tack = { y0: t.H - (o.shoulder === 'strap' ? 2 : 5), y1: t.H + 1 };
   if (o.lining && o.lining !== 'none') for (const pan of panels) if (o.lining === 'full' || pan.role === 'body') pan.lining = 'acetate-satin';
   return { panels, seams, trims, overlays };
 }
@@ -341,7 +341,7 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
   // mirror: flip local x so the outseam faces outwards; leg: which leg (+1 = +x world)
   const mk = (pid, name, poly, mirrorX, leg, isBack) => {
     const pts = mirrorX > 0 ? poly.pts : poly.pts.map(([x, y]) => [-x, y]);
-    panels.push({ id: id(pid), name, role: 'leg', points: pts, placement: { position: [0.1 * BODY.hipS * leg, hemY, isBack ? -R : R], rotationY: isBack ? Math.PI : 0, wrap: R, wrapMax: 1.35 }, fabric });
+    panels.push({ id: id(pid), name, role: 'leg', points: pts, placement: { position: [BODY.legX * leg, hemY, isBack ? -R : R], rotationY: isBack ? Math.PI : 0, wrap: R, wrapMax: 1.35 }, fabric });
   };
   // front panels face +z; back panels are rotated PI (local +x -> world -x)
   mk('front-r', 'Front (right leg)', front, 1, 1, false);
@@ -450,7 +450,7 @@ export function buildScarf(o, prefix = '', fabric = 'wool-cashmere') {
   const B = bodyOf(o);
   const id = (s) => `${prefix}${s}`;
   const L = o.length / 2;
-  const panels = [{ id: id('scarf'), name: 'Scarf', role: 'accessory', points: rect(-L, -o.width / 2, L, o.width / 2), placement: { position: [0, 1.5 * B.hs, 0.11 * (B.neck / 38)], rotationY: 0, wrap: 0.11 * (B.neck / 38), wrapMax: Math.PI * 0.98 }, fabric }];
+  const panels = [{ id: id('scarf'), name: 'Scarf', role: 'accessory', tack: { x0: -10, x1: 10, y0: -o.width, y1: o.width }, points: rect(-L, -o.width / 2, L, o.width / 2), placement: { position: [0, B.neckBase + 0.03, 0.095 * (B.neck / 38)], rotationY: 0, wrap: 0.095 * (B.neck / 38), wrapMax: Math.PI * 0.98 }, fabric }];
   const trims = o.ends === 'fringe' ? [{ type: 'fringe', panel: id('scarf'), at: [-L + 1, -o.width / 2], to: [-L + 1, o.width / 2] }, { type: 'fringe', panel: id('scarf'), at: [L - 1, -o.width / 2], to: [L - 1, o.width / 2] }] : [];
   return { panels, seams: [], trims, overlays: [] };
 }
@@ -525,7 +525,7 @@ function billPoly(Ri, L, spans, flat) {
 export function buildHat(o, prefix = '', fabric = 'rib-knit-wool') {
   const id = (s) => `${prefix}${s}`;
   const B = bodyOf(o);
-  const HEAD = { y: 1.665 * B.hs, r: 0.1 * (B.head / 58), band: 1.615 * B.hs, circ: B.head };
+  const HEAD = { y: B.headY, r: B.headR * (B.head / 58), band: B.headY - 0.05 * B.hs, circ: B.head };
   const q = HEAD.circ / 4;
   const panels = [];
   const seams = [];

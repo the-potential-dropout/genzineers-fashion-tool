@@ -80,7 +80,7 @@ pub unsafe extern "C" fn step(
     n: usize, pos: *mut f32, prev: *mut f32, inv: *const f32, fric: *const f32,
     m: usize, ci: *const u32, rest: *const f32, kc: *const f32, lim: *const f32,
     s: usize, si: *const u32, srest: *mut f32, sk: *const f32,
-    c: usize, col: *const f32,
+    c: usize, col: *const f32, nb: usize, bstart: *const u32, bidx: *const u32, by0: f32, binv: f32,
     substeps: u32, dt: f32, gravity: f32, damping: f32,
     sew_rate: f32, sew_min: f32, thickness: f32, compress: f32,
 ) -> f32 {
@@ -95,7 +95,9 @@ pub unsafe extern "C" fn step(
     let si = from_raw_parts(si, s * 2);
     let srest = from_raw_parts_mut(srest, s);
     let sk = from_raw_parts(sk, s);
-    let col = from_raw_parts(col, c * 8);
+    let col = from_raw_parts(col, c * 9);
+    let bstart = from_raw_parts(bstart, nb + 1);
+    let bidx = from_raw_parts(bidx, bstart[nb] as usize);
 
     let steps = substeps.max(1);
     let h = dt / steps as f32;
@@ -131,28 +133,44 @@ pub unsafe extern "C" fn step(
             let b = p * 3;
             let (mut x, mut y, mut z) = (pos[b], pos[b + 1], pos[b + 2]);
             let mut hit = false;
-            for k in 0..c {
-                let o = k * 8;
-                let zs = col[o + 7];
-                let (ax, ay, az) = (col[o], col[o + 1], col[o + 2] / zs);
-                let (bx, by, bz) = (col[o + 3], col[o + 4], col[o + 5] / zs);
+            // only colliders overlapping this particle's height bin
+            let bi = (((y - by0) * binv) as isize).clamp(0, nb as isize - 1) as usize;
+            for kk in bstart[bi]..bstart[bi + 1] {
+                let k = bidx[kk as usize] as usize;
+                // collider: [ax,ay,az,bx,by,bz,r,zs,ys] -> elliptical capsule
+                let o = k * 9;
                 let r = col[o + 6] + thickness;
+                // cheap AABB reject (world space) before any maths
+                let zs = col[o + 7];
+                let ys = col[o + 8];
+                let ex_ = r;
+                let ey_ = r * ys;
+                let ez_ = r * zs;
+                let (lx0, lx1) = if col[o] < col[o + 3] { (col[o], col[o + 3]) } else { (col[o + 3], col[o]) };
+                let (ly0, ly1) = if col[o + 1] < col[o + 4] { (col[o + 1], col[o + 4]) } else { (col[o + 4], col[o + 1]) };
+                let (lz0, lz1) = if col[o + 2] < col[o + 5] { (col[o + 2], col[o + 5]) } else { (col[o + 5], col[o + 2]) };
+                if x < lx0 - ex_ || x > lx1 + ex_ || y < ly0 - ey_ || y > ly1 + ey_ || z < lz0 - ez_ || z > lz1 + ez_ {
+                    continue;
+                }
+                let (ax, ay, az) = (col[o], col[o + 1] / ys, col[o + 2] / zs);
+                let (bx, by, bz) = (col[o + 3], col[o + 4] / ys, col[o + 5] / zs);
+                let qy = y / ys;
                 let qz = z / zs;
                 let (ex, ey, ez) = (bx - ax, by - ay, bz - az);
                 let ee = ex * ex + ey * ey + ez * ez;
                 let t = if ee > 0.0 {
-                    (((x - ax) * ex + (y - ay) * ey + (qz - az) * ez) / ee).clamp(0.0, 1.0)
+                    (((x - ax) * ex + (qy - ay) * ey + (qz - az) * ez) / ee).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
                 let (cx, cy, cz) = (ax + ex * t, ay + ey * t, az + ez * t);
-                let (dx, dy, dz) = (x - cx, y - cy, qz - cz);
+                let (dx, dy, dz) = (x - cx, qy - cy, qz - cz);
                 let d2 = dx * dx + dy * dy + dz * dz;
                 if d2 < r * r && d2 > 1e-12 {
                     let d = d2.sqrt();
                     let f = r / d;
                     x = cx + dx * f;
-                    y = cy + dy * f;
+                    y = (cy + dy * f) * ys;
                     z = (cz + dz * f) * zs;
                     hit = true;
                 }
@@ -198,9 +216,11 @@ pub unsafe extern "C" fn step(
         for e in (0..m).rev() {
             solve_dist(pos, inv, ci[e * 2] as usize, ci[e * 2 + 1] as usize, rest[e], kc[e], compress, lim[e]);
         }
-        // Seams.
-        for e in 0..s {
-            solve_dist(pos, inv, si[e * 2] as usize, si[e * 2 + 1] as usize, srest[e], sk[e], 1.0, 1e9);
+        // Seams (few hundred pairs: solve 3x so stitches win over fabric tension)
+        for _ in 0..3 {
+            for e in 0..s {
+                solve_dist(pos, inv, si[e * 2] as usize, si[e * 2 + 1] as usize, srest[e], sk[e], 1.0, 1e9);
+            }
         }
 
         if sub == steps - 1 {

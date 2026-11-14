@@ -2,31 +2,66 @@
 // Licensed under the Genzineers Source-Available License. See LICENSE.
 
 /**
- * Parametric avatar built from capsules (T-pose, metres, ~1.75m tall).
- * Each collider: { a:[x,y,z], b:[x,y,z], r, zs } where zs squashes depth to
- * make elliptical cross-sections (chest/hips are wider than deep).
+ * Body colliders. Fitted to the CC0 MakeHuman mannequin meshes (see
+ * scripts/fit-mannequins.mjs): thin elliptical slices for the torso, short
+ * capsules along arms and legs, an ellipsoid head. Each collider is
+ * { a, b, r, zs, ys }: a capsule from a to b (metres) with radius r, squashed
+ * in z by zs and in y by ys.
+ *
+ * Grading: y scales with height (hs); x/z scale with chest girth above the
+ * waist and hip girth below it, blended smoothly. The same transform is
+ * applied to the visible mesh, so cloth always sits on the body you see.
  */
-export function buildAvatar(body) {
-  // body from sizes.js: hs = height scale, gs = chest girth, hipS = hip girth
-  const hs = body?.hs || 1; const gs = body?.gs || 1; const hp = body?.hipS || 1; const hd = (body?.head || 58) / 58;
-  const C = (a, b, r, zs = 1, g = gs) => ({ a: [a[0] * g, a[1] * hs, a[2] * g], b: [b[0] * g, b[1] * hs, b[2] * g], r: r * g, zs });
-  return [
-    C([0, 1.665, 0], [0, 1.665, 0], 0.1 * hd / gs), // head (sphere)
-    C([0, 1.47, 0], [0, 1.56, 0], 0.055), // neck
-    C([0, 1.08, 0], [0, 1.3, 0], 0.16, 0.66), // torso
-    C([-0.17, 1.38, 0], [0.17, 1.38, 0], 0.075), // shoulders
-    C([-0.08, 1.24, 0.01], [0.08, 1.24, 0.01], 0.12, 0.85), // chest
-    C([0.17, 1.38, 0], [0.72, 1.38, 0], 0.05), // right arm
-    C([-0.17, 1.38, 0], [-0.72, 1.38, 0], 0.05), // left arm
-    C([-0.06, 0.93, -0.01], [0.06, 0.93, -0.01], 0.125, 1.05, hp), // hips (37 cm wide, 26 cm deep)
-    C([0.1, 0.9, 0], [0.1, 0.08, 0], 0.068, 1, hp), // right leg
-    C([-0.1, 0.9, 0], [-0.1, 0.08, 0], 0.068, 1, hp), // left leg
-  ];
+import { MANNEQUINS } from './mannequins.js';
+
+export function girthAt(body, yRef) {
+  const m = MANNEQUINS[body?.mannequin || 'male'];
+  const w = m.landmarks.waistY;
+  const t = Math.max(0, Math.min(1, (yRef - (w - 0.12)) / 0.24)); // 0 = hips, 1 = chest
+  const gs = body?.gs || 1; const hp = body?.hipS || 1;
+  return hp + (gs - hp) * t;
 }
 
-/** Pack colliders as Float32Array [ax,ay,az,bx,by,bz,r,zs]*n for the solver. */
+/** Map a point from the reference mannequin frame to the graded body. */
+export function gradePoint(body, x, y, z) {
+  const g = girthAt(body, y);
+  return [x * g, y * (body?.hs || 1), z * g];
+}
+
+export function buildAvatar(body) {
+  const m = MANNEQUINS[body?.mannequin || 'male'];
+  const hs = body?.hs || 1;
+  return m.colliders.map((c) => {
+    const ym = (c.a[1] + c.b[1]) / 2;
+    const g = girthAt(body, ym);
+    return { a: gradePoint(body, ...c.a), b: gradePoint(body, ...c.b), r: c.r * g, zs: c.zs, ys: (c.ys ?? 1) * (hs / g) };
+  });
+}
+
+/** Pack colliders as Float32Array [ax,ay,az,bx,by,bz,r,zs,ys]*n for the solver. */
 export function packColliders(colliders) {
-  const out = new Float32Array(colliders.length * 8);
-  colliders.forEach((c, i) => out.set([...c.a, ...c.b, c.r, c.zs], i * 8));
+  const out = new Float32Array(colliders.length * 9);
+  colliders.forEach((c, i) => out.set([...c.a, ...c.b, c.r, c.zs ?? 1, c.ys ?? 1], i * 9));
   return out;
+}
+
+/**
+ * Height bins: for each 3 cm band of y, the colliders that can touch it.
+ * Lets the solver test ~5 colliders per particle instead of all of them.
+ */
+export function binColliders(col, margin = 0.03) {
+  const c = col.length / 9;
+  const y0 = -0.1; const binH = 0.03; const nb = 80; // covers -0.1 .. 2.3 m
+  const lists = Array.from({ length: nb }, () => []);
+  for (let k = 0; k < c; k++) {
+    const o = k * 9;
+    const ext = col[o + 6] * col[o + 8] + margin;
+    const lo = Math.min(col[o + 1], col[o + 4]) - ext; const hi = Math.max(col[o + 1], col[o + 4]) + ext;
+    const b0 = Math.max(0, Math.floor((lo - y0) / binH)); const b1 = Math.min(nb - 1, Math.floor((hi - y0) / binH));
+    for (let b = b0; b <= b1; b++) lists[b].push(k);
+  }
+  const start = new Uint32Array(nb + 1); const idx = [];
+  for (let b = 0; b < nb; b++) { start[b] = idx.length; idx.push(...lists[b]); }
+  start[nb] = idx.length;
+  return { nb, start, idx: new Uint32Array(idx.length ? idx : [0]), y0, inv: 1 / binH };
 }

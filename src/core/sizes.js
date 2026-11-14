@@ -35,26 +35,42 @@ export const SIZE_CHARTS = {
   },
 };
 
-/** Map body measurements to the reference body used by the generators / avatar. */
-export function bodyFromMeasurements(m) {
-  const hs = m.height / 175; // vertical scale
+import { MANNEQUINS } from '../sim/mannequins.js';
+
+/**
+ * Map body measurements to the reference body used by the generators and
+ * the avatar. Landmarks come from the fitted CC0 mannequin (male or female),
+ * graded by height (hs) and girth (gs chest, hipS hips).
+ */
+export function bodyFromMeasurements(m, mannequin = 'male') {
+  const L = MANNEQUINS[mannequin].landmarks;
+  const ref = mannequin === 'female' ? { chest: 90, hip: 98 } : { chest: 94, hip: 100 };
+  const hs = m.height / 175; // vertical scale (mannequins are normalised to 175 cm)
+  const gs = m.chest / ref.chest;
+  const hipS = m.hip / ref.hip;
   return {
     ...m,
-    hs,
-    gs: m.chest / 94, // girth scale (chest)
-    hipS: m.hip / 100,
+    mannequin,
+    hs, gs, hipS,
     waistS: m.waist / 80,
-    shoulderY: 1.47 * hs,
-    waistY: 1.0 * hs,
-    crotchY: 0.88 * hs * (m.inseam / 80) ** 0.2,
-    armStartX: 0.2 * (m.chest / 94),
+    shoulderY: L.shoulderTop * hs + 0.01,
+    waistY: (L.waistY - 0.06) * hs, // where waistbands sit (just below the natural waist)
+    naturalWaistY: L.waistY * hs,
+    crotchY: L.crotchY * hs,
+    armY: L.armY * hs,
+    armStartX: L.armStartX * gs + 0.025,
+    legX: L.legX * hipS,
+    headY: L.headY * hs,
+    headR: L.headR * 1.12,
+    neckBase: L.neckBase * hs,
   };
 }
 
 export function bodyFor(project) {
   const chart = SIZE_CHARTS[project.sizeChart || 'unisex'] || SIZE_CHARTS.unisex;
   const m = project.customBody || chart.sizes[project.size || 'M'] || chart.sizes.M;
-  return bodyFromMeasurements(m);
+  const mannequin = project.mannequin || (project.sizeChart === 'womens' ? 'female' : 'male');
+  return bodyFromMeasurements(m, mannequin);
 }
 
-export const DEFAULT_BODY = bodyFromMeasurements(SIZE_CHARTS.unisex.sizes.M);
+export const DEFAULT_BODY = bodyFromMeasurements(SIZE_CHARTS.unisex.sizes.M, 'male');

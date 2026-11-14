@@ -26,6 +26,7 @@ Real cloth physics in Rust/WebAssembly · real construction methods · factory-r
 - **Assembly**: every ISO 4915 stitch class plus seam constructions, hand stitches, bonding & glue, ultrasonic / RF / laser welding, seam taping, fusing, rivets, linking and whole-garment knitting, with **thread materials** (core-spun, bonded nylon, silk, aramid, PTFE, conductive steel…).
 - **Colour, dye, print & paint**: 20+ dye methods (reactive, garment-dyed, indigo rope, dope-dyed, tie-dye, shibori, batik, ombré…), 20 print methods (screen plastisol/water-based/discharge, DTG, DTF, sublimation, puff, foil, devoré…), paints, and fibre-compatibility checks.
 - **Trims & decorations**: 76 buttons, fasteners and decorations (horn, corozo, MOP, jeans tacks, snaps, zips, studs, spikes, rhinestones, pearls, sequins, chains, fringe, patches…).
+- **Realistic male & female mannequins** (CC0, generated from MakeHuman) graded to every size, with collision shapes fitted to the mesh so cloth rests on the body you see.
 - **Real cloth simulation**: sew-then-drape like garment CAD, with strain limiting, gathering, insulation loft, and body collisions. It runs in **Rust → WebAssembly** (20 KB, zero-copy to the GPU) and sleeps when settled, so it uses no CPU at idle.
 
 ### Jewelry

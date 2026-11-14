@@ -11,6 +11,7 @@ Genzineers Fashion Tool uses these open-source components under their own licenc
 | [zod](https://github.com/colinhacks/zod) | MIT | MCP tool schemas |
 | [Vite](https://github.com/vitejs/vite) | MIT | Build tool (dev only) |
 | [occt-import-js](https://github.com/kovacsv/occt-import-js) | LGPL-2.1 | STEP/IGES/BREP import. Not bundled: downloaded from a CDN at runtime only when you import such a file |
+| [MakeHuman](https://static.makehumancommunity.org/) assets | CC0 1.0 | The male and female mannequins in `public/models/` were generated from MakeHuman's CC0 base mesh and targets (via the MPFB Blender extension, which is GPL and is only used as a generation tool, not distributed). See `scripts/make_mannequins.py` |
 | [fflate](https://github.com/101arrowz/fflate) | MIT | Compression (via three.js loaders) |
 
 The cloth solver (Rust/WebAssembly), application code, catalogs and templates are

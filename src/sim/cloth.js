@@ -17,7 +17,7 @@
  */
 import { resolveFabric } from '../core/fabrics.js';
 import { resolveStitch } from '../core/stitches.js';
-import { buildAvatar, packColliders } from './avatar.js';
+import { buildAvatar, packColliders, binColliders } from './avatar.js';
 import { INSULATION } from '../core/materials.js';
 import { bodyFor } from '../core/sizes.js';
 
@@ -289,7 +289,7 @@ export function buildCloth(project) {
   for (const pan of panels) {
     const t = pan.panel?.tack;
     if (!t) continue;
-    for (let q = pan.offset; q < pan.offset + pan.count; q++) { const y = local[q * 2 + 1]; if (y >= t.y0 && y <= t.y1) tack.push(q); }
+    for (let q = pan.offset; q < pan.offset + pan.count; q++) { const x = local[q * 2]; const y = local[q * 2 + 1]; if (y >= t.y0 && y <= t.y1 && (t.x0 == null || (x >= t.x0 && x <= t.x1))) tack.push(q); }
   }
 
   // ---- pins (fixed points, e.g. tie knot) and rigid parts (stiffened brims) ----
@@ -318,9 +318,10 @@ export function buildCloth(project) {
 
   const body = project.display?.avatar === false ? [] : buildAvatar(bodyFor(project));
   const colliders = packColliders([...body, ...(project.colliders || [])]);
+  const bins = binColliders(colliders);
   const damping = n ? Math.min(0.2, (dampSum / n) / Math.sqrt(substeps)) : 0.02;
   const sim = makeBackend({
-    n, P, inv, fric, C, R, K, L, S, tack, SR, SK, colliders, allTris,
+    n, P, inv, fric, C, R, K, L, S, tack, bins, SR, SK, colliders, allTris,
     substeps, gravity: project.sim.gravity, damping,
     sewRate: project.sim.sewSpeed,
     thickness: 0.006,
@@ -373,7 +374,7 @@ function makeBackend(d) {
   const { n } = d;
   const m = d.R.length;
   const s = d.SR.length;
-  const c = d.colliders.length / 8;
+  const c = d.colliders.length / 9;
   const t = d.allTris.length / 3;
   const allocs = [];
   let views;
@@ -382,6 +383,7 @@ function makeBackend(d) {
   // actually closed (measured gap, not target), or after 3 s at the latest.
   let simTime = 0;
   let sewn = s === 0;
+  if (sewn) for (const q of d.tack || []) d.inv[q] = 0; // nothing to sew: tack immediately
   const gravityNow = (pos, si, dt, invView) => {
     simTime += dt;
     if (!sewn) {
@@ -408,7 +410,7 @@ function makeBackend(d) {
     const ptr = {
       pos: F(n * 3), prev: F(n * 3), inv: F(n), fric: F(n), nor: F(n * 3),
       ci: U(m * 2), rest: F(m), kc: F(m), lim: F(m), si: U(s * 2), srest: F(s), sk: F(s),
-      col: F(c * 8), tri: U(t * 3),
+      col: F(c * 9), tri: U(t * 3), bst: U(d.bins.nb + 1), bix: U(d.bins.idx.length),
     };
     // views are created after ALL allocations (memory growth detaches old views)
     const buf = wasm.memory.buffer;
@@ -417,7 +419,7 @@ function makeBackend(d) {
     views = {
       pos: f32(ptr.pos, n * 3), prev: f32(ptr.prev, n * 3), inv: f32(ptr.inv, n), fric: f32(ptr.fric, n),
       nor: f32(ptr.nor, n * 3), ci: u32(ptr.ci, m * 2), rest: f32(ptr.rest, m), kc: f32(ptr.kc, m), lim: f32(ptr.lim, m),
-      si: u32(ptr.si, s * 2), srest: f32(ptr.srest, s), sk: f32(ptr.sk, s), col: f32(ptr.col, c * 8), tri: u32(ptr.tri, t * 3),
+      si: u32(ptr.si, s * 2), srest: f32(ptr.srest, s), sk: f32(ptr.sk, s), col: f32(ptr.col, c * 9), tri: u32(ptr.tri, t * 3), bst: u32(ptr.bst, d.bins.nb + 1), bix: u32(ptr.bix, d.bins.idx.length),
     };
     fill(views, d);
     return {
@@ -425,7 +427,7 @@ function makeBackend(d) {
       kind: 'rust/wasm',
       step(dt) {
         const mv = x.step(n, ptr.pos, ptr.prev, ptr.inv, ptr.fric, m, ptr.ci, ptr.rest, ptr.kc, ptr.lim, s, ptr.si, ptr.srest, ptr.sk,
-          c, ptr.col, d.substeps, dt, gravityNow(views.pos, views.si, dt, views.inv), d.damping, d.sewRate, 0.0015, d.thickness, 0.25);
+          c, ptr.col, d.bins.nb, ptr.bst, ptr.bix, d.bins.y0, d.bins.inv, d.substeps, dt, gravityNow(views.pos, views.si, dt, views.inv), d.damping, d.sewRate, 0.0015, d.thickness, 0.25);
         if (!(mv < 2)) { views.pos.set(d.P); views.prev.set(d.P); views.srest.set(d.SR); views.inv.set(d.inv); sewn = false; simTime = 0; d.diverged = true; }
         x.normals(n, ptr.pos, t, ptr.tri, ptr.nor);
         return mv;
@@ -442,7 +444,7 @@ function makeBackend(d) {
   views = {
     pos: new Float32Array(n * 3), prev: new Float32Array(n * 3), inv: new Float32Array(n), fric: new Float32Array(n),
     nor: new Float32Array(n * 3), ci: new Uint32Array(m * 2), rest: new Float32Array(m), kc: new Float32Array(m), lim: new Float32Array(m),
-    si: new Uint32Array(s * 2), srest: new Float32Array(s), sk: new Float32Array(s), col: new Float32Array(c * 8), tri: new Uint32Array(t * 3),
+    si: new Uint32Array(s * 2), srest: new Float32Array(s), sk: new Float32Array(s), col: new Float32Array(c * 9), tri: new Uint32Array(t * 3), bst: new Uint32Array(d.bins.nb + 1), bix: new Uint32Array(d.bins.idx.length),
   };
   fill(views, d);
   const v = views;
@@ -450,7 +452,7 @@ function makeBackend(d) {
     ...views,
     kind: 'js',
     step(dt) {
-      const mv = jsStep(v, n, m, s, c, d.substeps, dt, gravityNow(v.pos, v.si, dt, v.inv), d.damping, d.sewRate, 0.0015, d.thickness, 0.25);
+      const mv = jsStep(v, n, m, s, c, d.bins, d.substeps, dt, gravityNow(v.pos, v.si, dt, v.inv), d.damping, d.sewRate, 0.0015, d.thickness, 0.25);
       if (!(mv < 2)) { v.pos.set(d.P); v.prev.set(d.P); v.srest.set(d.SR); v.inv.set(d.inv); sewn = false; simTime = 0; d.diverged = true; }
       jsNormals(v, n, t);
       return mv;
@@ -475,6 +477,8 @@ function fill(v, d) {
   v.sk.set(d.SK);
   v.col.set(d.colliders);
   v.tri.set(d.allTris);
+  v.bst.set(d.bins.start);
+  v.bix.set(d.bins.idx);
 }
 
 // ---------- JS fallback (mirrors sim-core/src/lib.rs) ----------
@@ -500,7 +504,7 @@ function dist(pos, inv, i, j, rest, k, compress, limit) {
   pos[j3] -= dx * sc * wj; pos[j3 + 1] -= dy * sc * wj; pos[j3 + 2] -= dz * sc * wj;
 }
 
-function jsStep(v, n, m, s, c, substeps, dt, gravity, damping, sewRate, sewMin, thick, compress) {
+function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, sewMin, thick, compress) {
   const { pos, prev, inv, fric, ci, rest, kc, lim, si, srest, sk, col } = v;
   const h = dt / substeps;
   const g = -gravity * h * h;
@@ -523,22 +527,26 @@ function jsStep(v, n, m, s, c, substeps, dt, gravity, damping, sewRate, sewMin, 
       const b = p * 3;
       let x = pos[b]; let y = pos[b + 1]; let z = pos[b + 2];
       let hit = false;
-      for (let k = 0; k < c; k++) {
-        const o = k * 8;
-        const zs = col[o + 7];
-        const ax = col[o]; const ay = col[o + 1]; const az = col[o + 2] / zs;
-        const ex = col[o + 3] - ax; const ey = col[o + 4] - ay; const ez = col[o + 5] / zs - az;
+      let bi = Math.floor((y - bins.y0) * bins.inv); bi = bi < 0 ? 0 : bi >= bins.nb ? bins.nb - 1 : bi;
+      for (let kk = bins.start[bi]; kk < bins.start[bi + 1]; kk++) {
+        const k = bins.idx[kk];
+        const o = k * 9;
         const r = col[o + 6] + thick;
-        const qz = z / zs;
+        const zs = col[o + 7]; const ys = col[o + 8];
+        const ex_ = r; const ey_ = r * ys; const ez_ = r * zs;
+        if (x < Math.min(col[o], col[o + 3]) - ex_ || x > Math.max(col[o], col[o + 3]) + ex_ || y < Math.min(col[o + 1], col[o + 4]) - ey_ || y > Math.max(col[o + 1], col[o + 4]) + ey_ || z < Math.min(col[o + 2], col[o + 5]) - ez_ || z > Math.max(col[o + 2], col[o + 5]) + ez_) continue;
+        const ax = col[o]; const ay = col[o + 1] / ys; const az = col[o + 2] / zs;
+        const ex = col[o + 3] - ax; const ey = col[o + 4] / ys - ay; const ez = col[o + 5] / zs - az;
+        const qy = y / ys; const qz = z / zs;
         const ee = ex * ex + ey * ey + ez * ez;
-        let t = ee > 0 ? ((x - ax) * ex + (y - ay) * ey + (qz - az) * ez) / ee : 0;
+        let t = ee > 0 ? ((x - ax) * ex + (qy - ay) * ey + (qz - az) * ez) / ee : 0;
         t = t < 0 ? 0 : t > 1 ? 1 : t;
         const cx = ax + ex * t; const cy = ay + ey * t; const cz = az + ez * t;
-        const dx = x - cx; const dy = y - cy; const dz = qz - cz;
+        const dx = x - cx; const dy = qy - cy; const dz = qz - cz;
         const d2 = dx * dx + dy * dy + dz * dz;
         if (d2 < r * r && d2 > 1e-12) {
           const f = r / Math.sqrt(d2);
-          x = cx + dx * f; y = cy + dy * f; z = (cz + dz * f) * zs;
+          x = cx + dx * f; y = (cy + dy * f) * ys; z = (cz + dz * f) * zs;
           hit = true;
         }
       }
@@ -560,7 +568,7 @@ function jsStep(v, n, m, s, c, substeps, dt, gravity, damping, sewRate, sewMin, 
     }
     for (let e = 0; e < m; e++) dist(pos, inv, ci[e * 2], ci[e * 2 + 1], rest[e], kc[e], compress, lim[e]);
     for (let e = m - 1; e >= 0; e--) dist(pos, inv, ci[e * 2], ci[e * 2 + 1], rest[e], kc[e], compress, lim[e]);
-    for (let e = 0; e < s; e++) dist(pos, inv, si[e * 2], si[e * 2 + 1], srest[e], sk[e], 1, 1e9);
+    for (let it = 0; it < 3; it++) for (let e = 0; e < s; e++) dist(pos, inv, si[e * 2], si[e * 2 + 1], srest[e], sk[e], 1, 1e9);
     if (sub === substeps - 1) {
       for (let p = 0; p < n * 3; p += 3) {
         const dx = pos[p] - prev[p]; const dy = pos[p + 1] - prev[p + 1]; const dz = pos[p + 2] - prev[p + 2];

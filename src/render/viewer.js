@@ -17,7 +17,8 @@ import { resolveTrim } from '../core/trims.js';
 import { resolveStitch } from '../core/assembly.js';
 import { DYES } from '../core/color.js';
 import { bodyFor } from '../core/sizes.js';
-import { buildAvatar } from '../sim/avatar.js';
+import { buildAvatar, gradePoint } from '../sim/avatar.js';
+import { MANNEQUINS } from '../sim/mannequins.js';
 import { panelAnchor } from '../sim/cloth.js';
 import { fabricTextures } from './textures.js';
 import { buildJewelry, metalMaterial, gemMaterial } from './jewelry3d.js';
@@ -136,7 +137,7 @@ export class Viewer {
   showAvatar(project) {
     this.avatarGroup.clear();
     this.stand.clear();
-    const mat = new THREE.MeshStandardMaterial({ color: '#8f97a3', roughness: 0.6, metalness: 0.05 }); // cool grey mannequin contrasts with fabrics
+    const mat = this._mannequinMat ||= new THREE.MeshStandardMaterial({ color: '#9aa1ab', roughness: 0.55, metalness: 0.02 }); // cool grey mannequin contrasts with fabrics
     if (project.mode === 'jewelry') { this.floor.visible = false; return; }
     this.floor.visible = true;
     if (project.display?.avatar === false) {
@@ -146,7 +147,47 @@ export class Viewer {
       for (const c of project.colliders || []) this.stand.add(this.capsule(c, new THREE.MeshStandardMaterial({ color: '#cfcac2', transparent: true, opacity: 0.0 })));
       return;
     }
-    for (const c of buildAvatar(bodyFor(project))) this.avatarGroup.add(this.capsule(c, mat));
+    const body = bodyFor(project);
+    const key = `${body.mannequin}:${body.hs}:${body.gs}:${body.hipS}`;
+    if (this._mannequinKey === key && this._mannequinMesh) { this.avatarGroup.add(this._mannequinMesh); return; }
+    // capsule stand-in until the mesh has loaded
+    for (const c of buildAvatar(body)) this.avatarGroup.add(this.capsule(c, mat));
+    this.loadMannequin(body, key, mat);
+  }
+
+  /** CC0 MakeHuman mannequin, graded with the same transform as the colliders. */
+  async loadMannequin(body, key, mat) {
+    try {
+      this._mannequinSrc ||= {};
+      if (!this._mannequinSrc[body.mannequin]) {
+        const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+        const url = `${import.meta.env?.BASE_URL || './'}models/mannequin-${body.mannequin}.glb`;
+        const gltf = await new GLTFLoader().loadAsync(url);
+        let geo = null;
+        gltf.scene.traverse((o) => { if (o.isMesh && !geo) geo = o.geometry; });
+        this._mannequinSrc[body.mannequin] = geo;
+      }
+      const src = this._mannequinSrc[body.mannequin];
+      const M = MANNEQUINS[body.mannequin];
+      const g = src.clone();
+      const p = g.attributes.position;
+      let minY = Infinity; for (let i = 0; i < p.count; i++) minY = Math.min(minY, p.getY(i));
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i) * M.scale; const y = (p.getY(i) - minY) * M.scale; const z = p.getZ(i) * M.scale - M.zOffset;
+        p.setXYZ(i, ...gradePoint(body, x, y, z));
+      }
+      g.computeVertexNormals();
+      g.computeBoundingSphere();
+      const mesh = new THREE.Mesh(g, mat);
+      if (this._mannequinKey !== key) this._mannequinMesh?.geometry.dispose();
+      this._mannequinKey = key;
+      this._mannequinMesh = mesh;
+      if (this.project?.mode !== 'jewelry' && this.project?.display?.avatar !== false && key === `${bodyFor(this.project).mannequin}:${bodyFor(this.project).hs}:${bodyFor(this.project).gs}:${bodyFor(this.project).hipS}`) {
+        this.avatarGroup.clear();
+        this.avatarGroup.add(mesh);
+        this.dirty = true;
+      }
+    } catch (e) { console.warn('mannequin load failed, using capsules', e); }
   }
 
   capsule(c, mat) {
