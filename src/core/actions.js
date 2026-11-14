@@ -269,6 +269,8 @@ export function applyAction(project, action) {
         }
       }
       if (a.fabric && a.garment) garmentOf(p, a.garment).fabric = a.fabric;
+      // pieces fitted to the body (gloves, hosiery) and tied pieces have no flat panels: re-make them in the new material
+      if (a.fabric) for (const g of p.garments || []) { if ((a.garment && g.id !== a.garment) || p.panels.some((x) => x.garment === g.id)) continue; g.fabric = a.fabric; mergeGarment(p, g); }
       result = `fabric set on ${targets.length} panel(s)`;
       break;
     }

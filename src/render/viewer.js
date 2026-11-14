@@ -265,12 +265,16 @@ export class Viewer {
     let toeZ = -9; let heelZ = 9;
     for (let i = 0; i < pos.count; i++) if (ref[i * 3 + 1] < 0.05) { toeZ = Math.max(toeZ, ref[i * 3 + 2]); heelZ = Math.min(heelZ, ref[i * 3 + 2]); }
     for (const sh of project.shells) {
-      const top = legwearTop(sh.type, body.mannequin);
+      const hand = sh.part === 'hand';
+      const top = hand ? 0 : legwearTop(sh.type, body.mannequin);
+      // gloves: find the wrist (the narrowest part of the forearm) on this mannequin
+      let wristX = L.armStartX + 0.53;
+      if (hand) { let best = 9; for (let x = L.armStartX + 0.38; x < L.armStartX + 0.62; x += 0.008) { let r = 0; let n = 0; for (let i = 0; i < pos.count; i++) { const rx = ref[i * 3]; if (rx > x && rx < x + 0.008) { r = Math.max(r, Math.hypot(ref[i * 3 + 1] - L.armY, ref[i * 3 + 2])); n++; } } if (n > 3 && r < best) { best = r; wristX = x; } } }
       // The foot of a sock or stocking is one smooth pouch: it bridges the gaps between the toes
       // instead of following each toe. The toe area is relaxed like stretched knit, then kept
       // outside the foot by the fabric thickness.
       const mitt = new Map(); const caps = []; let capZ = 9; // capZ: forward of this (reference frame) the toe cap replaces the per-toe surface
-      if (!sh.footless) {
+      if (!sh.footless && !hand) {
         // envelope of the forefoot: for every slice along the foot and every direction round it,
         // the furthest the foot reaches. The sock lies on that envelope, bridging between the toes.
         const z0 = toeZ - 0.085; const SL = 0.004; const NA = 20;
@@ -308,8 +312,37 @@ export class Viewer {
         }
         this._shellField = bodyField(body);
       }
-      const regions = [{ from: sh.footless ? 0.07 : -1, to: top, look: sh.look, off: sh.thickness }];
-      for (const b of sh.bands || []) regions.push({ from: top + b.from, to: top + b.to, look: b.look, off: sh.thickness * 1.6 });
+      if (hand && sh.mitten) {
+        // mitten: the four fingers (and here the thumb) share one pouch. Built in the straight-arm
+        // reference pose as an envelope round the hand, then posed with the arm.
+        const x0 = wristX + 0.075; const SL = 0.004; const NA = 18;
+        for (const sd of [1, -1]) {
+          const vs = []; for (let i = 0; i < pos.count; i++) if (ref[i * 3] * sd > x0 && Math.abs(ref[i * 3 + 1] - L.armY) < 0.16) vs.push(i);
+          if (!vs.length) continue;
+          const xmax = Math.max(...vs.map((i) => ref[i * 3] * sd)); const nz = Math.ceil((xmax - x0) / SL) + 1;
+          const cy = new Float32Array(nz); const cz = new Float32Array(nz); const cn = new Float32Array(nz);
+          const ki = (i) => Math.min(nz - 1, Math.max(0, Math.round((ref[i * 3] * sd - x0) / SL)));
+          for (const i of vs) { const k = ki(i); cy[k] += ref[i * 3 + 1]; cz[k] += ref[i * 3 + 2]; cn[k]++; }
+          let ly = L.armY; let lz = 0; for (let k = 0; k < nz; k++) { if (cn[k]) { cy[k] /= cn[k]; cz[k] /= cn[k]; ly = cy[k]; lz = cz[k]; } else { cy[k] = ly; cz[k] = lz; } }
+          for (let it = 0; it < 4; it++) for (let k = 1; k < nz - 1; k++) { cy[k] = (cy[k - 1] + 2 * cy[k] + cy[k + 1]) / 4; cz[k] = (cz[k - 1] + 2 * cz[k] + cz[k + 1]) / 4; }
+          const R = new Float32Array(nz * NA);
+          for (const i of vs) { const k = ki(i); const a = (Math.round(((Math.atan2(ref[i * 3 + 2] - cz[k], ref[i * 3 + 1] - cy[k]) + Math.PI) / (2 * Math.PI)) * NA) % NA + NA) % NA; const r = Math.hypot(ref[i * 3 + 1] - cy[k], ref[i * 3 + 2] - cz[k]); if (r > R[k * NA + a]) R[k * NA + a] = r; }
+          for (let it = 0; it < 14; it++) for (let k = 0; k < nz; k++) for (let a = 0; a < NA; a++) { const l = R[k * NA + (a + NA - 1) % NA]; const r = R[k * NA + (a + 1) % NA]; const f = R[Math.max(0, k - 1) * NA + a]; const g2 = R[Math.min(nz - 1, k + 1) * NA + a]; R[k * NA + a] = Math.max(R[k * NA + a], (l + r) / 2 * 0.985, (f + g2) / 2 * 0.97); }
+          const pad = sh.thickness + 0.002;
+          const ring = (k, sc, dx = 0) => { const out = []; for (let a = 0; a < NA; a++) { const th = (a / NA) * 2 * Math.PI - Math.PI; const rr = (R[k * NA + a] + pad) * sc; const w = gradePoint(body, sd * (x0 + k * SL + dx), cy[k] + Math.cos(th) * rr, cz[k] + Math.sin(th) * rr); const c0 = gradePoint(body, sd * (x0 + k * SL + dx), cy[k], cz[k]); out.push({ p: w, n: [w[0] - c0[0], w[1] - c0[1], w[2] - c0[2]] }); } return out; };
+          const rings = []; for (let k = 0; k < nz; k++) rings.push(ring(k, 1));
+          rings.push(ring(nz - 1, 0.74, 0.005), ring(nz - 1, 0.38, 0.008));
+          const tipP = gradePoint(body, sd * (x0 + (nz - 1) * SL + 0.0095), cy[nz - 1], cz[nz - 1]); const b0 = gradePoint(body, sd * (x0 + (nz - 1) * SL), cy[nz - 1], cz[nz - 1]); const tip = { p: tipP, n: [tipP[0] - b0[0], tipP[1] - b0[1], tipP[2] - b0[2]] };
+          const tri = []; const nrm = []; const put = (v) => { const l = Math.hypot(...v.n) || 1; tri.push(v.p); nrm.push([v.n[0] / l, v.n[1] / l, v.n[2] / l]); };
+          for (let q = 0; q + 1 < rings.length; q++) for (let a = 0; a < NA; a++) { const b2 = (a + 1) % NA; for (const v of [rings[q][a], rings[q + 1][a], rings[q][b2], rings[q][b2], rings[q + 1][a], rings[q + 1][b2]]) put(v); }
+          const lastR = rings[rings.length - 1]; for (let a = 0; a < NA; a++) for (const v of [lastR[a], tip, lastR[(a + 1) % NA]]) put(v);
+          caps.push({ tri, nrm });
+        }
+      }
+      const regions = hand
+        ? [{ hand: { x0: wristX - sh.cuff, x1: sh.fingerless ? wristX + 0.105 : sh.mitten ? wristX + 0.09 : 9 }, look: sh.look, off: sh.thickness }]
+        : [{ from: sh.footless ? 0.07 : -1, to: top, look: sh.look, off: sh.thickness }];
+      for (const b of sh.bands || []) regions.push(hand ? { hand: Math.abs(b.from) <= 0.031 ? { x0: wristX + b.from, x1: wristX + b.to } : { x0: wristX - sh.cuff, x1: wristX - sh.cuff + (b.to - b.from) }, look: b.look, off: sh.thickness * 1.35 } : { from: top + b.from, to: top + b.to, look: b.look, off: sh.thickness * 1.6 });
       if (sh.toe) regions.push({ from: -1, to: 0.06, zMin: toeZ - 0.06, look: sh.toe.look, off: sh.thickness * 1.4 });
       if (sh.heel) regions.push({ from: -1, to: sh.heel.cuban ? 0.09 : 0.07, zMax: heelZ + 0.05, look: sh.heel.look, off: sh.thickness * 1.4 });
       for (const rg of regions) {
@@ -319,12 +352,13 @@ export class Viewer {
           let ok = true;
           for (const i of ids) {
             const x = ref[i * 3]; const y = ref[i * 3 + 1]; const z = ref[i * 3 + 2];
+            if (rg.hand) { if (Math.abs(x) < rg.hand.x0 || Math.abs(x) > rg.hand.x1 || Math.abs(y - L.armY) > 0.17) { ok = false; break; } continue; }
             if (y > rg.to || y < rg.from) { ok = false; break; }
             if (Math.abs(x) > L.armStartX && y > L.crotchY) { ok = false; break; } // never the arms
             if (rg.zMin != null && z < rg.zMin) { ok = false; break; }
             if (rg.zMax != null && z > rg.zMax) { ok = false; break; }
           }
-          if (ok && caps.length && ids.every((i) => ref[i * 3 + 2] > capZ && ref[i * 3 + 1] < 0.085)) ok = false;
+          if (ok && caps.length && !hand && ids.every((i) => ref[i * 3 + 2] > capZ && ref[i * 3 + 1] < 0.085)) ok = false;
           if (!ok) continue;
           for (const i of ids) {
             const x = ref[i * 3]; const y = ref[i * 3 + 1]; const z = ref[i * 3 + 2];
@@ -340,7 +374,7 @@ export class Viewer {
             UV.push((ang * 0.07) / 0.1, y / 0.1);
           }
         }
-        if (rg === regions[0]) for (const c of caps) for (const q of c.tri) { const k = Math.min(c.nz - 1, Math.max(0, Math.round((q[2] - c.zmin) / c.SL))); let nx = q[0] - c.cx[k]; let ny = q[1] - c.cy[k]; const nl = Math.hypot(nx, ny) || 1; P.push(q[0], q[1], q[2]); N.push(nx / nl * 0.94, ny / nl * 0.94, 0.34); UV.push((Math.atan2(ny, nx) * 0.07) / 0.1, q[1] / 0.1); }
+        if (rg === regions[0]) for (const c of caps) { if (c.nrm) { c.tri.forEach((q, qi) => { P.push(q[0], q[1], q[2]); N.push(c.nrm[qi][0], c.nrm[qi][1], c.nrm[qi][2]); UV.push(q[1] / 0.1, q[0] / 0.1); }); continue; } for (const q of c.tri) { const k = Math.min(c.nz - 1, Math.max(0, Math.round((q[2] - c.zmin) / c.SL))); let nx = q[0] - c.cx[k]; let ny = q[1] - c.cy[k]; const nl = Math.hypot(nx, ny) || 1; P.push(q[0], q[1], q[2]); N.push(nx / nl * 0.94, ny / nl * 0.94, 0.34); UV.push((Math.atan2(ny, nx) * 0.07) / 0.1, q[1] / 0.1); } }
         if (!P.length) continue;
         const sg = new THREE.BufferGeometry();
         sg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));

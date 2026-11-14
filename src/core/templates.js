@@ -11,7 +11,7 @@ import { GENERATORS, defaultOptions } from './blocks.js';
 
 const g = (generator, options = {}, extra = {}) => ({ generator, options, ...extra });
 
-export const TEMPLATE_GROUPS = ['T-shirts & tanks', 'Shirts & polos', 'Sweats & hoodies', 'Jackets', 'Tailoring & suits', 'Coats', 'Dresses', 'Trousers & jeans', 'Shorts', 'Knitwear', 'Underwear & lingerie', 'Hosiery & socks', 'Skirts', 'Accessories', 'Hats', 'Bags'];
+export const TEMPLATE_GROUPS = ['T-shirts & tanks', 'Shirts & polos', 'Sweats & hoodies', 'Jackets', 'Tailoring & suits', 'Coats', 'Dresses', 'Trousers & jeans', 'Shorts', 'Knitwear', 'Underwear & lingerie', 'Hosiery & socks', 'Gloves & mittens', 'Skirts', 'Accessories', 'Hats', 'Bags'];
 
 export const TEMPLATES = {
   // ---------- T-shirts & tanks ----------
@@ -189,6 +189,22 @@ export const TEMPLATES = {
   'knee-socks': { name: 'Knee-high socks', group: 'Hosiery & socks', audience: 'Unisex', garments: [g('legwear', { type: 'knee-high', pattern: 'cable', yarn: 'merino-socks', color: '#e8e0cc', topBand: 'rib' })] },
   'over-knee-socks': { name: 'Over-the-knee socks', group: 'Hosiery & socks', audience: "Women's", garments: [g('legwear', { type: 'over-knee', pattern: 'stripes', yarn: 'cotton-socks', color: '#111111', color2: '#f2f0ea', topBand: 'rib' })] },
 
+  // ---------- Gloves & mittens ----------
+  'leather-gloves': { name: 'Leather dress gloves', group: 'Gloves & mittens', garments: [g('glove', { type: 'dress', lining: 'silk' }, { fabric: 'leather-lambskin', stitch: 'lockstitch-301' })], why: 'Table-cut hairsheep or lambskin 0.5-0.7 mm, quirks and fourchettes, three points on the back, silk lined.' },
+  'leather-gloves-cashmere': { name: 'Cashmere-lined leather gloves', group: 'Gloves & mittens', garments: [g('glove', { type: 'winter', lining: 'cashmere' }, { fabric: 'leather-lambskin', stitch: 'lockstitch-301' })], why: 'Nappa lambskin with a knitted cashmere lining; cut half a size up.' },
+  'driving-gloves': { name: 'Driving gloves', group: 'Gloves & mittens', garments: [g('glove', { type: 'driving', closure: 'snap', seams: 'outseam (prix)' }, { fabric: 'leather-goatskin', stitch: 'lockstitch-301' })], why: 'Unlined, open knuckles, perforated fingers, press stud at the wrist.' },
+  'peccary-gloves': { name: 'Peccary gloves (hand-stitched)', group: 'Gloves & mittens', garments: [g('glove', { type: 'dress', seams: 'hand-stitched' }, { fabric: 'leather-peccary', stitch: 'lockstitch-301' })], why: 'The most durable soft glove leather, sewn by hand with outseams.' },
+  'deerskin-gloves': { name: 'Deerskin gloves', group: 'Gloves & mittens', garments: [g('glove', { type: 'winter', lining: 'wool' }, { fabric: 'leather-deerskin', stitch: 'lockstitch-301' })], why: 'Soft, stays supple after getting wet.' },
+  'opera-gloves': { name: 'Opera gloves', group: 'Gloves & mittens', garments: [g('glove', { type: 'opera' }, { fabric: 'leather-kidskin', stitch: 'lockstitch-301' })], why: 'Kidskin to above the elbow.' },
+  'motorcycle-gauntlets': { name: 'Motorcycle gauntlets', group: 'Gloves & mittens', garments: [g('glove', { type: 'gauntlet', closure: 'strap-buckle', lining: 'thinsulate' }, { fabric: 'leather-kangaroo', stitch: 'lockstitch-301' })], why: 'Kangaroo or goat palm, flared cuff over the jacket sleeve, wrist strap.' },
+  'work-gloves': { name: 'Work gloves', group: 'Gloves & mittens', garments: [g('glove', { type: 'work', closure: 'elastic-gather' }, { fabric: 'leather-cowhide', stitch: 'lockstitch-301' })], why: 'Grain cowhide, keystone thumb, shirred elastic wrist.' },
+  'fingerless-gloves': { name: 'Fingerless leather gloves', group: 'Gloves & mittens', garments: [g('glove', { type: 'fingerless', closure: 'snap' }, { fabric: 'leather-goatskin', stitch: 'lockstitch-301' })], why: 'Cut at the first knuckle; wrist snap.' },
+  'suede-gloves': { name: 'Suede gloves', group: 'Gloves & mittens', garments: [g('glove', { type: 'dress' }, { fabric: 'leather-goat-suede', stitch: 'lockstitch-301' })], why: 'Fine goat suede, unlined.' },
+  'leather-mittens': { name: 'Leather mittens', group: 'Gloves & mittens', garments: [g('glove', { type: 'mittens', lining: 'fleece' }, { fabric: 'leather-deerskin', stitch: 'lockstitch-301' })], why: 'Deerskin or elk shell, fleece or wool liner.' },
+  'shearling-mittens': { name: 'Shearling mittens', group: 'Gloves & mittens', garments: [g('glove', { type: 'shearling-mittens', lining: 'none' }, { fabric: 'shearling-double-face', stitch: 'lockstitch-301' })], why: 'Double-face sheepskin, wool inside.' },
+  'knit-gloves': { name: 'Knitted wool gloves', group: 'Gloves & mittens', garments: [g('glove', { type: 'knit-gloves', closure: 'rib-cuff', points: 'no' }, { fabric: 'rib-knit-wool', stitch: 'lockstitch-301' })], why: 'Seamless knit, rib cuff.' },
+  'knit-mittens': { name: 'Knitted mittens', group: 'Gloves & mittens', garments: [g('glove', { type: 'knit-mittens', closure: 'rib-cuff', points: 'no' }, { fabric: 'rib-knit-wool', stitch: 'lockstitch-301' })], why: 'Rib cuff, thumb gusset, decreases at the tip.' },
+  'faux-leather-gloves': { name: 'Faux leather gloves', group: 'Gloves & mittens', garments: [g('glove', { type: 'winter', lining: 'fleece' }, { fabric: 'faux-pu-soft', stitch: 'lockstitch-301' })], why: 'PU shell with a fleece lining; animal-free.' },
   // ---------- Skirts ----------
   'skirt-aline': { name: 'A-line skirt', group: 'Skirts', garments: [g('skirt', { length: 58, flare: 14, waistband: 'button' }, { fabric: 'denim', stitch: 'safety-516' })] },
   'skirt-pencil': { name: 'Pencil skirt', group: 'Skirts', garments: [g('skirt', { length: 62, flare: -3, waistband: 'facing', slit: 'back' }, { fabric: 'wool-worsted-suiting', stitch: 'lockstitch-301' })] },
