@@ -105,6 +105,10 @@ button.pill:hover { background: var(--surface); }
 .dot.ok { background: var(--ok); }
 @keyframes pulse { 50% { opacity: .35; } }
 .place-hint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); }
+.pattern-help, .pattern-conn { position: absolute; z-index: 7; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 12px 14px; font-size: 13px; line-height: 1.45; }
+.pattern-help ol { margin: 8px 0 0; padding-left: 18px; } .pattern-help li { margin-bottom: 6px; }
+.pattern-conn { display: grid; gap: 8px; width: 320px; } .pattern-conn[hidden], .pattern-help[hidden] { display: none; }
+.pattern-conn label { display: grid; gap: 3px; font-size: 12px; color: var(--muted); } .pattern-conn .row { display: flex; align-items: center; gap: 6px; } .pattern-conn .grow { flex: 1; } .pattern-conn .s { font-size: 12px; color: var(--muted); }
 .pattern-tools { position: absolute; display: none; flex-wrap: wrap; gap: 6px; z-index: 6; }
 .pattern-tools .btn { background: var(--surface); box-shadow: var(--shadow); }
 .pattern-tools .btn.primary { background: var(--accent); }

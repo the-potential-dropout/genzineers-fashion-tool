@@ -789,8 +789,9 @@ export class Viewer {
       const front = [new THREE.Vector3(0, pr.y, 0.2)];
       { const f = project.display?.avatar === false ? null : bodyField(bodyFor(project)); const o4 = [0, 0, 0, 0]; const lift = pr.kind === 'bowtie' ? 0.012 : 0.016; if (f) for (let z = 0.2; z > -0.05; z -= 0.003) { front[0].z = z; if (sampleField(f, 0, pr.y, z, o4) && o4[0] <= lift) break; } }
       if (pr.band) {
-        const ring = []; for (let k = 0; k <= 40; k++) { const a = (k / 40) * Math.PI * 2; ring.push(new THREE.Vector3(Math.sin(a) * 0.12, pr.y + 0.012 + 0.012 * Math.cos(a) * -1, -0.01 + Math.cos(a) * 0.12)); }
-        const band = new THREE.Mesh(this.bodyRibbon(ring, pr.kind === 'bowtie' ? 0.019 : 0.03, 0.006), mat); band.frustumCulled = false;
+        const ring = []; for (let k = 0; k <= 40; k++) { const a = (k / 40) * Math.PI * 2; ring.push(new THREE.Vector3(Math.sin(a) * 0.12, pr.y + (pr.kind === 'bowtie' ? 0.012 : 0.008) + 0.012 * Math.cos(a) * -1, -0.01 + Math.cos(a) * 0.12)); }
+        if (pr.kind !== 'bowtie') ring.splice(0, 4), ring.splice(-4, 4); // open at the front: the straps take over there
+        const band = new THREE.Mesh(this.bodyRibbon(ring, pr.kind === 'bowtie' ? 0.019 : 0.028, 0.0085), mat); band.frustumCulled = false;
         this.garment.add(band);
       }
       if (pr.kind === 'tie-knot') {
@@ -800,13 +801,15 @@ export class Viewer {
         const thick = Math.max(0.0018, ((fabT.thicknessMm || 0.3) * 2 + 0.9) / 1000); // shell, folded, over an interlining
         const K = TIE_KNOTS[pr.style] || TIE_KNOTS['four-in-hand'];
         const knot = tieKnot(pr.style, mat, edge);
-        const o = front[0]; const top = o.y + K.height * 0.005; // knot hangs from just under the collar button
+        // The knot sits in the collar gap with its top tucked under the collar: just below the top of the
+        // collar stand, and far enough in front of the shirt front that the two never intersect.
+        const o = front[0]; const top = o.y + 0.004; o.z += 0.004;
         knot.position.set(o.x, top, o.z + 0.002);
         this.garment.add(knot);
         const V = (x, y, z) => new THREE.Vector3(o.x + x, top + y, o.z + z);
         if (pr.band) for (const sd of [1, -1]) { // straps from the shoulders of the knot up and back round the neck
-          const pts = new THREE.CatmullRomCurve3([V(sd * K.top * 0.0032, -0.004, 0.004), V(sd * (K.top * 0.005 + 0.012), 0.012, -0.004), V(sd * 0.055, 0.02, -0.03), V(sd * 0.085, 0.024, -0.07)]).getPoints(16);
-          const tail3 = pts.slice(6); this.hugBody(tail3, 0.007);
+          const pts = new THREE.CatmullRomCurve3([V(sd * K.top * 0.003, -0.006, 0.002), V(sd * (K.top * 0.005 + 0.01), 0.004, -0.006), V(sd * 0.052, 0.012, -0.03), V(sd * 0.082, 0.016, -0.07)]).getPoints(16);
+          const tail3 = pts.slice(5); this.hugBody(tail3, 0.0085); // lies on the shirt's collar stand, under the collar fall
           const m2 = clothBand(pts, pts.map(() => new THREE.Vector3(0, 0.35, 1).normalize()), () => 0.0155, thick * 0.9, mat); this.garment.add(m2);
         }
         { // the narrow end hangs behind the blade

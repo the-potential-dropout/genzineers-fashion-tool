@@ -16,6 +16,8 @@
  * Editing: drag a point, double-click an edge to add a point, right-click /
  * long-press a point to delete it. Wheel / pinch zooms, drag pans.
  */
+import { ASSEMBLY, ASSEMBLY_GROUPS, THREADS } from '../core/assembly.js';
+
 const COLORS = ['#ff5a1f', '#2f6bff', '#1f8a4c', '#a63fd6', '#c79a00', '#d6336c', '#00a3a3', '#6b4f2a', '#5f6caf', '#b34d00', '#3d8b8b', '#8a3ffc'];
 const letter = (i) => (i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(65 + Math.floor(i / 26) - 1) + String.fromCharCode(65 + (i % 26)));
 
@@ -62,6 +64,37 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
   const bar = document.createElement('div');
   bar.className = 'pattern-tools';
   canvas.parentElement.append(bar);
+  // ---- "how do I" guide and the connection editor (shown over the canvas) ----
+  const help = document.createElement('div'); help.className = 'pattern-help'; help.hidden = true;
+  help.innerHTML = `<b>Make and join pattern pieces</b>
+    <ol>
+      <li><b>New piece:</b> press <i>✎ Draw piece</i>, click to place each corner, then double-click (or click the first point) to close it. Drag points to refine; double-click an edge to add a point; right-click a point to delete it.</li>
+      <li><b>Connect two edges:</b> press <i>⧓ Sew edges</i>, click one edge, then the edge it joins. The two edges take the same colour and letter, and the garment is sewn in the 3D view.</li>
+      <li><b>Choose how they are joined:</b> click a connected edge. A panel opens where you pick the method: any machine stitch, a seam construction, hand stitching, glue or bonding, welding, taping, or rivets, plus the thread.</li>
+      <li><b>Edit or undo a connection:</b> click the edge again to change the method, or press <i>Remove connection</i>. Ctrl+Z undoes any step.</li>
+      <li><b>Check it:</b> turn on <i>Pattern: split</i> (top bar) to see the piece and the sewn garment side by side; <i>One piece</i> shows sizes and seam lengths.</li>
+    </ol>`;
+  const conn = document.createElement('div'); conn.className = 'pattern-conn'; conn.hidden = true;
+  canvas.parentElement.append(help, conn);
+  const closeConn = () => { conn.hidden = true; };
+  function openConn(seam, i, a, b, len) {
+    const p = store.get();
+    const mk = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (k === 'class') e.className = v; else if (v != null && v !== false) e.setAttribute(k, v); } for (const c of kids.flat()) if (c != null) e.append(c); return e; };
+    const methods = mk('select', { 'aria-label': 'How the edges are joined', onchange: (e) => { store.dispatch({ type: 'set_stitch', seam: seam.id, stitch: e.target.value }); toast(`Seam ${letter(i)}: ${ASSEMBLY[e.target.value].name}`); } },
+      Object.entries(ASSEMBLY_GROUPS).map(([gk, gname]) => mk('optgroup', { label: gname }, Object.entries(ASSEMBLY).filter(([, v]) => v.method === gk).map(([id, v]) => mk('option', { value: id, selected: id === seam.stitch ? '' : null }, v.name)))));
+    const threads = mk('select', { 'aria-label': 'Thread', onchange: (e) => store.dispatch({ type: 'set_stitch', seam: seam.id, thread: e.target.value }) }, Object.entries(THREADS).map(([id, v]) => mk('option', { value: id, selected: id === (seam.thread || 'poly-corespun') ? '' : null }, v.name)));
+    const m = ASSEMBLY[seam.stitch];
+    conn.replaceChildren(
+      mk('div', { class: 'row' }, mk('b', {}, `Connection ${letter(i)}`), mk('span', { class: 'grow' }), mk('button', { class: 'btn ghost icon', 'aria-label': 'Close', onclick: closeConn }, '✕')),
+      mk('div', { class: 's' }, `${a.name} ↔ ${b ? b.name : '?'} · ${len.toFixed(1)} cm`),
+      mk('label', {}, mk('span', {}, 'Joined by'), methods),
+      m ? mk('div', { class: 's' }, `${m.use || ''}${m.machine ? ` Machine: ${m.machine}.` : ''}`) : null,
+      ['bond', 'weld'].includes(m?.method) ? null : mk('label', {}, mk('span', {}, 'Thread'), threads),
+      mk('label', {}, mk('span', {}, 'Thread colour'), mk('input', { type: 'color', value: seam.threadColor || '#d8d2c4', onchange: (e) => store.dispatch({ type: 'set_stitch', seam: seam.id, threadColor: e.target.value }) })),
+      mk('button', { class: 'btn sm', onclick: () => { store.dispatch({ type: 'remove_seam', id: seam.id }); closeConn(); picked = null; toast(`Connection ${letter(i)} removed`); } }, 'Remove connection'));
+    conn.hidden = false;
+    void p;
+  }
   const btn = (label, title, on, fn) => { const b = document.createElement('button'); b.className = `btn sm ${on ? 'primary' : ''}`; b.textContent = label; b.title = title; b.onclick = (e) => { e.stopPropagation(); fn(); renderBar(); draw(); }; return b; };
   function renderBar() {
     const p = store.get();
@@ -77,6 +110,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
       btn('Details', 'Pockets, plackets, buttons and other placements', opt.details, () => { opt.details = !opt.details; }),
       btn('✎ Draw piece', 'Click to place points; double-click (or click the first point) to close the piece', opt.tool === 'draw', () => { opt.tool = opt.tool === 'draw' ? 'edit' : 'draw'; draft = []; sewA = null; }),
       btn('⧓ Sew edges', 'Click one edge, then the edge it is sewn to', opt.tool === 'sew', () => { opt.tool = opt.tool === 'sew' ? 'edit' : 'sew'; sewA = null; draft = []; }),
+      btn('? How to', 'How to draw pieces, connect them and edit connections', !help.hidden, () => { help.hidden = !help.hidden; }),
       btn('Blank canvas', 'Start a design from scratch with no pieces', false, () => { if (confirm('Start a blank design? Your current design stays in undo and in your collection if saved.')) { store.dispatch({ type: 'new_blank' }); opt.tool = 'draw'; } }),
     );
   }
@@ -88,6 +122,8 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
     const pr = canvas.parentElement.getBoundingClientRect();
     bar.style.left = `${r.left - pr.left + 8}px`; bar.style.top = `${r.top - pr.top + 8}px`; bar.style.maxWidth = `${Math.max(120, r.width - 16)}px`;
     bar.style.display = r.width > 2 && getComputedStyle(canvas).display !== 'none' ? 'flex' : 'none';
+    for (const el2 of [help, conn]) { el2.style.left = `${r.left - pr.left + 10}px`; el2.style.maxWidth = `${Math.max(200, Math.min(380, r.width - 20))}px`; if (bar.style.display === 'none') el2.hidden = true; }
+    help.style.top = `${r.top - pr.top + 92}px`; conn.style.top = `${r.top - pr.top + 92}px`; conn.style.left = `${Math.max(r.left - pr.left + 10, r.right - pr.left - 330)}px`;
     draw();
   }
   new ResizeObserver(resize).observe(canvas);
@@ -358,9 +394,9 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
     if (d.kind === 'pan' && d.h?.kind === 'edge') {
       // click an edge: show what it sews to
       const p = store.get(); const sd = seamSides(p, d.h.pan).get(d.h.i);
-      if (sd) { const o = sd.seam[sd.side === 'a' ? 'b' : 'a']; const op = p.panels.find((x) => x.id === o.panel); picked = { seam: sd.seam.id, text: `Seam ${letter(sd.i)}: ${d.h.pan.name} ↔ ${op?.name || o.panel} · ${sd.seam.stitch} · thread ${sd.seam.thread || 'poly-corespun'}` }; } else picked = { seam: null, text: `${d.h.pan.name}: this edge is not sewn (hem, opening or free edge).` };
+      if (sd) { const o = sd.seam[sd.side === 'a' ? 'b' : 'a']; const op = p.panels.find((x) => x.id === o.panel); { const sA = sd.seam[sd.side]; const n2 = d.h.pan.points.length; let L2 = 0; const to2 = sA.to ?? sA.edge; for (let e2 = sA.edge, c2 = 0; c2 < n2; e2++, c2++) { const q0 = d.h.pan.points[e2 % n2]; const q1 = d.h.pan.points[(e2 + 1) % n2]; L2 += Math.hypot(q1[0] - q0[0], q1[1] - q0[1]); if (e2 % n2 === to2 % n2) break; } openConn(sd.seam, sd.i, d.h.pan, op, L2); } picked = { seam: sd.seam.id, text: `Seam ${letter(sd.i)}: ${d.h.pan.name} ↔ ${op?.name || o.panel} · ${sd.seam.stitch} · thread ${sd.seam.thread || 'poly-corespun'}` }; } else picked = { seam: null, text: `${d.h.pan.name}: this edge is not sewn (hem, opening or free edge).` };
       draw();
-    } else if (d.kind === 'pan') { picked = null; draw(); }
+    } else if (d.kind === 'pan') { picked = null; closeConn(); draw(); }
   };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
@@ -383,5 +419,6 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
   let lastCount = -1;
   store.subscribe(() => { const p = store.get(); const n = p.mode === 'jewelry' ? 0 : allPieces(p).length; if (n !== lastCount) { lastCount = n; opt.index = Math.min(opt.index, Math.max(0, n - 1)); renderBar(); } draw(); });
   renderBar();
+  try { if (!localStorage.getItem('gft.s.patternHelp')) { help.hidden = false; localStorage.setItem('gft.s.patternHelp', '1'); renderBar(); } } catch { /* private window */ }
   return { draw, fit, resize, options: opt };
 }
