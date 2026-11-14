@@ -1123,7 +1123,8 @@ export function buildBra(o, prefix = '', fabric = 'microfiber-jersey') {
   const ci = CUP_INDEX[o.cup] ?? 2;
   const cupH = sports ? 16 : o.style === 'bandeau' ? 0 : 12 + ci * 1.6;
   const cupW = 15 + ci * 1.2;
-  const bandY = BODY.armY - 0.22 * BODY.hs; // underbust line
+  // the band sits on the underbust: a cup radius below the fullest point of the bust (deeper for larger cups)
+  const bandY = (BODY.bustY || BODY.armY - 0.1) - (0.05 + (CUP_INDEX[o.cup] ?? 2) * 0.006) - (sports ? Math.max(o.bandHeight, 6) : o.bandHeight) / 100;
   const R = 0.135 * BODY.gs;
   const bandPoly = () => { const p = new Poly(); p.add(-bandQ, 0, 'bottom').add(bandQ, 0, 'side-r').add(bandQ, bh, 'top').add(-bandQ, bh, 'side-l'); return p; };
   const fB = bandPoly(); const bB = bandPoly();

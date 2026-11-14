@@ -24,7 +24,7 @@ import { panelAnchor, layerRank } from '../sim/cloth.js';
 import { fabricTextures } from './textures.js';
 import { buildCollar } from './collars.js';
 import { designBitmap, previewCanvas, loadArtwork, artworkReady, STITCH_TYPES } from '../make/embroidery.js';
-import { customBodyMesh } from '../sim/bodyfield.js';
+import { customBodyMesh, bodyField, sampleField } from '../sim/bodyfield.js';
 import { buildJewelry, metalMaterial, gemMaterial } from './jewelry3d.js';
 import { loadModel, deformGeometry } from '../io/import.js';
 import { METALS } from '../core/jewelry.js';
@@ -512,7 +512,7 @@ export class Viewer {
         }
         if (anchors.some((a) => !a)) continue;
         let obj;
-        if (def.strap) obj = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+        if (def.strap) { mat.side = THREE.DoubleSide; mat.roughness = 0.8; obj = new THREE.Mesh(new THREE.BufferGeometry(), mat); }
         else {
           const geo = def.chain ? new THREE.TorusGeometry(s * 0.5, s * 0.15, 6, 10) : def.fringe ? new THREE.CylinderGeometry(0.0008, 0.0008, s, 4) : def.tape ? new THREE.BoxGeometry(0.006, s * 0.06 + 0.0004, s) : new THREE.BoxGeometry(s * 0.5, s * 0.25, s * 0.18);
           obj = new THREE.InstancedMesh(geo, mat, anchors.length);
@@ -848,12 +848,13 @@ export class Viewer {
       }
       if (t.line) {
         if (t.def.strap) {
-          const pts = t.anchors.map((a) => { at(a, v, n); return v.clone().addScaledVector(n, 0.004); });
-          const p0 = pts[0]; const p1 = pts[pts.length - 1];
-          const mid = p0.clone().add(p1).multiplyScalar(0.5).add(new THREE.Vector3(0, t.trim.arch ?? 0.2, 0));
+          // a strap is a flat band that lies on the body: route it over the shoulder, then press it onto the skin
+          const ends = t.anchors.map((a) => { at(a, v, n); return v.clone().addScaledVector(n, 0.003); });
+          const p0 = ends[0]; const p1 = ends[ends.length - 1];
+          const mid = p0.clone().add(p1).multiplyScalar(0.5); mid.y = Math.max(p0.y, p1.y) + (t.trim.arch ?? 0.2) * 0.7; mid.x *= 1.02;
           const curve = new THREE.QuadraticBezierCurve3(p0, mid, p1);
           t.obj.geometry.dispose();
-          t.obj.geometry = new THREE.TubeGeometry(curve, 24, Math.max(0.003, t.s * 0.12), 6, false);
+          t.obj.geometry = this.bodyRibbon(curve.getPoints(30), Math.max(0.007, t.s * 0.36), 0.0035);
           continue;
         }
         for (let i = 0; i < t.anchors.length; i++) {
@@ -996,6 +997,48 @@ export class Viewer {
     const hit = rc.intersectObjects(this.panelMeshes, false)[0];
     if (!hit || !hit.uv) return null;
     return { panelId: hit.object.userData.panelId, local: [hit.uv.x * 10, hit.uv.y * 10], point: hit.point };
+  }
+
+  /** Press a polyline onto the body surface (distance field of the real mannequin) at `lift` above the skin. */
+  hugBody(pts, lift = 0.003) {
+    const f = this.project?.display?.avatar === false ? null : bodyField(bodyFor(this.project));
+    const nrm = pts.map(() => new THREE.Vector3(0, 0, 1));
+    if (!f) return nrm;
+    const o = [0, 0, 0, 0];
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        for (let it = 0; it < 10; it++) {
+          if (!sampleField(f, p.x, p.y, p.z, o)) break;
+          const gl = Math.hypot(o[1], o[2], o[3]); if (gl < 1e-7) break;
+          const step = Math.max(-0.03, Math.min(0.03, lift - o[0]));
+          p.x += (o[1] / gl) * step; p.y += (o[2] / gl) * step; p.z += (o[3] / gl) * step;
+          nrm[i].set(o[1] / gl, o[2] / gl, o[3] / gl);
+          if (Math.abs(step) < 2e-4) break;
+        }
+      }
+      // keep the band smooth and evenly spaced (ends stay where they are sewn)
+      if (pass < 2) for (let i = 1; i < pts.length - 1; i++) pts[i].lerp(pts[i - 1].clone().add(pts[i + 1]).multiplyScalar(0.5), 0.5);
+    }
+    return nrm;
+  }
+
+  /** A flat band (strap, tape, neckband) following a path over the body. */
+  bodyRibbon(pts, width, lift = 0.003, hug = true) {
+    const nrm = hug ? this.hugBody(pts, lift) : pts.map(() => new THREE.Vector3(0, 0, 1));
+    const n = pts.length; const pos = new Float32Array(n * 6); const uv = new Float32Array(n * 4); const idx = [];
+    const tan = new THREE.Vector3(); const side = new THREE.Vector3(); let run = 0;
+    for (let i = 0; i < n; i++) {
+      tan.copy(pts[Math.min(n - 1, i + 1)]).sub(pts[Math.max(0, i - 1)]).normalize();
+      side.crossVectors(tan, nrm[i]).normalize().multiplyScalar(width / 2);
+      pos.set([pts[i].x - side.x, pts[i].y - side.y, pts[i].z - side.z, pts[i].x + side.x, pts[i].y + side.y, pts[i].z + side.z], i * 6);
+      if (i) run += pts[i].distanceTo(pts[i - 1]);
+      uv.set([0, run / width, 1, run / width], i * 4);
+      if (i < n - 1) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+    return g;
   }
 
   /** What fastening is under the pointer: { kind: 'zipper'|'button', trim } or null. */

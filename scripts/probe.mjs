@@ -8,6 +8,7 @@ await initSolver('x');
 { const { loadBodyMesh } = await import('../src/sim/cloth.js'); await loadBodyMesh('male'); await loadBodyMesh('female'); }
 const [tpl, ...probes] = process.argv.slice(2);
 let p = createProject(tpl);
+if (process.env.ACTS) p = applyActions(p, JSON.parse(process.env.ACTS)).project;
 const sim = buildCloth(p);
 for (let f = 0; f < 480; f++) sim.step(1 / 60);
 const at = (pid, x, y) => { const a = panelAnchor(sim, pid, x, y); if (!a) return null; const o = [0, 0, 0]; a.ids.forEach((q, k) => { for (let c = 0; c < 3; c++) o[c] += sim.pos[q * 3 + c] * a.w[k]; }); return o.map((v) => +(v * 100).toFixed(1)); };

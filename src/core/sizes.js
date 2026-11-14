@@ -60,6 +60,8 @@ export function bodyFromMeasurements(m, mannequin = 'male') {
     armY: gp(L.armStartX, L.armY)[1],
     armStartX: L.armStartX * sc.shoulderS,
     armAngle: m.armAngle ?? ARM_ANGLE,
+    bustY: gp(0.1, 1.276)[1], // fullest point of the bust / chest (measured on the mannequin meshes)
+    bustX: (mannequin === 'female' ? 0.111 : 0.085) * girthAt(body, 1.276),
     shoulderW: R.shoulder * sc.shoulderS,
     neckC: m.neck || R.neck,
     armCm: R.arm * sc.armS,
