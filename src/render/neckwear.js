@@ -85,3 +85,101 @@ export function bowTie(style, mat, edgeColor, scale = 1) {
   g.add(loft(rows, mat));
   return g;
 }
+
+// ---------------------------------------------------------------------------
+// A necktie tied the way it is really tied.
+//
+// The knot is not a shaped block: it is the tie itself, a band of cloth with
+// thickness, led through the actual tying sequence of each knot. Waypoints
+// are in cm from the centre of the knot (x across, y up, z towards the
+// viewer), each with the direction the face of the cloth points.
+// "W" is the wide (active) end, which starts at the wearer's right side of
+// the neck loop; the narrow end drops straight through the middle.
+// ---------------------------------------------------------------------------
+const P = (x, y, z, nx, ny, nz) => ({ p: [x, y, z], n: [nx, ny, nz] });
+const FINISH = [ // every knot ends the same way: up behind the neck loop, over it, and down through the front band
+  P(0.5, 2.0, -0.55, 0, 0.3, -1), P(0, 2.95, -0.05, 0, 1, 0.1), P(0, 2.05, 0.72, 0, 0.3, 1), P(0, 0.6, 0.74, 0, 0, 1), P(0, -1.7, 0.78, 0, -0.1, 1), P(0, -2.7, 0.62, 0, -0.1, 1),
+];
+export const TIE_PATHS = {
+  // over the narrow end, round behind it, across the front, then finish
+  'four-in-hand': { w: 3.3, steps: 'Wide end over the narrow end, behind it, across the front, up through the neck loop from behind, down through the front band.', pts: [
+    P(-1.6, 3.2, -0.2, 0, 0, 1), P(-0.9, 1.6, 0.35, 0, 0.2, 1), P(1.45, 0.2, 0.5, 0.6, 0, 0.8), P(1.7, -0.4, -0.2, 1, 0, 0), P(0, -0.7, -0.75, 0, 0, -1), P(-1.7, -0.4, -0.2, -1, 0, 0),
+    P(-1.5, 0.3, 0.75, -0.5, 0, 0.85), P(0, 0.55, 1.05, 0, 0, 1), P(1.5, 0.75, 0.8, 0.5, 0, 0.85), P(1.6, 1.25, 0, 1, 0.2, 0), ...FINISH] },
+  // four-in-hand with a second turn round the back before crossing the front
+  kelvin: { w: 3.3, steps: 'Seam out: wide end under the narrow end, over, under again, across the front, up through the neck loop, down through the band.', pts: [
+    P(-1.6, 3.2, -0.2, 0, 0, 1), P(-0.9, 1.6, -0.45, 0, 0.2, -1), P(1.5, 0.3, -0.5, 0.6, 0, -0.8), P(1.75, -0.3, 0.2, 1, 0, 0), P(0, -0.5, 0.7, 0, 0, 1), P(-1.75, -0.4, 0.2, -1, 0, 0), P(0, -0.8, -0.8, 0, 0, -1), P(1.7, -0.5, -0.2, 1, 0, 0),
+    P(1.5, 0.4, 0.8, 0.5, 0, 0.85), P(0, 0.6, 1.1, 0, 0, 1), P(-1.5, 0.75, 0.8, -0.5, 0, 0.85), P(-1.6, 1.25, 0, -1, 0.2, 0), ...FINISH] },
+  // one extra pass over the neck loop on one side makes the knot fuller and triangular
+  'half-windsor': { w: 3.4, steps: 'Wide end over the narrow end, behind it, up and over the neck loop and down to the side, across the front, up through the neck loop from behind, down through the band.', pts: [
+    P(-1.6, 3.2, -0.2, 0, 0, 1), P(-0.8, 1.7, 0.4, 0, 0.2, 1), P(1.5, 0.5, 0.5, 0.6, 0, 0.8), P(1.8, -0.2, -0.2, 1, 0, 0), P(0, -0.6, -0.8, 0, 0, -1), P(-1.5, 0.2, -0.5, -0.6, 0.3, -0.7),
+    P(-1.3, 1.9, -0.2, -0.3, 1, 0), P(-1.5, 1.7, 0.55, -0.4, 0.4, 0.8), P(-2.0, 0.5, 0.55, -0.8, 0, 0.6), P(-2.1, 0.0, 0.0, -1, 0, 0),
+    P(-1.9, 0.35, 0.85, -0.5, 0, 0.85), P(0, 0.6, 1.15, 0, 0, 1), P(1.9, 0.75, 0.85, 0.5, 0, 0.85), P(1.9, 1.3, 0, 1, 0.2, 0), ...FINISH] },
+  // a pass over the neck loop on BOTH sides: wide, symmetric triangle
+  windsor: { w: 3.5, steps: 'Wide end over the narrow end, up through the neck loop and down to one side, behind the knot to the other side, up and over the neck loop and down, across the front, up through the neck loop from behind, down through the band.', pts: [
+    P(-1.6, 3.2, -0.2, 0, 0, 1), P(-0.6, 1.8, 0.45, 0, 0.2, 1), P(1.0, 1.3, 0.5, 0.3, 0.2, 0.9), P(0.5, 2.2, -0.45, 0, 0.4, -0.9), P(0.2, 3.0, -0.05, 0, 1, 0), P(-1.2, 2.0, 0.6, -0.3, 0.4, 0.85),
+    P(-2.2, 0.7, 0.55, -0.8, 0, 0.6), P(-2.45, 0.0, -0.1, -1, 0, 0), P(0, -0.6, -0.85, 0, 0, -1), P(2.45, 0.0, -0.1, 1, 0, 0), P(2.2, 0.9, 0.55, 0.8, 0.1, 0.6),
+    P(1.3, 2.3, 0.35, 0.3, 0.8, 0.5), P(1.2, 2.2, -0.5, 0.3, 0.3, -0.9), P(2.3, 0.9, -0.3, 0.9, 0, -0.4), P(2.5, 0.3, 0.2, 1, 0, 0.2),
+    P(2.2, 0.45, 0.95, 0.5, 0, 0.85), P(0, 0.7, 1.25, 0, 0, 1), P(-2.2, 0.85, 0.95, -0.5, 0, 0.85), P(-2.2, 1.4, 0.1, -1, 0.2, 0), ...FINISH] },
+  // starts seam-out: under, over the loop and down, then across and through
+  pratt: { w: 3.3, steps: 'Seam out: wide end under the narrow end, up and over the neck loop and down, across the front, up through the neck loop from behind, down through the band.', pts: [
+    P(-1.6, 3.2, -0.2, 0, 0, -1), P(-0.7, 1.7, -0.45, 0, 0.2, -1), P(0.9, 1.2, -0.5, 0.3, 0.2, -0.9), P(0.5, 2.6, -0.15, 0, 1, 0), P(0.6, 2.0, 0.55, 0.1, 0.4, 0.85), P(1.6, 0.6, 0.6, 0.7, 0, 0.7), P(1.9, 0.1, 0.0, 1, 0, 0),
+    P(1.7, 0.35, 0.85, 0.5, 0, 0.85), P(0, 0.6, 1.1, 0, 0, 1), P(-1.7, 0.75, 0.85, -0.5, 0, 0.85), P(-1.7, 1.25, 0, -1, 0.2, 0), ...FINISH] },
+};
+TIE_PATHS.eldredge = TIE_PATHS.windsor;
+
+/** A band of cloth with thickness swept along a centreline. pts: Vector3[], nrm: Vector3[] (face direction), half(i): half width in m. */
+export function clothBand(pts, nrm, half, thick, mat, uvScale = 10) {
+  const n = pts.length; const ACR = 5; const pos = []; const uv = []; const idx = [];
+  const T = new THREE.Vector3(); const B = new THREE.Vector3(); const N = new THREE.Vector3(); let run = 0;
+  for (let i = 0; i < n; i++) {
+    T.copy(pts[Math.min(n - 1, i + 1)]).sub(pts[Math.max(0, i - 1)]).normalize();
+    N.copy(nrm[i]).addScaledVector(T, -nrm[i].dot(T)).normalize();
+    B.crossVectors(T, N).normalize();
+    if (i) run += pts[i].distanceTo(pts[i - 1]);
+    const hw = half(i);
+    for (const face of [1, -1]) for (let a = 0; a < ACR; a++) {
+      const k = (a / (ACR - 1)) * 2 - 1; // -1..1 across the band
+      const cup = (1 - k * k) * thick * 0.35; // a soft roll across the cloth, like a lined tie
+      const o = face * (thick / 2) + cup;
+      pos.push(pts[i].x + B.x * k * hw + N.x * o, pts[i].y + B.y * k * hw + N.y * o, pts[i].z + B.z * k * hw + N.z * o);
+      uv.push((k * hw + 0.05) * uvScale, run * uvScale);
+    }
+  }
+  const row = ACR * 2;
+  for (let i = 0; i + 1 < n; i++) {
+    for (let f = 0; f < 2; f++) for (let a = 0; a < ACR - 1; a++) { const p = i * row + f * ACR + a; const q = p + row; if (f === 0) idx.push(p, q, p + 1, p + 1, q, q + 1); else idx.push(p, p + 1, q, p + 1, q + 1, q); }
+    // the two folded edges
+    for (const [a, b] of [[0, ACR], [ACR - 1, 2 * ACR - 1]]) { const p = i * row + a; const p2 = i * row + b; idx.push(p, p2, p + row, p2, p2 + row, p + row); }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat); m.frustumCulled = false; return m;
+}
+
+/**
+ * Build the tied part of a necktie in world space.
+ * origin: centre of the knot (Vector3). opts: { style, thick (m), bladeAt (cm width where the blade leaves the knot), tail (cm), hug(points, lift) }.
+ * Returns { group, exit: Vector3 (where the hanging blade begins) }.
+ */
+export function tiedTie(origin, opts, mat) {
+  const path = TIE_PATHS[opts.style] || TIE_PATHS['four-in-hand'];
+  const thick = opts.thick || 0.0024;
+  const group = new THREE.Group();
+  const sample = (way, per = 9) => {
+    const curve = new THREE.CatmullRomCurve3(way.map((w) => new THREE.Vector3(origin.x + w.p[0] * cm, origin.y + w.p[1] * cm, origin.z + w.p[2] * cm)), false, 'centripetal');
+    const N = (way.length - 1) * per; const pts = curve.getPoints(N); const nrm = [];
+    for (let i = 0; i <= N; i++) { const f = i / per; const a = way[Math.min(way.length - 1, Math.floor(f))].n; const b = way[Math.min(way.length - 1, Math.ceil(f))].n; const t = f - Math.floor(f); nrm.push(new THREE.Vector3(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t).normalize()); }
+    return { pts, nrm };
+  };
+  // wide end through the knot: gathered narrower where it is wrapped tight, opening as it leaves
+  const W = sample(path.pts);
+  const nW = W.pts.length; const exitW = (opts.bladeAt || 2.9) * cm / 2;
+  group.add(clothBand(W.pts, W.nrm, (i) => { const u = i / (nW - 1); return (path.w / 2) * cm * (0.92 + 0.08 * Math.cos(u * Math.PI * 2)) * (u > 0.9 ? 1 - (u - 0.9) * 10 * (1 - exitW / ((path.w / 2) * cm)) : 1); }, thick, mat));
+  // narrow end: straight down through the middle of the knot, then the tail hangs behind the blade
+  const tail = Math.max(8, opts.tail || 26);
+  const way = [P(1.6, 3.2, -0.4, 0, 0, 1), P(0.6, 1.6, -0.3, 0, 0.2, 1), P(0, 0.2, -0.25, 0, 0, 1), P(0, -2.4, -0.2, 0, 0, 1), P(0, -2.4 - tail * 0.5, -0.1, 0, 0, 1), P(0, -2.4 - tail, -0.1, 0, 0, 1)];
+  const S = sample(way, 8);
+  if (opts.hug) opts.hug(S.pts.slice(Math.round(S.pts.length * 0.62)), 0.004);
+  const nS = S.pts.length;
+  group.add(clothBand(S.pts, S.nrm, (i) => { const u = i / (nS - 1); const w = (u < 0.5 ? 1.45 : 1.45 + (u - 0.5) * 1.0) * cm; return u > 0.94 ? w * (1 - (u - 0.94) / 0.06 * 0.98) : w; }, thick * 0.85, mat));
+  return { group, exit: W.pts[nW - 1].clone() };
+}

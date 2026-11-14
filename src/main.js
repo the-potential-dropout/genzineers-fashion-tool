@@ -29,6 +29,7 @@ import { knitFiles, operationsCSV, printProtocol } from './make/machine.js';
 import { printTileCanvas, printTileCm, DISTRESS } from './render/textures.js';
 import { designBitmap } from './make/embroidery.js';
 import { collection, kindOf } from './app/collection.js';
+import { TIE_PATHS, TIE_KNOTS, BOW_STYLES } from './render/neckwear.js';
 import { POCKETS, POCKET_CLOSURES } from './core/pockets.js';
 import { TANNING, LEATHER_FINISHES, LEATHER_COLOURS, LEATHER_USE, leatherFit } from './core/leather.js';
 import { STITCH_TYPES, FONTS, THREADS_EMB, MOTIFS_EMB, rasterizeDesign, digitize, writeDST, embroiderySheet, loadArtwork } from './make/embroidery.js';
@@ -381,6 +382,11 @@ function cStyle(el, p) {
       keys.map(opt),
       h('details', {}, h('summary', {}, 'All options'), h('div', {}, Object.keys(schema).filter((k) => !keys.includes(k) && !/Adj$/.test(k)).map(opt))),
     ));
+    // ---- neckwear: how this knot is tied ----
+    if (g.generator === 'tie') {
+      const o = g.options; const bow = o.knot === 'bow';
+      el.append(h('div', { class: 'tip' }, h('b', {}, bow ? `${BOW_STYLES[o.bow]?.name || 'Bow tie'}: ` : `${TIE_KNOTS[o.knot]?.name || o.knot}: `), bow ? `${BOW_STYLES[o.bow]?.note || ''} Self-tie: cross long end over short, up through the neck loop, fold the short end into a bow shape, drop the long end over its middle, fold it and push it through the loop behind the bow, then tighten by pulling the folded ends.` : `${TIE_KNOTS[o.knot]?.note || ''} How to tie it: ${TIE_PATHS[o.knot]?.steps || ''}`, o.attach === 'clip-on' ? ' Clip-on: the knot is pre-formed on a metal clip, no neck band.' : o.attach === 'pre-tied' ? ' Pre-tied: fixed knot on an adjustable band with a hook.' : ''));
+    }
     // ---- length presets for tops, jackets, coats and dresses ----
     if (g.generator === 'top') {
       const B = bodyFor(p); const cr = B.crotchY; const at = (y) => Math.round((B.shoulderY - y) * 100);

@@ -23,7 +23,7 @@ import { legwearTop } from '../core/legwear.js';
 import { panelAnchor, layerRank } from '../sim/cloth.js';
 import { fabricTextures, distressTexture } from './textures.js';
 import { buildCollar } from './collars.js';
-import { tieKnot, bowTie } from './neckwear.js';
+import { tieKnot, bowTie, clothBand, TIE_KNOTS } from './neckwear.js';
 import { designBitmap, previewCanvas, loadArtwork, artworkReady, STITCH_TYPES } from '../make/embroidery.js';
 import { customBodyMesh, bodyField, sampleField } from '../sim/bodyfield.js';
 import { buildJewelry, metalMaterial, gemMaterial } from './jewelry3d.js';
@@ -785,13 +785,42 @@ export class Viewer {
       const base = new THREE.Color(host.finish?.color || resolveFabric(project, host.fabric, host.fabricOverrides || {}).look.color);
       const edge = base.clone().multiplyScalar(0.5);
       // where it sits: at the front of the neck, on the surface of the body
-      const front = [new THREE.Vector3(0, pr.y, 0.3)]; this.hugBody(front, pr.kind === 'bowtie' ? 0.011 : 0.013);
+      // walk in from in front of the neck until the body (or the shirt collar stand) is reached
+      const front = [new THREE.Vector3(0, pr.y, 0.2)];
+      { const f = project.display?.avatar === false ? null : bodyField(bodyFor(project)); const o4 = [0, 0, 0, 0]; const lift = pr.kind === 'bowtie' ? 0.012 : 0.016; if (f) for (let z = 0.2; z > -0.05; z -= 0.003) { front[0].z = z; if (sampleField(f, 0, pr.y, z, o4) && o4[0] <= lift) break; } }
       if (pr.band) {
         const ring = []; for (let k = 0; k <= 40; k++) { const a = (k / 40) * Math.PI * 2; ring.push(new THREE.Vector3(Math.sin(a) * 0.12, pr.y + 0.012 + 0.012 * Math.cos(a) * -1, -0.01 + Math.cos(a) * 0.12)); }
         const band = new THREE.Mesh(this.bodyRibbon(ring, pr.kind === 'bowtie' ? 0.019 : 0.03, 0.006), mat); band.frustumCulled = false;
         this.garment.add(band);
       }
-      const obj = pr.kind === 'bowtie' ? bowTie(pr.style, mat, edge) : tieKnot(pr.style, mat, edge);
+      if (pr.kind === 'tie-knot') {
+        // What a tied tie shows: the knot's outer wrap with its diagonal lap, the two straps rising
+        // under the collar to the neck band, the tail behind, and the blade leaving below the knot.
+        const fabT = resolveFabric(project, host.fabric, host.fabricOverrides || {});
+        const thick = Math.max(0.0018, ((fabT.thicknessMm || 0.3) * 2 + 0.9) / 1000); // shell, folded, over an interlining
+        const K = TIE_KNOTS[pr.style] || TIE_KNOTS['four-in-hand'];
+        const knot = tieKnot(pr.style, mat, edge);
+        const o = front[0]; const top = o.y + K.height * 0.005; // knot hangs from just under the collar button
+        knot.position.set(o.x, top, o.z + 0.002);
+        this.garment.add(knot);
+        const V = (x, y, z) => new THREE.Vector3(o.x + x, top + y, o.z + z);
+        if (pr.band) for (const sd of [1, -1]) { // straps from the shoulders of the knot up and back round the neck
+          const pts = new THREE.CatmullRomCurve3([V(sd * K.top * 0.0032, -0.004, 0.004), V(sd * (K.top * 0.005 + 0.012), 0.012, -0.004), V(sd * 0.055, 0.02, -0.03), V(sd * 0.085, 0.024, -0.07)]).getPoints(16);
+          const tail3 = pts.slice(6); this.hugBody(tail3, 0.007);
+          const m2 = clothBand(pts, pts.map(() => new THREE.Vector3(0, 0.35, 1).normalize()), () => 0.0155, thick * 0.9, mat); this.garment.add(m2);
+        }
+        { // the narrow end hangs behind the blade
+          const len = (pr.tail || 26) / 100; const pts = []; for (let k = 0; k <= 14; k++) pts.push(V(0.004, -K.height * 0.01 - (k / 14) * len, 0.003));
+          this.hugBody(pts.slice(2), 0.0045);
+          const m3 = clothBand(pts, pts.map(() => new THREE.Vector3(0, 0, 1)), (i) => (i > 12 ? 0.019 * (1 - (i - 12) / 2 * 0.95) : 0.0145 + (i / 14) * 0.0045), thick * 0.85, mat); this.garment.add(m3);
+        }
+        // hang the blade from the bottom of the knot, gathered (the dimple) where it leaves
+        const exit = V(0, -K.height * 0.0098, K.depth * 0.0035);
+        const bp = sim?.panels.find((x) => x.id === pr.panel);
+        if (bp && sim) { const ymax = Math.max(...bp.panel.points.map((q) => q[1])); for (let q = bp.offset; q < bp.offset + bp.count; q++) { if (sim.inv[q] !== 0 || sim.local[q * 2 + 1] < ymax - 1.5) continue; const lx = sim.local[q * 2] / 100; sim.pos[q * 3] = sim.prev[q * 3] = exit.x + lx * 0.9; sim.pos[q * 3 + 1] = sim.prev[q * 3 + 1] = exit.y; sim.pos[q * 3 + 2] = sim.prev[q * 3 + 2] = exit.z - Math.abs(lx) * 0.25 + (Math.abs(lx) < 0.004 ? -0.002 : 0); } }
+        continue;
+      }
+      const obj = bowTie(pr.style, mat, edge);
       obj.position.copy(front[0]);
       this.garment.add(obj);
       if (pr.kind === 'tie-knot' && sim && pr.panel) {

@@ -788,8 +788,9 @@ export function buildTie(o, prefix = '', fabric = 'silk-twill') {
   const w = o.width / 2; const L = o.length; const kw = 1.45; // half width where the blade leaves the knot
   // blade: narrow under the knot, widening to the tip (a real blade, not a strip)
   const pts = o.tip === 'pointed' ? [[0, 0], [w, w * 0.95], [w * 0.86, L * 0.45], [kw, L], [-kw, L], [-w * 0.86, L * 0.45], [-w, w * 0.95]] : [[-w, 0], [w, 0], [w * 0.86, L * 0.45], [kw, L], [-kw, L], [-w * 0.86, L * 0.45]];
-  const panels = [{ id: id('tie'), name: 'Tie blade (front)', role: 'accessory', points: pts, placement: { position: [0, y - 0.035 - L / 100, 0.135 * B.gs], rotationY: 0 }, fabric, pins: [[0, L - 0.5], [-kw * 0.7, L - 0.5], [kw * 0.7, L - 0.5]] }];
-  return { panels, seams: [], trims: [], overlays: [], props: [{ kind: 'tie-knot', style: o.knot, attach: o.attach || 'self-tie', y, fabric, band, panel: id('tie'), at: [0, L - 0.5] }] };
+  // the blade is lined cloth (shell + interlining + tipping), so it hangs with body; it starts where the wide end leaves the knot
+  const panels = [{ id: id('tie'), name: 'Tie blade (front)', role: 'accessory', points: pts, lining: 'wool interlining', placement: { position: [0, y - 0.027 - L / 100, 0.135 * B.gs], rotationY: 0 }, fabric, pins: [[0, L - 0.3], [-kw * 0.8, L - 0.3], [kw * 0.8, L - 0.3]], edges: { hem: o.tip === 'pointed' ? [[-w, w * 0.95], [0, 0], [w, w * 0.95]] : [[-w, 0], [w, 0]] } }];
+  return { panels, seams: [], trims: [], overlays: [], props: [{ kind: 'tie-knot', style: o.knot, attach: o.attach || 'self-tie', y, fabric, band, panel: id('tie'), at: [0, L - 0.3], bladeAt: kw * 2, tail: Math.max(10, L - 18) }] };
 }
 
 export const HAT_OPTIONS = {
