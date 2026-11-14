@@ -45,11 +45,11 @@ export function cutList(project) {
   const pieces = project.panels.map((p) => ({ id: p.id, name: p.name, points: p.points, fabric: p.fabric, qty: 1, kind: 'panel', panel: p }));
   const seen = {};
   for (const o of project.overlays || []) {
-    if (['vent', 'pleat', 'pinch', 'distress'].includes(o.kind) || o.hidden && false) continue;
+    if (['vent', 'pleat', 'pinch', 'distress', 'hem'].includes(o.kind) || o.pocket) continue; // pockets carry their own pieces; hems and vents are part of their panel
     const key = `${o.kind}-${o.style || ''}-${JSON.stringify(o.points.map((p) => [Math.abs(p[0]).toFixed(0), p[1].toFixed(0)]))}`;
     if (seen[key]) { seen[key].qty++; continue; }
     const host = project.panels.find((p) => p.id === o.panel);
-    const piece = { id: o.id, name: `${o.kind[0].toUpperCase()}${o.kind.slice(1)}${o.style ? ` (${o.style})` : ''}`, points: o.points, fabric: o.fabric || (o.style === 'rib' ? 'rib-knit' : host?.fabric), qty: o.kind === 'lapel' || o.kind === 'collar' ? 2 : 1, kind: 'overlay', panel: host };
+    const piece = { id: o.id, name: `${o.kind[0].toUpperCase()}${o.kind.slice(1)}${o.style ? ` (${o.style})` : ''}`, points: o.points, fabric: o.fabric || (o.style === 'rib' ? 'rib-knit' : host?.fabric), qty: o.cut || (o.kind === 'lapel' || o.kind === 'collar' || o.kind === 'epaulette' || o.kind === 'flap' ? 2 : 1), kind: 'overlay', panel: host, note: o.note || '' };
     seen[key] = piece; pieces.push(piece);
   }
   // pocket bags, welts, flaps and other made-up pieces

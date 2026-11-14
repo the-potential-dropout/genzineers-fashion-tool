@@ -17,6 +17,7 @@
  * long-press a point to delete it. Wheel / pinch zooms, drag pans.
  */
 import { ASSEMBLY, ASSEMBLY_GROUPS, THREADS } from '../core/assembly.js';
+import { cutList } from '../make/production.js';
 
 const COLORS = ['#ff5a1f', '#2f6bff', '#1f8a4c', '#a63fd6', '#c79a00', '#d6336c', '#00a3a3', '#6b4f2a', '#5f6caf', '#b34d00', '#3d8b8b', '#8a3ffc'];
 const letter = (i) => (i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(65 + Math.floor(i / 26) - 1) + String.fromCharCode(65 + (i % 26)));
@@ -129,7 +130,15 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
   new ResizeObserver(resize).observe(canvas);
 
   /** Everything that is cut: the garment pieces, then pocket bags, welts, flaps and facings. */
-  const allPieces = (p) => [...p.panels, ...(p.pieces || []).map((k) => ({ ...k, role: 'piece', piece: true }))];
+  // Nothing is left out: main pieces, then every sewn-on piece (collar and stand, plackets, cuffs, bands,
+  // waistbands, yokes, lapel facings, epaulettes, flaps, straps, tabs), then pocket bags, welts and facings.
+  let cache = { key: null, list: [] };
+  const allPieces = (p) => {
+    if (cache.key === p) return cache.list;
+    const small = cutList(p).filter((c) => c.kind === 'overlay').map((c) => ({ id: `cut-${c.id}`, name: c.name, points: c.points, fabric: c.fabric, cut: c.qty, role: 'piece', piece: true, note: c.note || `Sewn onto ${c.panel?.name || 'the garment'}; its position is drawn dashed on that piece.` }));
+    cache = { key: p, list: [...p.panels, ...small, ...(p.pieces || []).map((k) => ({ ...k, role: 'piece', piece: true }))] };
+    return cache.list;
+  };
   const shown = (p) => { const all = allPieces(p); return opt.mode === 'one' ? all.slice(opt.index, opt.index + 1) : all; };
   const GRADE_COLORS = ['#8a3ffc', '#2f6bff', '#00a3a3', '#1f8a4c', '#c79a00', '#ff5a1f', '#d6336c', '#6b4f2a', '#5f6caf'];
   /** Shelf layout: pieces in rows, wrapped to a comfortable sheet width. */

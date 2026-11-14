@@ -88,6 +88,10 @@ export const TOP_OPTIONS = {
   pockets: { label: 'Pockets', type: 'select', values: ['none', 'chest', 'patch', 'welt', 'flap', 'kangaroo', 'bellows', 'zip'], default: 'none' },
   vent: { label: 'Back vent', type: 'select', values: ['none', 'center', 'side'], default: 'none' },
   belt: { label: 'Belt', type: 'select', values: ['none', 'self-belt', 'buckle-belt'], default: 'none' },
+  epaulettes: { label: 'Shoulder straps (epaulettes)', type: 'select', values: ['none', 'buttoned', 'snap', 'pointed-buttoned'], default: 'none' },
+  stormFlap: { label: 'Storm details', type: 'select', values: ['none', 'gun-flap', 'back-shield', 'gun-flap+back-shield'], default: 'none' },
+  sleeveStrap: { label: 'Sleeve straps', type: 'select', values: ['none', 'strap-buckle', 'tab-button'], default: 'none' },
+  throatLatch: { label: 'Throat latch', type: 'select', values: ['no', 'yes'], default: 'no' },
   insulation: { label: 'Insulation / fill', type: 'select', values: ['none', 'goose-down-900', 'goose-down-800', 'goose-down-700', 'duck-down-650', 'duck-down-550', 'hydrophobic-down', 'recycled-down', 'down-feather-50-50', 'feather', 'synthetic-microfiber', 'synthetic-continuous', 'thin-microfiber', 'polyester-wadding', 'recycled-poly-fill', 'wool-batting', 'cotton-batting', 'kapok', 'aerogel'], default: 'none' },
   fillWeight: { label: 'Fill weight (g/m²)', type: 'range', min: 40, max: 400, step: 10, default: 120 },
   quilting: { label: 'Quilting', type: 'select', values: ['channel', 'box', 'diamond', 'onion', 'chevron', 'welded', 'none'], default: 'channel' },
@@ -100,6 +104,7 @@ export const TOP_OPTIONS = {
 
 /** Sample a cubic Bezier into the outline: points t = 0 .. (n-1)/n, all tagged (the end point belongs to the next run). */
 function bez(p, P0, P1, P2, P3, tag, n = 8) {
+  n = Math.round(n * 1.8); // fine sampling: a drafted curve is never flattened into a few straight lines
   for (let k = 0; k < n; k++) {
     const t = k / n; const u = 1 - t;
     p.add(u * u * u * P0[0] + 3 * u * u * t * P1[0] + 3 * u * t * t * P2[0] + t * t * t * P3[0], u * u * u * P0[1] + 3 * u * u * t * P1[1] + 3 * u * t * t * P2[1] + t * t * t * P3[1], tag);
@@ -472,8 +477,12 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   // pattern pieces for the cut list (the 3D collar is drawn from the spec above)
   if (['point', 'spread', 'button-down', 'camp', 'polo', 'corduroy'].includes(o.collar)) {
     const c = COLLARS[o.collar];
-    overlays.push({ kind: 'collar', style: o.collar, hidden: true, panel: id('back'), points: rect(-t.neckW - 12, t.H - c.fall - 1, t.neckW + 12, t.H) });
-    if (c.stand > 1) overlays.push({ kind: 'collar', style: 'collar-stand', hidden: true, panel: id('back'), points: rect(-t.neckW - 12, t.H - c.stand, t.neckW + 12, t.H) });
+    const NL = polyLen(pathOf(FR[1], 'neck-r')) + polyLen(pathOf(t.back, 'neck-r')); // half the neckline the collar is sewn to
+    // collar leaf: its neck edge is curved (so it rolls), the outer edge runs out to the collar point
+    const leaf = []; for (let k = 0; k <= 12; k++) { const u = k / 12; leaf.push([-NL + 2 * NL * u, 1.4 * Math.pow(2 * u - 1, 2)]); }
+    const outer = []; for (let k = 12; k >= 0; k--) { const u = k / 12; const e = Math.pow(Math.abs(2 * u - 1), 3); outer.push([(-NL + 2 * NL * u) * (1 + (c.spread || 0) * e / (NL * 2.2)), 1.4 * Math.pow(2 * u - 1, 2) + c.fall + (c.point - c.fall) * e]); }
+    overlays.push({ kind: 'collar', style: o.collar, hidden: true, cut: 2, panel: id('back'), points: [...leaf, ...outer], note: 'Upper collar and under collar (cut 2); interline the upper collar.' });
+    if (c.stand > 1) { const st = []; for (let k = 0; k <= 12; k++) { const u = k / 12; st.push([(-NL - 1.6) + 2 * (NL + 1.6) * u, -1.1 * Math.pow(2 * u - 1, 2)]); } const top = st.slice().reverse().map(([x, y]) => [x * 0.985, y + c.stand - 0.5 * Math.pow(Math.abs(x) / (NL + 1.6), 6)]); overlays.push({ kind: 'collar', style: 'collar-stand', hidden: true, cut: 2, panel: id('back'), points: [...st, ...top], note: 'Collar stand (cut 2 + interfacing); the extension carries the top button and buttonhole.' }); }
     if (o.collar === 'button-down') for (const sd of [1, -1]) trims.push({ type: 'button-2hole', panel: id('front'), at: [sd * 5.5, t.H - t.frontDrop - 5.5], size: 9 });
   }
   if (['mandarin', 'band-snap', 'funnel', 'rib'].includes(o.collar)) {
@@ -500,6 +509,38 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   if (o.belt !== 'none') {
     for (const pid of ['front', 'back']) overlays.push({ kind: 'belt', panel: id(pid), points: rect(-t.hw - o.flare * 0.3, t.sideH - 24, t.hw + o.flare * 0.3, t.sideH - 19) });
     if (o.belt === 'buckle-belt') trims.push({ type: 'buckle', panel: id('front'), at: [0, t.sideH - 21.5] });
+  }
+  // ---- extra pieces that make a coat or jacket: each is cut, sewn on and shown in the flat pattern ----
+  {
+    const frontPoly = t.split ? t.fr : t.front;
+    const S = frontPoly.pts.find((q, i) => frontPoly.tags[i] === 'sh-r') || [t.shoulderX, t.H - 4];
+    const Nk = [t.neckW, t.H];
+    const sl = Math.hypot(S[0] - Nk[0], S[1] - Nk[1]) || 1; const ux = (Nk[0] - S[0]) / sl; const uy = (Nk[1] - S[1]) / sl; // along the shoulder, tip -> neck
+    if (o.epaulettes && o.epaulettes !== 'none') for (const sd of [1, -1]) {
+      const len = Math.min(sl - 1.5, 11.5); const w = 4.6; const pt = o.epaulettes === 'pointed-buttoned' ? 1.6 : 0.5;
+      // sewn into the armhole seam, lying along the shoulder towards the collar, buttoned at the neck end
+      const P = (a, d) => [sd * (S[0] + ux * a - uy * 0 ), S[1] + uy * a - d];
+      const pts = [P(0, 0.4), P(len - pt, 0.4), P(len, 0.4 + w / 2), P(len - pt, 0.4 + w), P(0, 0.4 + w)];
+      overlays.push({ kind: 'epaulette', style: o.epaulettes, panel: id('front'), points: sd > 0 ? pts : pts.reverse() });
+      trims.push({ type: o.epaulettes === 'snap' ? 'snap' : o.__button || 'button-4hole', panel: id('front'), at: [sd * (S[0] + ux * (len - 2.2)), S[1] + uy * (len - 2.2) - 0.4 - w / 2], size: 15 });
+    }
+    if (/gun-flap/.test(o.stormFlap || '')) { // right chest flap, buttoned (originally to stop rain running in when the rifle was shouldered)
+      const x0 = -(t.neckW + 1.5); const x1 = -(S[0] - 0.5); const yb = t.H - 24;
+      overlays.push({ kind: 'storm-flap', style: 'gun-flap', panel: id('front'), points: [[x0, t.H - 3.5], [x1, S[1] - 1], [x1 - 0.5, yb + 5], [(x0 + x1) / 2 - 2, yb], [x0 + 1.5, yb + 3.5]].reverse() });
+      trims.push({ type: o.__button || 'button-4hole', panel: id('front'), at: [x0 + 2.5, yb + 5.5], size: 20 });
+    }
+    if (/back-shield/.test(o.stormFlap || '')) { // loose cape over the upper back sheds rain past the seams
+      const yb = t.H - 30; const xb = S[0] + 1;
+      overlays.push({ kind: 'storm-flap', style: 'back-shield', panel: id('back'), points: [[-xb, S[1] - 0.5], [-t.neckW, t.H - 1], [t.neckW, t.H - 1], [xb, S[1] - 0.5], [xb + 1.5, yb + 5], [xb * 0.5, yb + 0.8], [0, yb], [-xb * 0.5, yb + 0.8], [-xb - 1.5, yb + 5]] });
+    }
+    if (o.throatLatch === 'yes') { overlays.push({ kind: 'tab', style: 'throat-latch', panel: id('front'), points: [[-2, t.H - t.frontDrop + 3.2], [9, t.H - t.frontDrop + 4.6], [9.6, t.H - t.frontDrop + 2.8], [9, t.H - t.frontDrop + 1], [-2, t.H - t.frontDrop + 0.2]] }); trims.push({ type: o.__button || 'button-4hole', panel: id('front'), at: [7.6, t.H - t.frontDrop + 2.8], size: 15 }); }
+    if (o.sleeveStrap && o.sleeveStrap !== 'none') for (const pan of panels) {
+      if (pan.role !== 'sleeve') continue;
+      const xs = pan.points.map((q) => q[0]); const L2 = Math.max(...xs); const atCuff = pan.points.filter((q) => q[0] > L2 - 0.6).map((q) => q[1]); const half = Math.max(...atCuff.map(Math.abs)) + 0.6;
+      overlays.push({ kind: 'strap', style: o.sleeveStrap, panel: pan.id, points: rect(L2 - 9.5, -half * 0.98, L2 - 6.3, half * 0.62) });
+      trims.push(o.sleeveStrap === 'strap-buckle' ? { type: 'buckle', panel: pan.id, at: [L2 - 7.9, half * 0.2], size: 26 } : { type: o.__button || 'button-4hole', panel: pan.id, at: [L2 - 7.9, half * 0.4], size: 18 });
+      overlays.push({ kind: 'belt-loop', style: 'keeper', panel: pan.id, points: rect(L2 - 9.9, -half * 0.5, L2 - 5.9, -half * 0.5 + 1.1) });
+    }
   }
   // decorative-edge paths
   const edgesOf = (poly) => ({ hem: [...pathOf(poly, 'hem-l'), ...pathOf(poly, 'hem-r').slice(pathOf(poly, 'hem-l').length ? 1 : 0)], neck: [...pathOf(poly, 'neck-r'), ...pathOf(poly, 'neck-l').slice(pathOf(poly, 'neck-r').length ? 1 : 0)], armhole: o.sleeve === 'none' ? [...pathOf(poly, 'arm-r'), ...pathOf(poly, 'arm-l')] : [] });
