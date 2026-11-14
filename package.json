@@ -12,7 +12,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "build:wasm": "cargo build --manifest-path sim-core/Cargo.toml --release --target wasm32-unknown-unknown && node scripts/copy-wasm.mjs",
-    "test": "node scripts/all-templates.mjs && node scripts/outfit-test.mjs && node scripts/pocket-test.mjs && node scripts/jewelry-test.mjs && node scripts/embroidery-test.mjs",
+    "test": "node scripts/all-templates.mjs && node scripts/outfit-test.mjs && node scripts/pocket-test.mjs && node scripts/jewelry-test.mjs && node scripts/embroidery-test.mjs && node scripts/machine-test.mjs",
     "mcp": "node mcp-server/index.js",
     "cli": "node cli/gft.mjs",
     "desktop:dev": "tauri dev",

@@ -279,6 +279,16 @@ function loadImage(src, onload) {
  * Build (or fetch cached) map + bump textures for a resolved fabric and finish.
  * onUpdate is called when an async print image finishes loading.
  */
+/** One repeat of a print design as production artwork (opaque, straight repeat). */
+export function printTileCanvas(design, colors, px = 2048) {
+  const cv = document.createElement('canvas'); cv.width = cv.height = px;
+  const g = cv.getContext('2d');
+  g.fillStyle = printColors(design, colors)[1]; g.fillRect(0, 0, px, px);
+  g.setTransform(px / SIZE, 0, 0, px / SIZE, 0, 0);
+  printDesign(g, design, colors, 1);
+  return cv;
+}
+
 /** Natural repeat of a print design, in cm (before the user's print size multiplier). */
 export function printTileCm(design) {
   if (['leopard', 'cheetah', 'tiger', 'cougar', 'jaguar', 'snow-leopard', 'dalmatian', 'zebra', 'camo'].includes(design)) return 36;

@@ -23,6 +23,9 @@ import { techPackHTML, patternSVG, patternDXF, tiledPrintHTML, bomCSV, GUIDE, rf
 import { parseDXF, parseSVG, piecesToActions, MODEL_EXT, readAs } from './io/import.js';
 import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitChartSVG } from './core/knit.js';
 import { invoke } from './io/tauri.js';
+import { knitFiles, operationsCSV, printProtocol } from './make/machine.js';
+import { printTileCanvas, printTileCm } from './render/textures.js';
+import { designBitmap } from './make/embroidery.js';
 import { collection, kindOf } from './app/collection.js';
 import { POCKETS, POCKET_CLOSURES } from './core/pockets.js';
 import { STITCH_TYPES, FONTS, THREADS_EMB, MOTIFS_EMB, rasterizeDesign, digitize, writeDST, embroiderySheet, loadArtwork } from './make/embroidery.js';
@@ -629,6 +632,15 @@ function cMake(el, p) {
       h('button', { class: 'btn', onclick: () => download(`${name}.gft.json`, JSON.stringify(p, null, 1), 'application/json') }, 'Project file'),
       ...(p.garments || []).filter((g) => g.knit?.motif && g.knit.motif !== 'none').map((g) => h('button', { class: 'btn', onclick: () => download(`${name}-knitting-chart.svg`, knitChartSVG(g.knit), 'image/svg+xml') }, 'Knitting chart (SVG)')),
       h('button', { class: 'btn', onclick: () => openInBlender() }, 'Open in Blender'),
+    ),
+    h('h3', { style: 'margin-top:14px' }, 'Machine code & work protocols'),
+    h('div', { class: 'tip' }, 'What the factory floor runs: the sewing operations in order, knitting programs, embroidery machine files, and print and dye instructions. The ', h('b', {}, 'manufacturing pack'), ' puts everything for this design in one ZIP.'),
+    h('div', { class: 'grid2' },
+      h('button', { class: 'btn primary', onclick: () => manufacturingPack() }, 'Manufacturing pack (ZIP)'),
+      h('button', { class: 'btn', onclick: () => download(`${name}-sewing-operations.csv`, operationsCSV(p), 'text/csv') }, 'Sewing operations (CSV)'),
+      (p.garments || []).some((g) => g.knit) ? h('button', { class: 'btn', onclick: () => { for (const f of knitFiles(p)) download(`${name}-${f.file.replace('knit/', '')}`, f.text, 'text/plain'); } }, 'Knitting programs (Knitout) + instructions') : null,
+      printProtocol(p) ? h('button', { class: 'btn', onclick: () => download(`${name}-print-dye-protocol.txt`, printProtocol(p, printTileCm), 'text/plain') }, 'Print & dye protocol') : null,
+      (p.embroidery || []).length ? h('div', { class: 's', style: 'font-size:12px;color:var(--muted);align-self:center' }, 'Embroidery machine files: Details → Embroidery → Machine file, or in the pack.') : null,
     )));
   guideSection(el, p);
 }
@@ -847,6 +859,45 @@ function showAbout() {
     h('ol', { class: 'steps-list' }, h('li', {}, h('b', {}, 'Style: '), 'pick a template, customise it, choose a size.'), h('li', {}, h('b', {}, 'Materials: '), 'fabric quality, blends, colour, dye, print, fill.'), h('li', {}, h('b', {}, 'Details: '), 'stitching, threads, buttons, trims, decorations.'), h('li', {}, h('b', {}, 'Make it: '), 'tech pack, patterns, BOM, supplier guide and RFQ emails.')),
     h('p', { class: 's', style: 'color:var(--muted)' }, 'Free for personal, educational and non-commercial use. Commercial use (email genzineers@gmail.com), including modified versions, requires a licence from Genzineers. © 2026 Genzineers. All rights reserved.'),
     h('div', { class: 'chips' }, h('a', { class: 'btn sm', href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener' }, 'genzineers.com'), h('a', { class: 'btn sm', href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'thepotentialdropout.com'), h('a', { class: 'btn sm', href: LINKS_OUT.pd, target: '_blank', rel: 'noopener' }, 'potentialdropout.com'), h('a', { class: 'btn sm', href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Commercial licence'), h('a', { class: 'btn sm', href: LINKS_OUT.repo, target: '_blank', rel: 'noopener' }, 'Source code'))));
+}
+
+// ---------- manufacturing pack: every file a factory needs, in one ZIP ----------
+async function manufacturingPack() {
+  const p = store.get(); const name = p.name.replace(/[^\w-]+/g, '_');
+  toast('Building the manufacturing pack…');
+  try {
+    const { zipSync, strToU8 } = await import('three/examples/jsm/libs/fflate.module.js');
+    const files = {}; const put = (path, data) => { files[`${name}/${path}`] = typeof data === 'string' ? strToU8(data) : data; };
+    const bytes = async (blob) => new Uint8Array(await blob.arrayBuffer());
+    put('01-tech-pack.html', techPackHTML(p, { image: viewer.snapshot(1000) }));
+    put('02-bill-of-materials.csv', bomCSV(p));
+    put('03-sewing-operations.csv', operationsCSV(p));
+    put('pattern/pattern.dxf', patternDXF(p)); put('pattern/pattern.svg', patternSVG(p));
+    put('pattern/print-at-home-A4.html', tiledPrintHTML(p, 'A4'));
+    for (const f of knitFiles(p)) put(f.file, f.text);
+    for (const g of (p.garments || []).filter((x) => x.knit?.motif && x.knit.motif !== 'none')) put(`knit/${g.id}-colourwork-chart.svg`, knitChartSVG(g.knit));
+    let n = 0;
+    for (const e of p.embroidery || []) {
+      if (e.kind === 'image') await loadArtwork(e.image);
+      const bmp = designBitmap(e); if (!bmp) continue; n++;
+      const { cmds, stats } = digitize(bmp, { type: e.stitch, underlay: e.underlay });
+      const nm = `embroidery/${String(n).padStart(2, '0')}-${(e.text || e.motif || 'artwork').replace(/[^\w-]+/g, '_').slice(0, 20)}`;
+      put(`${nm}.dst`, writeDST(cmds, (e.text || e.motif || 'ART').toUpperCase()));
+      put(`${nm}-run-sheet.txt`, embroiderySheet(e, stats, p.panels.find((x) => x.id === e.panel)?.name));
+    }
+    const pp = printProtocol(p, printTileCm);
+    if (pp) {
+      put('prints/print-and-dye-protocol.txt', pp);
+      const done = new Set();
+      for (const pan of p.panels) { const pr = pan.finish?.print; if (!pr?.design || pr.design === 'solid' || pr.design === 'image' || done.has(pr.design + JSON.stringify(pr.colors))) continue; done.add(pr.design + JSON.stringify(pr.colors)); put(`prints/${pr.design}.png`, await bytes(await new Promise((res) => printTileCanvas(pr.design, pr.colors, 2048).toBlob(res, 'image/png')))); }
+      for (const pan of p.panels) { const im = pan.finish?.print?.image; if (im && !done.has(im.length)) { done.add(im.length); put(`prints/artwork-${pan.id}.${(im.match(/^data:image\/(\w+)/) || [0, 'png'])[1].replace('svg+xml', 'svg')}`, await bytes(await (await fetch(im)).blob())); } }
+    }
+    put('3d/model.glb', await bytes(await viewer.exportModel('glb')));
+    put('project.gft.json', JSON.stringify(p));
+    put('README.txt', [`${p.name}: manufacturing pack`, `Made with Genzineers Fashion Tool (genzineers.com)`, '', '01-tech-pack.html         spec sheet, measurements, construction, materials (print to PDF)', '02-bill-of-materials.csv   fabric, trims, thread', '03-sewing-operations.csv   every operation in sewing order: stitch, machine, thread, SPI, length', 'pattern/                  cut pieces with seam allowance: DXF for CAD and cutters, SVG, tiled A4', 'knit/                     Knitout machine programs (.k) per panel + written instructions', 'embroidery/               Tajima .DST machine files + run sheets (colour sequence, set-up)', 'prints/                   repeat artwork (PNG) + print and dye protocol', '3d/                       GLB model of the draped garment', 'project.gft.json          reopen in the tool', '', 'Always approve a sample (fit, sew-out, strike-off, lab dip) before bulk production.'].join('\r\n'));
+    download(`${name}-manufacturing-pack.zip`, new Blob([zipSync(files)], { type: 'application/zip' }));
+    toast(`Manufacturing pack saved (${Object.keys(files).length} files)`, 4000);
+  } catch (e) { console.error(e); toast(`Could not build the pack: ${e.message}`, 6000); }
 }
 
 // ---------- my collection ----------
