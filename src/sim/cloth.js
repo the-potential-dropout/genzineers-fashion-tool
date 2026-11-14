@@ -149,7 +149,8 @@ export function buildCloth(project) {
       UV.push(x / 10, y / 10);
       inv.push(1 / ((fab.weightGsm / 1000) * (Math.max(area[q], h * h * 0.2) / 1e4)));
       fric.push(Math.min(0.95, fab.mech ? fab.mech.mu * 1.1 : fab.friction * 0.6));
-      thk.push(0.006 + rank * 0.007 + (panel.zBias ? 0.0035 : 0));
+      // collision margin: skin clearance + half the cloth thickness (thick coatings and leathers stand further off)
+      thk.push(0.0045 + Math.min(0.012, (fab.thicknessMm || 0.5) / 2000 * 2) + rank * 0.007 + (panel.zBias ? 0.0035 : 0));
       gar.push(panel.garment);
     }
 

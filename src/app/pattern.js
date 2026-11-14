@@ -45,10 +45,11 @@ function offsetOutline(pts, dist) {
   return out;
 }
 
-export function createPatternEditor(canvas, store, { toast = () => {} } = {}) {
+export function createPatternEditor(canvas, store, { toast = () => {}, grade = null } = {}) {
   const g = canvas.getContext('2d');
   const view = { s: 3, x: 40, y: 40 };
-  const opt = { mode: 'all', index: 0, allowance: true, stitch: true, details: true, tool: 'edit' };
+  const opt = { mode: 'all', index: 0, allowance: true, stitch: true, details: true, tool: 'edit', grading: false, fabricWidth: 150 };
+  let marker = null; // { length, efficiency } of the last marker layout
   let layout = [];
   let drag = null;
   const pointers = new Map();
@@ -69,6 +70,8 @@ export function createPatternEditor(canvas, store, { toast = () => {} } = {}) {
       btn('All pieces', 'Show every cut piece laid flat', opt.mode === 'all', () => { opt.mode = 'all'; setTimeout(fit, 0); }),
       btn('One piece', 'Step through the pieces one at a time', opt.mode === 'one', () => { opt.mode = 'one'; opt.index = Math.min(opt.index, Math.max(0, n - 1)); setTimeout(fit, 0); }),
       ...(opt.mode === 'one' ? [btn('◀', 'Previous piece', false, () => { opt.index = (opt.index - 1 + n) % Math.max(1, n); setTimeout(fit, 0); }), btn('▶', 'Next piece', false, () => { opt.index = (opt.index + 1) % Math.max(1, n); setTimeout(fit, 0); })] : []),
+      btn('Marker', 'Lay the pieces on the fabric width (grain kept) and report how much fabric one garment needs', opt.mode === 'marker', () => { if (opt.mode === 'marker') { const w = Number(prompt('Usable fabric width (cm)', opt.fabricWidth)); if (w > 30) opt.fabricWidth = w; } opt.mode = 'marker'; setTimeout(fit, 0); }),
+      ...(grade ? [btn('Grading', 'Overlay every size of each piece (the grade nest)', opt.grading, () => { opt.grading = !opt.grading; })] : []),
       btn('Seam allowance', 'Cut line = stitch line + seam allowance', opt.allowance, () => { opt.allowance = !opt.allowance; }),
       btn('Stitch lines', 'Sewing lines, topstitching and seam letters', opt.stitch, () => { opt.stitch = !opt.stitch; }),
       btn('Details', 'Pockets, plackets, buttons and other placements', opt.details, () => { opt.details = !opt.details; }),
@@ -90,22 +93,28 @@ export function createPatternEditor(canvas, store, { toast = () => {} } = {}) {
   new ResizeObserver(resize).observe(canvas);
 
   const shown = (p) => (opt.mode === 'one' ? p.panels.slice(opt.index, opt.index + 1) : p.panels);
+  const GRADE_COLORS = ['#8a3ffc', '#2f6bff', '#00a3a3', '#1f8a4c', '#c79a00', '#ff5a1f', '#d6336c', '#6b4f2a', '#5f6caf'];
   /** Shelf layout: pieces in rows, wrapped to a comfortable sheet width. */
   function computeLayout(p) {
     layout = [];
-    const pans = shown(p);
+    let pans = shown(p);
+    if (opt.mode === 'marker') pans = [...pans].sort((a, b) => (Math.max(...b.points.map((q) => q[1])) - Math.min(...b.points.map((q) => q[1]))) - (Math.max(...a.points.map((q) => q[1])) - Math.min(...a.points.map((q) => q[1]))));
     const total = pans.reduce((s, pan) => s + (Math.max(...pan.points.map((q) => q[0])) - Math.min(...pan.points.map((q) => q[0]))) + 14, 0);
-    const sheet = Math.max(150, Math.sqrt(total * 90) * 1.25);
-    let x = 0; let y = 0; let rowH = 0;
+    const mk = opt.mode === 'marker';
+    const sheet = mk ? opt.fabricWidth : Math.max(150, Math.sqrt(total * 90) * 1.25);
+    const gapX = mk ? 2 : 14; const gapY = mk ? 2 : 16; // marker: pieces sit 1 cm apart beyond their seam allowances
+    let x = mk ? 1.5 : 0; let y = mk ? 1.5 : 0; let rowH = 0; let area = 0;
     for (const pan of pans) {
       const xs = pan.points.map((q) => q[0]); const ys = pan.points.map((q) => q[1]);
       const minX = Math.min(...xs); const maxX = Math.max(...xs); const minY = Math.min(...ys); const maxY = Math.max(...ys);
       const w = maxX - minX; const h = maxY - minY;
-      if (x > 0 && x + w > sheet) { x = 0; y += rowH + 16; rowH = 0; }
+      if (x > (mk ? 1.5 : 0) && x + w > sheet) { x = mk ? 1.5 : 0; y += rowH + gapY; rowH = 0; }
       layout.push({ id: pan.id, ox: x - minX, oy: y + maxY, w, h, x0: x, y0: y });
-      x += w + 14; rowH = Math.max(rowH, h);
+      x += w + gapX; rowH = Math.max(rowH, h);
+      let A = 0; for (let i = 0; i < pan.points.length; i++) { const a = pan.points[i]; const b = pan.points[(i + 1) % pan.points.length]; A += a[0] * b[1] - b[0] * a[1]; } area += Math.abs(A) / 2;
     }
-    layout.W = Math.max(...layout.map((L) => L.x0 + L.w), 10); layout.H = y + rowH;
+    layout.W = mk ? sheet : Math.max(...layout.map((L) => L.x0 + L.w), 10); layout.H = y + rowH + (mk ? 1.5 : 0);
+    marker = mk && pans.length ? { length: layout.H, efficiency: area / (sheet * layout.H), area } : null;
   }
   const toScreen = (L, [px, py]) => [(L.ox + px) * view.s + view.x, (L.oy - py) * view.s + view.y];
   const toLocal = (L, sx, sy) => [(sx - view.x) / view.s - L.ox, L.oy - (sy - view.y) / view.s];
@@ -116,7 +125,7 @@ export function createPatternEditor(canvas, store, { toast = () => {} } = {}) {
     computeLayout(p);
     const r = canvas.getBoundingClientRect();
     if (!p.panels.length) { view.s = 4; view.x = r.width / 2; view.y = r.height / 2; draw(); return; }
-    view.s = Math.max(0.4, Math.min((r.width - 60) / Math.max(layout.W, 1), (r.height - 110) / Math.max(layout.H, 1)));
+    view.s = Math.max(0.3, Math.min((r.width - 60) / Math.max(layout.W, 1), (r.height - 130) / Math.max(layout.H, 1)));
     view.x = (r.width - layout.W * view.s) / 2; view.y = 64 + (r.height - 110 - layout.H * view.s) / 2;
     draw();
   }
@@ -143,11 +152,20 @@ export function createPatternEditor(canvas, store, { toast = () => {} } = {}) {
     const step = 10 * view.s;
     if (step > 6) { for (let x = ((view.x % step) + step) % step; x < r.width; x += step) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, r.height); g.stroke(); } for (let y = ((view.y % step) + step) % step; y < r.height; y += step) { g.beginPath(); g.moveTo(0, y); g.lineTo(r.width, y); g.stroke(); } }
     const SA = p.production?.seamAllowance ?? 1; const HEM = p.production?.hemAllowance ?? 2.5;
+    // marker: the fabric, selvedge to selvedge
+    if (opt.mode === 'marker' && marker) {
+      const x0 = view.x; const y0 = view.y; const w = opt.fabricWidth * view.s; const hgt = marker.length * view.s;
+      g.fillStyle = 'rgba(47,107,255,.05)'; g.fillRect(x0, y0, w, hgt); g.strokeStyle = '#2f6bff'; g.lineWidth = 1.5; g.strokeRect(x0, y0, w, hgt);
+      g.fillStyle = '#2f6bff'; g.font = '600 12px sans-serif'; g.fillText(`Fabric ${opt.fabricWidth} cm wide · ${(marker.length / 100).toFixed(2)} m needed for one garment · simple layout ${(marker.efficiency * 100).toFixed(0)}% efficient (a nested production marker is typically 80-88%)`, x0, y0 - 8);
+    }
+    const sizes = opt.grading && grade ? grade(p) : null;
     for (const pan of shown(p)) {
       const L = layout.find((l) => l.id === pan.id); if (!L) continue;
       const n = pan.points.length;
       const pts = pan.points.map((q) => toScreen(L, q));
       const sides = seamSides(p, pan);
+      // grade nest: this piece in every size, stacked on the same origin
+      if (sizes) sizes.forEach((sz, k) => { const gp = sz.panels.find((x) => x.id === pan.id); if (!gp || sz.current) return; const q = gp.points.map((pt) => toScreen(L, pt)); g.strokeStyle = GRADE_COLORS[k % GRADE_COLORS.length]; g.lineWidth = 0.9; g.setLineDash([]); g.beginPath(); q.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.stroke(); const top = q.reduce((b, c) => (c[1] < b[1] ? c : b)); g.fillStyle = GRADE_COLORS[k % GRADE_COLORS.length]; g.font = '9px sans-serif'; g.fillText(sz.size, top[0] + 3, top[1] - 2); });
       // cut line = stitch line + allowance (hems deeper, raw / bound edges none)
       if (opt.allowance) {
         const cut = offsetOutline(pan.points, (e) => (hemLike(pan, e) && !sides.has(e) ? HEM : SA)).map((q) => toScreen(L, q));

@@ -156,74 +156,118 @@ function lathe(innerR, profile, w, t, mat, arc = Math.PI * 2, inside = profile =
 }
 
 /**
- * A closed wire link swept along its true centreline.
- *  - cable / rolo / paperclip: a planar oval, round or stadium of round wire
- *  - curb / Cuban / figaro: the oval is twisted about its long axis (so each link passes
- *    through the next and the chain lies flat), then its top and bottom are cut flat and
- *    polished ("diamond cut"), which is what gives a Cuban its broad mirror faces
- * a, b = half length / half width of the centreline (mm); d = wire diameter (mm).
+ * Link dimensions in wire diameters (d), solved so neighbouring links never intersect:
+ *   pitch >= a + 0.55 d          (a link clears the one after next)
+ *   pitch <= 2a - d              (alternating links: the two end bows do not collide)
+ *   crossing wires stay > 1 d apart (checked by scripts/jewelry-test.mjs for every chain)
+ * a / b = half length / half width of the wire centreline.
  */
-function wireLink({ a, b, d, twist = 0, flat = 0, stadium = false, ry = 1 }) {
+export const LINK_DIMS = {
+  cuban: { a: 1.85, b: 1.5, wire: 1, twist: 100, pitch: 2.42, flat: 0.2, frame: 'flat' },
+  curb: { a: 2.1, b: 1.5, wire: 1, twist: 100, pitch: 2.68, flat: 0.12, frame: 'flat' },
+  figaro: { a: 2.1, b: 1.5, wire: 1, twist: 100, pitch: 2.68, flat: 0.12, frame: 'flat' },
+  cable: { a: 2.1, b: 1.25, wire: 1, twist: 0, pitch: 2.95, frame: 'roll' },
+  mariner: { a: 2.3, b: 1.3, wire: 1, twist: 0, pitch: 3.2, frame: 'roll', bar: true },
+  satellite: { a: 2.1, b: 1.25, wire: 1, twist: 0, pitch: 2.95, frame: 'roll' },
+  rolo: { a: 1.72, b: 1.72, wire: 1, twist: 0, pitch: 2.34, frame: 'roll' },
+  byzantine: { a: 1.72, b: 1.72, wire: 1, twist: 0, pitch: 2.34, frame: 'roll' },
+  paperclip: { a: 4.6, b: 1.45, wire: 1, twist: 0, pitch: 7.6, frame: 'roll', stadium: true },
+};
+/** Centreline of a wire link (shared by the mesh and the interference test). */
+export function linkPoint(dim, u, out = [0, 0, 0]) {
+  const { a, b } = dim; const t = u * Math.PI * 2;
+  let x; let y;
+  if (dim.stadium) {
+    const c = Math.cos(t); const sn = Math.sin(t); const k = Math.max(Math.abs(c) / a, Math.abs(sn) / b) || 1;
+    const px = c / k; const py = sn / k; const sx = Math.max(-(a - b), Math.min(a - b, px));
+    const dx = px - sx; const dl = Math.hypot(dx, py) || 1; x = sx + (dx / dl) * b; y = (py / dl) * b;
+  } else { x = a * Math.cos(t); y = b * Math.sin(t); }
+  const ph = (x / a) * ((dim.twist || 0) * Math.PI / 180) * 0.5; // roll about the long axis grows along the link
+  out[0] = x; out[1] = y * Math.cos(ph); out[2] = y * Math.sin(ph);
+  return out;
+}
+
+function wireLink(dim, d) {
   class Path extends THREE.Curve {
-    getPoint(u, target = new THREE.Vector3()) {
-      const t = u * Math.PI * 2;
-      let x; let y;
-      if (stadium) { // straight sides, round ends
-        const c = Math.cos(t); const sn = Math.sin(t); const k = Math.max(Math.abs(c) / a, Math.abs(sn) / b) || 1;
-        const px = c / k; const py = sn / k; const cr = b; const sx = Math.max(-(a - cr), Math.min(a - cr, px));
-        const dx = px - sx; const dl = Math.hypot(dx, py) || 1; x = sx + (dx / dl) * cr; y = (py / dl) * cr;
-      } else { x = a * Math.cos(t); y = b * Math.sin(t); }
-      const ph = (x / a) * twist * 0.5; // roll about the long axis grows along the link
-      return target.set(x, y * Math.cos(ph), y * Math.sin(ph));
-    }
+    getPoint(u, target = new THREE.Vector3()) { const q = linkPoint(dim, u); return target.set(q[0] * d, q[1] * d, q[2] * d); }
   }
-  const g = new THREE.TubeGeometry(new Path(), 72, d / 2, 14, true);
-  if (ry !== 1) g.scale(1, ry, 1);
-  if (flat > 0) {
-    // diamond cut: plane off the crown of the link on both faces
+  const g = new THREE.TubeGeometry(new Path(), 80, (d * dim.wire) / 2, 14, true);
+  if (dim.flat > 0) {
+    // diamond cut: plane off the crown of the link on both faces (this only removes metal)
     const p = g.attributes.position; let zmax = 0;
     for (let i = 0; i < p.count; i++) zmax = Math.max(zmax, Math.abs(p.getZ(i)));
-    const zc = zmax * (1 - flat);
+    const zc = zmax * (1 - dim.flat);
     for (let i = 0; i < p.count; i++) { const z = p.getZ(i); if (Math.abs(z) > zc) p.setZ(i, Math.sign(z) * zc); }
+  }
+  if (dim.bar) { // mariner: a bar across the middle of the link, in the link's own plane
+    const bar = new THREE.CylinderGeometry((d * 0.42), (d * 0.42), dim.b * 2 * d, 10);
+    const merged = mergeGeo([g, bar]); g.dispose(); bar.dispose();
+    merged.scale(MM, MM, MM); merged.computeVertexNormals(); return merged;
   }
   g.scale(MM, MM, MM);
   g.computeVertexNormals();
   return g;
 }
+function mergeGeo(list) {
+  const pos = []; const idx = []; let off = 0;
+  for (const g0 of list) { const g = g0.index ? g0 : g0.toNonIndexed(); const p = g.attributes.position; for (let i = 0; i < p.count; i++) pos.push(p.getX(i), p.getY(i), p.getZ(i)); if (g.index) for (let i = 0; i < g.index.count; i++) idx.push(g.index.getX(i) + off); else for (let i = 0; i < p.count; i++) idx.push(i + off); off += p.count; }
+  const out = new THREE.BufferGeometry(); out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); out.setIndex(idx); return out;
+}
 
 function linkGeometry(link, gauge, customPts) {
   const lk = LINKS[link] || LINKS.cable;
   const d = gauge; // wire diameter, mm
-  let g; let step; let frame = 'roll'; // 'roll': links alternate 90 degrees; 'flat': all links lie the same way
+  const dim = LINK_DIMS[link];
+  if (dim) return { g: wireLink(dim, d), step: dim.pitch * d, lk, frame: dim.frame };
+  let g; let step; let frame = 'flat';
   switch (lk.shape) {
-    case 'oval-flat': {
-      // curb family. Cuban: heavier wire, tighter pitch, deeper diamond cut
-      const heavy = Boolean(lk.heavy);
-      const a = d * (heavy ? 1.75 : 2.05); const b = d * (heavy ? 1.28 : 1.3);
-      g = wireLink({ a, b, d: d * (heavy ? 1.12 : 1), twist: Math.PI / 2, flat: heavy ? 0.24 : 0.14 });
-      step = 2 * a - d * (heavy ? 1.52 : 1.35); frame = 'flat';
-      break;
+    case 'ball': { // beads joined by short connector bars
+      const bead = new THREE.SphereGeometry(d * 0.9, 20, 14); const bar = new THREE.CylinderGeometry(d * 0.18, d * 0.18, d * 0.5, 8); bar.rotateZ(Math.PI / 2); bar.translate(d * 1.12, 0, 0);
+      g = mergeGeo([bead, bar]); g.scale(MM, MM, MM); g.computeVertexNormals(); step = d * 2.24; break;
     }
-    case 'round': g = wireLink({ a: d * 1.55, b: d * 1.55, d }); step = d * 2.0; break;
-    case 'oval-bar': case 'oval': g = wireLink({ a: d * 2.1, b: d * 1.25, d }); step = d * 2.95; break;
-    case 'rect': g = wireLink({ a: d * 4.6, b: d * 1.45, d, stadium: true }); step = d * 7.6; break;
-    case 'ball': g = new THREE.SphereGeometry(d * 0.9 * MM, 20, 14); step = d * 1.95; frame = 'flat'; break;
     case 'square': case 'custom': {
-      const len = d * lk.pitch * 1.25; const wid = d * 2.4;
-      const outline = lk.shape === 'custom' && customPts?.length >= 3 ? customPts : [[-len / 2, -wid / 2], [len / 2, -wid / 2], [len / 2, wid / 2], [-len / 2, wid / 2]];
+      // box / franco / custom: rectangular frames, alternately turned 90 degrees.
+      // bar 0.5 d, opening 1.3 d wide (> the 1 d depth of the neighbour passing through it)
+      const Lo = d * 3.2; const Wo = d * 2.3; const tb = d * 0.5;
+      const outline = lk.shape === 'custom' && customPts?.length >= 3 ? customPts : [[-Lo / 2, -Wo / 2], [Lo / 2, -Wo / 2], [Lo / 2, Wo / 2], [-Lo / 2, Wo / 2]];
       const sh = new THREE.Shape(outline.map(([x, y]) => new THREE.Vector2(x, y)));
-      sh.holes.push(new THREE.Path(outline.map(([x, y]) => new THREE.Vector2(x * 0.55, y * 0.45))));
-      g = new THREE.ExtrudeGeometry(sh, { depth: d, bevelEnabled: true, bevelThickness: d * 0.15, bevelSize: d * 0.12, bevelSegments: 3 });
-      g.scale(MM, MM, MM); g.translate(0, 0, -d * MM / 2);
-      step = len * 0.62;
+      const xs = outline.map((q) => q[0]); const ys = outline.map((q) => q[1]); const cx = (Math.min(...xs) + Math.max(...xs)) / 2; const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const kx = 1 - (2 * tb) / (Math.max(...xs) - Math.min(...xs)); const ky = 1 - (2 * tb) / (Math.max(...ys) - Math.min(...ys));
+      sh.holes.push(new THREE.Path(outline.map(([x, y]) => new THREE.Vector2(cx + (x - cx) * kx, cy + (y - cy) * ky))));
+      g = new THREE.ExtrudeGeometry(sh, { depth: d * 0.9, bevelEnabled: true, bevelThickness: d * 0.05, bevelSize: d * 0.04, bevelSegments: 2 });
+      g.translate(0, 0, -d * 0.45); g.scale(MM, MM, MM);
+      step = d * 2.0; frame = 'roll';
       break;
     }
-    case 'cup': g = new THREE.CylinderGeometry(d * 0.55 * MM, d * 0.45 * MM, d * 0.6 * MM, 20); step = d * 1.05; frame = 'flat'; break;
-    case 'tube': case 'tube-flat': { const len = d * lk.pitch * 1.25; g = new THREE.CylinderGeometry(d * 0.6 * MM, d * 0.6 * MM, len * MM, 16); g.rotateZ(Math.PI / 2); if (lk.flat) g.scale(1, 1, 0.35); step = len * 0.7; frame = 'flat'; break; }
-    case 'helix': g = wireLink({ a: d * 1.5, b: d * 1.15, d: d * 0.8, twist: Math.PI * 0.6 }); step = d * 0.9; break;
-    default: g = wireLink({ a: d * 2.1, b: d * 1.25, d }); step = d * 2.95;
+    case 'cup': g = new THREE.CylinderGeometry(d * 0.55 * MM, d * 0.45 * MM, d * 0.6 * MM, 20); step = d * 1.16; break;
+    default: g = null; step = d; frame = 'sweep'; // rope, wheat, singapore, snake, herringbone: continuous swept strands
   }
   return { g, step, lk, frame };
+}
+
+/** Chains that are not made of separate rings: strands swept along the whole chain, so nothing can intersect. */
+function sweptChain(lk, d, curve, mat) {
+  const grp = new THREE.Group();
+  const L = curve.getLength() / MM;
+  const flat = lk.shape === 'tube-flat';
+  const tube = lk.shape === 'tube' || flat;
+  const strands = tube ? 1 : lk === LINKS.wheat ? 4 : lk === LINKS.singapore ? 2 : 2;
+  const R = tube ? 0 : d * 0.55; const r = tube ? d * 0.6 : d * (strands > 2 ? 0.36 : 0.5); const lead = d * (strands > 2 ? 3.4 : 3.2);
+  const N = Math.min(2400, Math.max(200, Math.round(L / (d * 0.35))));
+  const T = new THREE.Vector3(); const Nn = new THREE.Vector3(); const B = new THREE.Vector3();
+  for (let s = 0; s < strands; s++) {
+    const pts = [];
+    for (let i = 0; i < N; i++) {
+      const t = i / N; const p = curve.getPointAt(t); curve.getTangentAt(t, T);
+      Nn.copy(p).setY(p.y * 0.25).normalize(); Nn.addScaledVector(T, -Nn.dot(T)).normalize(); B.crossVectors(Nn, T).normalize();
+      const ang = (t * L / lead) * Math.PI * 2 + (s / strands) * Math.PI * 2;
+      pts.push(p.clone().addScaledVector(B, Math.cos(ang) * R * MM).addScaledVector(Nn, Math.sin(ang) * R * MM * (flat ? 0.3 : 1)));
+    }
+    const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), N, r * MM, 8, true);
+    grp.add(new THREE.Mesh(g, mat));
+  }
+  if (flat) grp.userData.flat = true;
+  return grp;
 }
 
 /** Necklace / bracelet path: a hanging loop (ellipse squashed at the back). */
@@ -248,6 +292,11 @@ function chainMesh(spec, metalMat) {
   const avg = pattern.reduce((x, y) => x + y, 0) / pattern.length;
   const count = Math.max(8, Math.round(L / (step * avg)));
   const pitch = L / (count * avg); // spread evenly so the loop closes on a whole link
+  if (frame === 'sweep') {
+    const sw = sweptChain(lk, spec.gauge || 1, curve, metalMat);
+    sw.userData.curve = curve;
+    return sw;
+  }
   const mesh = new THREE.InstancedMesh(g, metalMat, count);
   const m = new THREE.Matrix4(); const q = new THREE.Quaternion(); const up = new THREE.Vector3(0, 1, 0);
   const basis = new THREE.Matrix4(); const N = new THREE.Vector3(); const B = new THREE.Vector3();
@@ -263,7 +312,9 @@ function chainMesh(spec, metalMat) {
     basis.makeBasis(tan, B, N);
     q.setFromRotationMatrix(basis);
     if (frame === 'roll') q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (i % 2) * (twist || Math.PI / 2) + (lk.shape === 'helix' ? i * 0.55 : 0)));
-    m.compose(p, q, new THREE.Vector3(s, 1, 1));
+    // leave room for the clasp at the back of the neck / wrist so it does not sit inside the links
+    const gap = Math.abs(t - 0.5) < ((spec.gauge || 1) * 3.9 * MM) / curve.getLength();
+    m.compose(p, q, gap ? new THREE.Vector3(0, 0, 0) : new THREE.Vector3(s, 1, 1));
     mesh.setMatrixAt(i, m);
     u += (pitch * s * MM) / curve.getLength();
   }

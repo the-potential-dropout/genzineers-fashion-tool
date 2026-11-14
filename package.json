@@ -1,6 +1,6 @@
 {
   "name": "genzineers-fashion-tool",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "Design, simulate, assemble and produce clothing, hats and bags. Web + desktop. By Genzineers.",
   "type": "module",
@@ -12,7 +12,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "build:wasm": "cargo build --manifest-path sim-core/Cargo.toml --release --target wasm32-unknown-unknown && node scripts/copy-wasm.mjs",
-    "test": "node scripts/all-templates.mjs && node scripts/outfit-test.mjs && node scripts/pocket-test.mjs",
+    "test": "node scripts/all-templates.mjs && node scripts/outfit-test.mjs && node scripts/pocket-test.mjs && node scripts/jewelry-test.mjs",
     "mcp": "node mcp-server/index.js",
     "cli": "node cli/gft.mjs",
     "desktop:dev": "tauri dev",

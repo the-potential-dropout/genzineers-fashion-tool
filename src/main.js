@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Genzineers (genzineers.com). All rights reserved.
 // Licensed under the Genzineers Source-Available License. See LICENSE.
 import { createStore, settings } from './app/store.js';
+import { applyActions } from './core/actions.js';
 import { createPatternEditor } from './app/pattern.js';
 import { Viewer } from './render/viewer.js';
 import { initSolver, buildCloth, solverKind, loadBodyMesh } from './sim/cloth.js';
@@ -84,7 +85,19 @@ root.append(top, h('div', { class: 'layout' }, panel, stage, drawer));
 const viewer = new Viewer(viewEl);
 window.__gft = { viewer, store }; // handy for debugging from the console
 viewer.onError = (m) => toast(m, 5000);
-const pattern = createPatternEditor(patternCanvas, store, { toast: (m) => toast(m) });
+// grade nest: the same design drafted in every size of the chart (cached per design)
+let gradeCache = { key: null, sizes: [] };
+function gradeNest(p) {
+  if (gradeCache.key === p) return gradeCache.sizes;
+  const chart = SIZE_CHARTS[p.sizeChart || 'unisex'];
+  const sizes = [];
+  for (const size of Object.keys(chart.sizes)) {
+    try { const r = applyActions(p, [{ type: 'set_size', size }]); if (r.results[0].ok) sizes.push({ size, panels: r.project.panels, current: !p.customBody && p.size === size }); } catch { /* skip */ }
+  }
+  gradeCache = { key: p, sizes };
+  return sizes;
+}
+const pattern = createPatternEditor(patternCanvas, store, { toast: (m) => toast(m), grade: gradeNest });
 let sim = null;
 let simStatus = { text: 'Loading…', live: true };
 let lastMs = 0;
@@ -384,6 +397,12 @@ function cMaterials(el, p) {
   const cur = tgtPanel(p); if (!cur) return;
   const fab = resolveFabric(p, cur.fabric, cur.fabricOverrides);
   const rec = recommendFor(cur.fabric, p);
+  // physical properties of this material in this project (defaults per material, all editable)
+  { const num = (label, key, step, unit) => field(`${label} (${unit})`, h('input', { type: 'number', step, min: 0, value: fab[key], onchange: (e) => { const v = Number(e.target.value); if (v > 0) store.dispatch({ type: 'set_fabric', ...tgt(), overrides: { [key]: v } }); } }));
+    el.append(h('details', {}, h('summary', {}, `Material properties: ${fab.thicknessMm} mm thick · ${fab.weightGsm} g/m²`), h('div', {},
+      h('div', { class: 'grid2' }, num('Thickness', 'thicknessMm', 0.05, 'mm'), num('Weight', 'weightGsm', 5, 'g/m²')),
+      h('div', { class: 's', style: 'font-size:12px;color:var(--muted)' }, `Default thickness is ${fab.thicknessSource || 'the material default'}. Thickness changes stiffness (bending follows thickness cubed) and how far the cloth stands off the body; weight changes how it hangs. ${fab.mech ? `Measured behaviour used: stretches ${fab.mech.emt}% under load, shear ${fab.mech.G} gf/cm·deg, bending ${fab.mech.B.toFixed(3)} gf·cm²/cm, friction ${fab.mech.mu}.` : ''}`),
+      h('button', { class: 'btn sm', style: 'margin-top:6px', onclick: () => store.dispatch({ type: 'set_fabric', ...tgt(), fabric: fab.id }) }, 'Reset to material defaults')))); }
   el.append(h('div', { class: 'tip' }, h('b', {}, fab.name), ` · ${fab.fiber} · ${fab.weightGsm} gsm. `, fabricTip(fab.id) || fab.note || '', h('br'), h('b', {}, 'Recommended: '), `${ASSEMBLY[rec.stitch]?.name}, ${THREADS[rec.thread]?.name}, needle ${rec.needle}, ${rec.spi} SPI.`));
   // fabric picker
   const cats = ['All', ...FABRIC_CATEGORIES];

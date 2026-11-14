@@ -32,7 +32,7 @@ export const ACTION_DOCS = {
   set_layer: '{ garment: "g0", layer: 0-5 | null } outfit layering order: 0 underwear, 1 base, 2 mid/knit, 3 jacket, 4 coat, 5 accessory (null = automatic)',
   set_option: '{ garment: "g0", key, value } or { garment, options: {key: value} } change a template option (fit, length, sleeve, cuff, collar, lapel, closure, inseam, leg, style, ...; see catalog.generators)',
   rename: '{ name }',
-  set_fabric: '{ panel: "<panel id>"|"all", garment?: "g0", fabric: "<fabric id>", overrides?: { stretch?, bend?, weightGsm?, look?: { color?, roughness?, sheen?, pattern?, fx? } } }',
+  set_fabric: '{ panel: "<panel id>"|"all", garment?: "g0", fabric: "<fabric id>", overrides?: { thicknessMm?, weightGsm?, stretch?, bend?, friction?, look?: { color?, roughness?, sheen?, pattern?, fx? } } }',
   create_fabric: '{ id, name, base?: "<fabric id>", fiber?, weightGsm?, stretch?, bend?, look?: {...} }',
   create_blend: '{ id, name?, base: "<fabric id>", composition: { cotton: 60, polyester: 40 } } or { id, blend: "<blend id>" } custom fibre blend (props computed)',
   set_knit: '{ garment?: "g0", method?, gauge?: "7gg", yarn?, structure?, motif?, colors?: ["#main","#2nd","#3rd"] } make a garment knitted (see catalog knitMethods/gauges/yarns/knitStructures/motifs)',

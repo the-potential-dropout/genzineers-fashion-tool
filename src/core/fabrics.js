@@ -343,6 +343,17 @@ for (const fab of Object.values(F)) {
   // weight moves stiffness within a family (bending grows roughly with thickness cubed)
   const base = F[fab.family] || fab;
   if (base.weightGsm && fab.weightGsm !== base.weightGsm) m.B *= Math.pow(fab.weightGsm / base.weightGsm, 2);
+  // Default thickness. Leather is specified by thickness in the trade (1 oz = 0.4 mm), so its
+  // drafted value stands. For cloth, published thickness tables are scarce and inconsistent, so
+  // the default is weight / typical bulk density of the construction (e.g. polar fleece measures
+  // ~1.05 mm at 230 g/m2 = 0.22 g/cm3). Treat it as an estimate: confirm with a thickness gauge
+  // (ASTM D1777) and override it per project if your fabric differs.
+  if (!/leather|suede|shearling|fur|felt|straw|foam|neoprene/.test(`${fab.id} ${fab.family}`)) {
+    const rho = /fleece|terry|sweat|velour|sherpa|pile/.test(tag) ? 0.2 : /rib|interlock|pique|ponte|knit|jersey|mesh|lace/.test(tag) ? 0.3 : /tweed|melton|flannel|boiled|coating|corduroy|velvet|moleskin/.test(tag) ? 0.38 : /chiffon|georgette|organza|voile|tulle|satin|silk|lining/.test(tag) ? 0.45 : /denim|canvas|duck|twill|chino|gabardine|drill/.test(tag) ? 0.55 : /nylon|polyester|ripstop|waterproof|shell|taffeta/.test(tag) ? 0.65 : 0.5;
+    fab.thicknessMm = Math.round((fab.weightGsm / (1000 * rho)) * 100) / 100;
+    fab.thicknessSource = 'estimated from weight and construction';
+  } else fab.thicknessSource = 'trade specification';
+  m.t0 = fab.thicknessMm;
   fab.mech = m;
 }
 
@@ -352,10 +363,13 @@ export function fabricPhysics(fab) {
   if (!m || fab._slidersEdited) {
     return { kS: 0.55 + 0.45 * fab.stretch, kSh: 0.15 + 0.6 * fab.shear, kB: 0.004 + 0.35 * Math.pow(fab.bend, 1.5), lim: 0.04 + 0.6 * (1 - fab.stretch) ** 1.5 };
   }
+  // a thicker or thinner cut of the same material: bending rigidity follows thickness cubed
+  const tk = m.t0 && fab.thicknessMm ? Math.max(0.2, Math.min(5, fab.thicknessMm / m.t0)) : 1;
+  const B = m.B * tk * tk * tk;
   return {
     kS: m.emt > 50 ? 0.82 : m.emt > 15 ? 0.93 : 0.99,
     kSh: Math.max(0.1, Math.min(0.95, 0.1 + 0.2 * Math.log2(1 + m.G * 2))),
-    kB: Math.max(0.003, Math.min(0.9, 0.003 + 0.4 * Math.pow(m.B, 0.75))),
+    kB: Math.max(0.003, Math.min(0.9, 0.003 + 0.4 * Math.pow(B, 0.75))),
     lim: Math.max(0.015, Math.min(1.2, (m.emt / 100) * 0.9)),
   };
 }
