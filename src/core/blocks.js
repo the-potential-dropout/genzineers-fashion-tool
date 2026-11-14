@@ -117,6 +117,20 @@ function clipX(pts, side) {
 }
 const polyArea = (pts) => { let A = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i]; const b = pts[(i + 1) % pts.length]; A += a[0] * b[1] - b[0] * a[1]; } return Math.abs(A) / 2; };
 
+function inPoly(x, y, pts) { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i]; const [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; }
+/** A path moved d cm towards the inside of the piece (for bindings and bands that follow an edge). */
+function insetPath(path, d, outline) {
+  const out = [];
+  for (let i = 0; i < path.length; i++) {
+    const a = path[Math.max(0, i - 1)]; const b = path[Math.min(path.length - 1, i + 1)];
+    let tx = b[0] - a[0]; let ty = b[1] - a[1]; const l = Math.hypot(tx, ty); if (l < 1e-6) continue; tx /= l; ty /= l;
+    let x = path[i][0] - ty * d; let y = path[i][1] + tx * d;
+    if (!inPoly(x, y, outline)) { x = path[i][0] + ty * d; y = path[i][1] - tx * d; }
+    out.push([Math.round(x * 10) / 10, Math.round(y * 10) / 10]);
+  }
+  return out;
+}
+
 /** Front-opening garments are cut as two real front pieces that overlap and fasten. */
 const OPEN_FRONT = ['single-breasted', 'double-breasted', 'zip', 'two-way-zip', 'asymmetric-zip', 'snaps', 'toggles', 'placket'];
 
@@ -361,9 +375,9 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   }
   // ---- collars, neckbands and hoods: real 3D pieces that follow the sewn neckline ----
   const COLLARS = {
-    point: { stand: 3, fall: 4.3, point: 7.5, spread: 2.5 }, spread: { stand: 3.2, fall: 4.5, point: 8, spread: 6.5 },
+    point: { stand: 3, fall: 4.3, point: 7.5, spread: 2.5, gap: 0.07 }, spread: { stand: 3.2, fall: 4.5, point: 8, spread: 6.5, gap: 0.1 },
     'button-down': { stand: 3, fall: 4.3, point: 8.2, spread: 3.5, roll: 1 }, camp: { stand: 0.6, fall: 6, point: 8.5, spread: 7.5, flat: 1 },
-    polo: { stand: 1.6, fall: 6, point: 7, spread: 3.5, fabric: 'rib-knit' }, corduroy: { stand: 1.2, fall: 7, point: 9, spread: 5, fabric: 'corduroy' },
+    polo: { stand: 2.1, fall: 6.4, point: 7.6, spread: 1.6, flare: 44, gap: 0.2, fabric: 'rib-knit' }, corduroy: { stand: 1.2, fall: 7, point: 9, spread: 5, fabric: 'corduroy' },
     mandarin: { stand: 3.5 }, 'band-snap': { stand: 4 }, funnel: { stand: 8, lean: 0.05 }, rib: { stand: 2.6, fabric: 'rib-knit' },
     hood: { hood: 1, stand: 1 },
   };
@@ -387,6 +401,19 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   else if (COLLARS[o.collar]) collars.push({ kind: COLLARS[o.collar].hood ? 'hood' : 'collar', style: o.collar, ...COLLARS[o.collar], hoodStyle: o.hood || 'three-panel', paths: neckPaths() });
   else if (o.neckline === 'mock') collars.push({ kind: 'collar', style: 'mock', stand: 5, fabric: /knit|jersey|fleece|terry|rib/.test(fabric) ? 'rib-knit' : undefined, paths: neckPaths() });
   else if (!t.split && /knit|jersey|fleece|terry|rib|pique|interlock/.test(fabric) && o.shoulder !== 'strap') collars.push({ kind: 'neckband', style: 'rib-neckband', stand: o.neckline === 'henley' ? 1.6 : 2, fabric: 'rib-knit', paths: neckPaths() });
+  // sleeveless knits (tanks, A-shirts, racerbacks): rib binding round each armhole
+  if (o.sleeve === 'none' && /knit|jersey|rib|pique|interlock|terry|fleece/.test(fabric)) {
+    const depth = o.shoulder === 'strap' ? 0.9 : 1.5;
+    for (const pan of panels) {
+      if (pan.role !== 'body') continue;
+      const poly = pan.id === id('back') ? t.back : pan.id === id('front-r') ? t.fr : pan.id === id('front-l') ? t.fl : t.front;
+      for (const tag of ['arm-r', 'arm-l']) {
+        const path = pathOf(poly, tag); if (path.length < 3) continue;
+        const inner = insetPath(path, depth, poly.pts);
+        if (inner.length >= 2) overlays.push({ kind: 'band', style: 'rib', panel: pan.id, points: [...path, ...inner.reverse()] });
+      }
+    }
+  }
   // pattern pieces for the cut list (the 3D collar is drawn from the spec above)
   if (['point', 'spread', 'button-down', 'camp', 'polo', 'corduroy'].includes(o.collar)) {
     const c = COLLARS[o.collar];

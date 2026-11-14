@@ -65,7 +65,7 @@ export const PRINT_METHODS = {
   'embroidery': P('Embroidery (machine)', ANY, 'raised', 'Thread-stitched logos; 3D puff embroidery available.', { moq: '12-24 pcs' }),
 };
 
-export const PRINT_DESIGNS = ['solid', 'stripes', 'breton', 'pinstripe', 'gingham', 'polka', 'camo', 'leopard', 'cheetah', 'tiger', 'cougar', 'jaguar', 'snow-leopard', 'zebra', 'snakeskin', 'floral', 'ditsy-floral', 'paisley', 'checkerboard', 'houndstooth', 'tartan', 'argyle', 'chevron', 'zigzag', 'waves', 'hearts', 'stars', 'triangles', 'ikat', 'gradient', 'logo', 'image'];
+export const PRINT_DESIGNS = ['solid', 'stripes', 'breton', 'pinstripe', 'gingham', 'polka', 'camo', 'leopard', 'cheetah', 'tiger', 'cougar', 'jaguar', 'snow-leopard', 'dalmatian', 'zebra', 'snakeskin', 'floral', 'ditsy-floral', 'paisley', 'checkerboard', 'houndstooth', 'tartan', 'argyle', 'chevron', 'zigzag', 'waves', 'hearts', 'stars', 'triangles', 'ikat', 'gradient', 'logo', 'image'];
 
 const PT = (name, fibers, effect, use) => ({ name, fibers, effect, use });
 export const PAINTS = {
@@ -105,4 +105,19 @@ export function defaultPrintFor(fabric) {
   if (fabric.category === 'Leather') return 'emboss';
   if (fabric.category === 'Knit' && fib.includes('cotton')) return 'screen-water';
   return 'screen-plastisol';
+}
+
+/** Natural colours of each print [markings, ground, accent]. Every one can be changed per garment. */
+export const PRINT_COLORS = {
+  leopard: ['#1a1410', '#d6a35c', '#9a5a22'], cheetah: ['#1a1410', '#d9a75a', '#1a1410'], tiger: ['#111111', '#e07a1f', '#ffffff'],
+  cougar: ['#50321a', '#b98a57', '#ffebc8'], jaguar: ['#1a1410', '#d39a4a', '#a8641f'], 'snow-leopard': ['#3b3a38', '#e9e6df', '#b8b4ab'],
+  dalmatian: ['#141414', '#fbfaf7', '#141414'], zebra: ['#111111', '#ffffff', '#111111'], snakeskin: ['#2b2a26', '#c9c0a8', '#7d7461'],
+};
+export const PRINT_COLOR_LABELS = ['Markings / main', 'Ground', 'Accent'];
+const LEGACY = ['#111111', '#ffffff', '#c0392b'];
+/** Colours a print is drawn with: the garment's choice, else the design's natural colours. */
+export function printColors(design, colors) {
+  const nat = PRINT_COLORS[design] || LEGACY;
+  const legacy = PRINT_COLORS[design] && Array.isArray(colors) && LEGACY.every((c, i) => (colors[i] || '').toLowerCase() === c);
+  return [0, 1, 2].map((i) => (!legacy && colors?.[i]) || nat[i]);
 }

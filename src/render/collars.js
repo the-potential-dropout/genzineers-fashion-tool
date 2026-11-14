@@ -97,7 +97,7 @@ export function buildCollar(spec, stations, material, edgeColor, threadColor) {
       } else {
         const s = spec.stand * cm;
         const f = (spec.fall + ((spec.point ?? spec.fall) - spec.fall) * wf * wf) * cm;
-        const fl = ((spec.flat ? 62 : 24) + (spec.flat ? 14 : 14) * wf) * (Math.PI / 180); // how far the fall lies away from the stand
+        const fl = ((spec.flare ?? (spec.flat ? 62 : 24)) + 14 * wf) * (Math.PI / 180); // how far the fall lies away from the stand
         const sh = (spec.spread || 0) * cm * wf * wf;
         put(i, 0, 0.0015, -0.004);
         put(i, 1, 0.0015 - s * 0.06, s * 0.55);

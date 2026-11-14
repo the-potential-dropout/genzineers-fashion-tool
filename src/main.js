@@ -10,7 +10,7 @@ import { GENERATORS } from './core/blocks.js';
 import { FABRICS, FABRIC_FAMILIES, FABRIC_CATEGORIES, resolveFabric } from './core/fabrics.js';
 import { ASSEMBLY, ASSEMBLY_GROUPS, THREADS } from './core/assembly.js';
 import { TRIMS, TRIM_GROUPS, ZIPPER_TYPES, ZIPPER_SIZES, ZIPPER_ENDS, ZIPPER_SLIDERS, ZIPPER_PULLERS, EDGE_TREATMENTS, LACING_STYLES, zipperSpec } from './core/trims.js';
-import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS, compatible } from './core/color.js';
+import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS, compatible, printColors, PRINT_COLOR_LABELS } from './core/color.js';
 import { BLENDS, FIBERS, INSULATION, QUILTING, WATERPROOF } from './core/materials.js';
 import { SIZE_CHARTS, REF_BODY, bodyFor } from './core/sizes.js';
 import { BODY_SHAPES } from './sim/avatar.js';
@@ -25,6 +25,7 @@ import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitChartSVG } fr
 import { invoke } from './io/tauri.js';
 import { collection, kindOf } from './app/collection.js';
 import { POCKETS, POCKET_CLOSURES } from './core/pockets.js';
+import { STITCH_TYPES, FONTS, THREADS_EMB, MOTIFS_EMB, rasterizeDesign, digitize, writeDST, embroiderySheet, loadArtwork } from './make/embroidery.js';
 import { LAYER_NAMES } from './core/project.js';
 import { layerOf } from './sim/cloth.js';
 
@@ -255,6 +256,13 @@ viewEl.addEventListener('click', (e) => {
   if (!ui.placing) return;
   const hit = viewer.pick(e.clientX, e.clientY);
   if (!hit) return toast('Click on the garment');
+  if (ui.placing === 'embroidery') {
+    const d = ui.emb;
+    const r = store.dispatch({ type: 'add_embroidery', panel: hit.panelId, at: hit.local.map((v) => Math.round(v * 10) / 10), kind: d.kind, text: d.text, font: d.font, motif: d.motif, image: d.image, width: d.width, stitch: d.stitch, colors: d.colors, threads: d.threads, outline: d.outline });
+    toast(r[0]?.ok ? 'Embroidery placed. Adjust it in the list below.' : r[0]?.error || 'Could not add embroidery', 3500);
+    ui.placing = null; renderPanel(); renderPlaceHint();
+    return;
+  }
   if (ui.placing.startsWith('pocket:')) {
     const r = store.dispatch({ type: 'add_pocket', pocket: ui.placing.slice(7), panel: hit.panelId, at: hit.local.map((v) => Math.round(v * 10) / 10), ...(ui.pocketClosure ? { closure: ui.pocketClosure } : {}), ...(ui.pocketAngle ? { angle: ui.pocketAngle } : {}), mirror: hit.local[0] < 0 });
     toast(r[0]?.ok ? r[0].result : r[0]?.error || 'Could not add pocket');
@@ -275,7 +283,7 @@ addEventListener('keydown', (e) => {
 });
 function renderPlaceHint() {
   placeHint.classList.toggle('hide', !ui.placing);
-  if (ui.placing) placeHint.replaceChildren(`Click the garment to place ${ui.placing.startsWith('pocket:') ? POCKETS[ui.placing.slice(7)].name : TRIMS[ui.placing].name} · `, h('button', { class: 'btn sm', onclick: () => { ui.placing = null; renderPanel(); renderPlaceHint(); } }, 'Done'));
+  if (ui.placing) placeHint.replaceChildren(`Click the garment to place ${ui.placing === 'embroidery' ? 'the embroidery' : ui.placing.startsWith('pocket:') ? POCKETS[ui.placing.slice(7)].name : TRIMS[ui.placing].name} · `, h('button', { class: 'btn sm', onclick: () => { ui.placing = null; renderPanel(); renderPlaceHint(); } }, 'Done'));
 }
 
 // ---------- panel ----------
@@ -290,7 +298,7 @@ function renderPanel() {
   panel.replaceChildren(
     h('nav', { class: 'steps', role: 'tablist' }, STEPS.map(([k, l], i) => h('button', { class: ui.step === k ? 'on' : '', role: 'tab', 'aria-selected': ui.step === k, onclick: () => { ui.step = k; renderPanel(); } }, h('span', { class: 'n' }, i + 1), isJ && k === 'details' ? 'Stones & parts' : l))),
     body,
-    h('div', { class: 'foot' }, 'Free for personal use · ', h('a', { href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Commercial licence'), ' · by ', h('a', { href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener' }, 'Genzineers'), ' · ', h('a', { href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'Learn to launch')),
+    h('div', { class: 'foot' }, 'Free for non-commercial use · ', h('a', { href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Commercial licence'), ' · by ', h('a', { href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener' }, 'Genzineers'), ' · ', h('a', { href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'Learn to launch')),
   );
   panel.querySelector('.scroll').scrollTop = scrollTop;
 }
@@ -458,9 +466,9 @@ function cMaterials(el, p) {
     h('h3', { style: 'margin-top:12px' }, 'Print'),
     h('div', { class: 'grid2' },
       field('Method', sel(fin.print?.method || '', [{ value: '', label: 'No print' }, ...Object.entries(PRINT_METHODS).map(([id, m]) => ({ value: id, label: `${m.name}${id === rec.print ? ' ★' : ''}${compatible(m, fab).ok ? '' : ' (not for this fibre)'}` }))], (v) => store.dispatch({ type: 'set_finish', ...tgt(), print: v ? { ...(fin.print || { design: 'stripes', colors: ['#111111', '#ffffff', '#c0392b'] }), method: v } : null }))),
-      field('Design', sel(fin.print?.design || 'stripes', PRINT_DESIGNS.map((d) => ({ value: d, label: pretty(d) })), (v) => store.dispatch({ type: 'set_finish', ...tgt(), print: { method: fin.print?.method || rec.print, colors: fin.print?.colors || ['#111111', '#ffffff', '#c0392b'], ...(fin.print || {}), design: v } })))),
+      field('Design', sel(fin.print?.design || 'stripes', PRINT_DESIGNS.map((d) => ({ value: d, label: pretty(d) })), (v) => store.dispatch({ type: 'set_finish', ...tgt(), print: { method: fin.print?.method || rec.print, ...(fin.print || {}), design: v, colors: printColors(v, null) } })))),
     fin.print && fin.print.design !== 'solid' ? field('Print size', h('input', { type: 'range', min: 0.25, max: 3, step: 0.05, value: fin.print.scale || 1, oninput: (e) => (e.target.closest('label').querySelector('b').textContent = `${Math.round(e.target.value * 100)}%`), onchange: (e) => store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, scale: Number(e.target.value) } }) }), h('b', {}, `${Math.round((fin.print.scale || 1) * 100)}%`)) : null,
-    fin.print ? h('div', { class: 'grid2' }, [0, 1, 2].map((i) => field(`Print colour ${i + 1}`, h('input', { type: 'color', value: fin.print.colors?.[i] || '#111111', onchange: (e) => { const c = [...(fin.print.colors || ['#111111', '#ffffff', '#c0392b'])]; c[i] = e.target.value; store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, colors: c } }); } }))), field('Artwork image', h('input', { type: 'file', accept: 'image/*', onchange: async (e) => { const f = e.target.files[0]; if (f) store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, design: 'image', image: await readAs(f, 'readAsDataURL') } }); } }))) : null,
+    fin.print ? h('div', { class: 'grid2' }, [0, 1, 2].map((i) => field(PRINT_COLOR_LABELS[i], h('input', { type: 'color', value: printColors(fin.print.design, fin.print.colors)[i], onchange: (e) => { const c = printColors(fin.print.design, fin.print.colors); c[i] = e.target.value; store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, colors: c } }); } }))), field('Colours', h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, colors: printColors(fin.print.design, null) } }) }, 'Reset to natural')), field('Artwork image', h('input', { type: 'file', accept: 'image/*', onchange: async (e) => { const f = e.target.files[0]; if (f) store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, design: 'image', image: await readAs(f, 'readAsDataURL') } }); } }))) : null,
     h('h3', { style: 'margin-top:12px' }, 'Paint'),
     h('div', { class: 'grid2' },
       field('Paint', sel(fin.paint?.method || '', [{ value: '', label: 'No paint' }, ...Object.entries(PAINTS).map(([id, m]) => ({ value: id, label: m.name }))], (v) => store.dispatch({ type: 'set_finish', ...tgt(), paint: v ? { design: 'floral', colors: ['#ffffff', '#ffd400', '#ff2d87'], ...(fin.paint || {}), method: v } : null }))),
@@ -506,6 +514,44 @@ function cDetails(el, p) {
     h('details', { style: 'margin-top:8px' }, h('summary', {}, `Each seam (${p.seams.length})`), h('div', { class: 'list' }, p.seams.map((s) => { const a = p.panels.find((x) => x.id === s.a.panel); const b = p.panels.find((x) => x.id === s.b.panel); return h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${a?.name} ↔ ${b?.name}`), sel(s.stitch, groups, (v) => store.dispatch({ type: 'set_stitch', seam: s.id, stitch: v }), { class: 'inp' })), h('button', { class: 'btn sm', title: 'Remove seam', onclick: () => store.dispatch({ type: 'remove_seam', id: s.id }) }, '✕')); }))),
   ));
   // trims
+  // ---- embroidery ----
+  ui.emb = ui.emb || { kind: 'text', text: 'GENZ', font: 'block', motif: 'star', width: 8, stitch: 'satin', colors: ['#111111'], threads: 6, outline: false };
+  {
+    const d = ui.emb;
+    const swatches = (cols, onChange) => h('div', {}, h('div', { class: 'chips' },
+      cols.map((c, i) => h('span', { style: 'display:inline-flex;align-items:center;gap:2px' }, h('input', { type: 'color', value: c, title: `Thread ${i + 1}`, onchange: (e) => { const n = [...cols]; n[i] = e.target.value; onChange(n); } }), cols.length > 1 ? h('button', { class: 'btn sm ghost', title: 'Remove this thread', onclick: () => onChange(cols.filter((_, k) => k !== i)) }, '×') : null)),
+      cols.length < 15 ? h('button', { class: 'btn sm', onclick: () => onChange([...cols, '#d0202e']) }, '+ thread') : null),
+      h('details', {}, h('summary', {}, 'Thread chart (45 colours)'), h('div', { class: 'chips' }, THREADS_EMB.map(([n, c]) => h('button', { class: 'chip', title: n, style: `background:${c};width:22px;height:22px;padding:0;border:1px solid var(--line)`, onclick: () => onChange(cols.length < 15 ? [...cols, c] : [...cols.slice(0, 14), c]) })))));
+    const files = async (e) => {
+      const image = e.kind === 'image' ? await loadArtwork(e.image) : null;
+      const bmp = rasterizeDesign({ ...e, image });
+      const { cmds, stats } = digitize(bmp, { type: e.stitch, underlay: e.underlay });
+      const nm = `${p.name}-embroidery-${(e.text || e.motif || 'artwork').replace(/[^\w-]+/g, '_').slice(0, 20)}`;
+      download(`${nm}.dst`, new Blob([writeDST(cmds, (e.text || e.motif || 'ART').toUpperCase())], { type: 'application/octet-stream' }));
+      download(`${nm}-run-sheet.txt`, embroiderySheet(e, stats, p.panels.find((x) => x.id === e.panel)?.name), 'text/plain');
+      toast(`${stats.stitches.toLocaleString()} stitches, ${stats.colors.length} thread colour(s): .DST + run sheet saved`, 4500);
+    };
+    el.append(h('div', { class: 'sec' },
+      h('h3', {}, 'Embroidery'),
+      h('div', { class: 'seg', style: 'margin-bottom:8px' }, [['text', 'Lettering'], ['motif', 'Motif'], ['image', 'Your artwork']].map(([k, l]) => h('button', { class: d.kind === k ? 'on' : '', onclick: () => { d.kind = k; if (k !== 'text' && d.stitch === 'satin') d.stitch = 'fill'; renderPanel(); } }, l))),
+      d.kind === 'text' ? h('div', { class: 'grid2' }, field('Text (Enter = new line)', h('textarea', { rows: 2, value: d.text, onchange: (e) => { d.text = e.target.value; } }, d.text)), field('Lettering style', sel(d.font, Object.entries(FONTS).map(([k, v]) => ({ value: k, label: v.name })), (v) => { d.font = v; if (v === 'varsity' && d.colors.length < 2) d.colors = [...d.colors, '#ffffff']; renderPanel(); }))) : null,
+      d.kind === 'motif' ? field('Motif', sel(d.motif, Object.entries(MOTIFS_EMB).map(([k, v]) => ({ value: k, label: v })), (v) => { d.motif = v; })) : null,
+      d.kind === 'image' ? h('div', {}, field('Artwork (PNG, JPG or SVG; a transparent or white background is left unstitched)', h('input', { type: 'file', accept: 'image/*,.svg', onchange: async (e) => { const f = e.target.files[0]; if (f) { d.image = await readAs(f, 'readAsDataURL'); d.colors = []; await loadArtwork(d.image); renderPanel(); } } })), field('Thread colours to reduce the artwork to', h('input', { type: 'range', min: 1, max: 15, step: 1, value: d.threads, oninput: (e) => (e.target.closest('label').querySelector('b').textContent = e.target.value), onchange: (e) => { d.threads = Number(e.target.value); } }), h('b', {}, d.threads)), d.image ? h('img', { src: d.image, alt: 'Artwork', style: 'max-width:100%;max-height:90px;border-radius:8px;border:1px solid var(--line)' }) : null) : null,
+      h('div', { class: 'grid2' },
+        field('Stitch type', sel(d.stitch, Object.entries(STITCH_TYPES).map(([k, v]) => ({ value: k, label: v.name })), (v) => { d.stitch = v; renderPanel(); })),
+        field('Width (cm)', h('input', { type: 'number', min: 1, max: 40, step: 0.5, value: d.width, onchange: (e) => { d.width = Number(e.target.value) || 8; } }))),
+      h('div', { class: 's', style: 'font-size:12px;color:var(--muted)' }, STITCH_TYPES[d.stitch].note),
+      d.kind !== 'image' ? field(d.kind === 'text' ? 'Thread colours (1st = letters, 2nd = outline)' : 'Thread colours (1st = fill, 2nd = border)', swatches(d.colors, (n) => { d.colors = n; renderPanel(); })) : null,
+      h('button', { class: `btn ${ui.placing === 'embroidery' ? 'primary' : ''}`, style: 'margin-top:8px', disabled: d.kind === 'image' && !d.image, onclick: () => { ui.placing = ui.placing === 'embroidery' ? null : 'embroidery'; renderPanel(); renderPlaceHint(); } }, ui.placing === 'embroidery' ? 'Now click the garment…' : 'Place on the garment'),
+      (p.embroidery || []).length ? h('div', { class: 'list', style: 'margin-top:10px' }, p.embroidery.map((e) => h('div', { class: 'row', style: 'flex-wrap:wrap' },
+        h('div', { class: 'grow' }, h('div', { class: 't' }, e.kind === 'text' ? `“${e.text}”` : e.kind === 'motif' ? MOTIFS_EMB[e.motif] : 'Artwork'), h('div', { class: 's' }, `${STITCH_TYPES[e.stitch]?.name} · ${e.width} cm · ${p.panels.find((x) => x.id === e.panel)?.name || e.panel}`)),
+        h('input', { type: 'number', title: 'Width (cm)', style: 'width:64px', min: 1, max: 40, step: 0.5, value: e.width, onchange: (ev) => store.dispatch({ type: 'update_embroidery', id: e.id, width: Number(ev.target.value) }) }),
+        h('input', { type: 'number', title: 'Rotation (degrees)', style: 'width:64px', step: 5, value: e.rotation || 0, onchange: (ev) => store.dispatch({ type: 'update_embroidery', id: e.id, rotation: Number(ev.target.value) }) }),
+        h('button', { class: 'btn sm primary', title: 'Tajima .DST machine file + run sheet with the colour sequence', onclick: () => files(e) }, 'Machine file'),
+        h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_embroidery', id: e.id }) }, 'Remove'),
+        e.colors?.length ? h('div', { style: 'flex-basis:100%' }, swatches(e.colors, (n) => store.dispatch({ type: 'update_embroidery', id: e.id, colors: n }))) : null))) : null,
+    ));
+  }
   // ---- pockets: outside and inside ----
   ui.pocketWhere = ui.pocketWhere || 'outside';
   el.append(h('div', { class: 'sec' },

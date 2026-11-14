@@ -13,7 +13,7 @@ export const SCOPES = {
   materials: { label: 'Fabrics, knits, blends & fill', actions: ['set_fabric', 'create_fabric', 'create_blend', 'set_insulation', 'set_knit'] },
   color: { label: 'Colour & dyeing', actions: ['set_finish:color', 'set_finish:dye'] },
   prints: { label: 'Prints & paint', actions: ['set_finish:print', 'set_finish:paint'] },
-  trims: { label: 'Buttons, zips, edges, lacing & trims', actions: ['add_trim', 'add_pocket', 'remove_pocket', 'set_trim', 'remove_trim', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing'] },
+  trims: { label: 'Buttons, zips, edges, lacing & trims', actions: ['add_trim', 'add_pocket', 'remove_pocket', 'add_embroidery', 'update_embroidery', 'remove_embroidery', 'set_trim', 'remove_trim', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing'] },
   jewelry: { label: 'Jewelry', actions: ['new_jewelry', 'set_jewelry', 'set_karat', 'add_stone', 'update_stone', 'remove_stone', 'set_custom_shape'] },
   production: { label: 'Production settings', actions: ['set_production'] },
 };

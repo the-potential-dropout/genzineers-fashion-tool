@@ -6,6 +6,7 @@
  * once into small canvases and cached. 256 px tiles keep GPU memory tiny.
  */
 import * as THREE from 'three';
+import { printColors } from '../core/color.js';
 import { MOTIFS } from '../core/knit.js';
 
 const SIZE = 256;
@@ -192,7 +193,7 @@ function dyeEffect(g, effect, color) {
 
 function printDesign(g, design, colors = [], opacity = 1) {
   void design;
-  const [c1 = '#111111', c2 = '#ffffff', c3 = '#c0392b'] = colors;
+  const [c1, c2, c3] = printColors(design, colors);
   const r = rng(31);
   g.globalAlpha = opacity;
   switch (design) {
@@ -203,34 +204,45 @@ function printDesign(g, design, colors = [], opacity = 1) {
     case 'checkerboard': for (let y = 0; y < SIZE; y += 32) for (let x = 0; x < SIZE; x += 32) if (((x + y) / 32) % 2 === 0) { g.fillStyle = c1; g.fillRect(x, y, 32, 32); } break;
     case 'polka': for (let y = 0; y < SIZE; y += 32) for (let x = (y / 32) % 2 ? 16 : 0; x < SIZE; x += 32) { g.fillStyle = c1; g.beginPath(); g.arc(x + 8, y + 8, 6, 0, Math.PI * 2); g.fill(); } break;
     case 'camo': for (let k = 0; k < 40; k++) { g.fillStyle = [c1, c2, c3, '#4b5320'][k % 4]; g.beginPath(); const x = r() * SIZE; const y = r() * SIZE; for (let a = 0; a < 6.3; a += 0.7) g.lineTo(x + Math.cos(a) * (10 + r() * 30), y + Math.sin(a) * (10 + r() * 30)); g.fill(); } break;
-    case 'leopard': g.fillStyle = c2 === '#ffffff' ? '#d6a35c' : c2; g.fillRect(0, 0, SIZE, SIZE); for (let k = 0; k < 70; k++) { const x = r() * SIZE; const y = r() * SIZE; g.fillStyle = c3 === '#c0392b' ? '#9a5a22' : c3; g.beginPath(); g.ellipse(x, y, 7, 5, r() * 3, 0, 6.3); g.fill(); g.strokeStyle = c1; g.lineWidth = 2.5; g.beginPath(); g.arc(x, y, 9, r() * 3, r() * 3 + 3.5); g.stroke(); } break;
+    case 'leopard': g.fillStyle = c2; g.fillRect(0, 0, SIZE, SIZE); for (let k = 0; k < 70; k++) { const x = r() * SIZE; const y = r() * SIZE; g.fillStyle = c3; g.beginPath(); g.ellipse(x, y, 7, 5, r() * 3, 0, 6.3); g.fill(); g.strokeStyle = c1; g.lineWidth = 2.5; g.beginPath(); g.arc(x, y, 9, r() * 3, r() * 3 + 3.5); g.stroke(); } break;
     case 'floral': for (let k = 0; k < 18; k++) { const x = r() * SIZE; const y = r() * SIZE; for (let p = 0; p < 5; p++) { g.fillStyle = c3; g.beginPath(); g.ellipse(x + Math.cos(p * 1.26) * 7, y + Math.sin(p * 1.26) * 7, 6, 3.5, p * 1.26, 0, 6.3); g.fill(); } g.fillStyle = c2; g.beginPath(); g.arc(x, y, 3, 0, 6.3); g.fill(); } break;
     case 'paisley': for (let k = 0; k < 14; k++) { const x = r() * SIZE; const y = r() * SIZE; g.strokeStyle = c1; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.bezierCurveTo(x + 22, y - 20, x + 30, y + 14, x, y + 18); g.bezierCurveTo(x - 8, y + 10, x - 4, y + 2, x, y); g.stroke(); } break;
     case 'cheetah': // solid round spots on tawny
-      g.fillStyle = c2 === '#ffffff' ? '#d9a75a' : c2; g.fillRect(0, 0, SIZE, SIZE);
+      g.fillStyle = c2; g.fillRect(0, 0, SIZE, SIZE);
       for (let k = 0; k < 160; k++) { g.fillStyle = c1; g.beginPath(); g.ellipse(r() * SIZE, r() * SIZE, 3 + r() * 3, 2.5 + r() * 2.5, r() * 3, 0, 6.3); g.fill(); }
       break;
     case 'tiger': { // orange with tapering black stripes
-      g.fillStyle = c2 === '#ffffff' ? '#e07a1f' : c2; g.fillRect(0, 0, SIZE, SIZE);
+      g.fillStyle = c2; g.fillRect(0, 0, SIZE, SIZE);
       const wg = g.createLinearGradient(0, 0, SIZE, 0); wg.addColorStop(0, 'rgba(255,255,255,0.25)'); wg.addColorStop(0.5, 'rgba(255,255,255,0)'); wg.addColorStop(1, 'rgba(255,255,255,0.25)'); g.fillStyle = wg; g.fillRect(0, 0, SIZE, SIZE);
       g.fillStyle = c1;
       for (let k = 0; k < 16; k++) { const y = k * 16 + r() * 6; const x0 = r() * 60; const len = 90 + r() * 120; g.beginPath(); g.moveTo(x0, y); for (let x = x0; x <= x0 + len; x += 8) g.lineTo(x, y + Math.sin(x * 0.04 + k) * 6 - ((x - x0) / len) * 2); for (let x = x0 + len; x >= x0; x -= 8) g.lineTo(x, y + 2 + 6 * Math.sin(((x - x0) / len) * Math.PI) + Math.sin(x * 0.04 + k) * 6); g.fill(); }
       break;
     }
     case 'cougar': { // tawny plain fur with soft shading
-      g.fillStyle = c2 === '#ffffff' ? '#b98a57' : c2; g.fillRect(0, 0, SIZE, SIZE);
+      g.fillStyle = c2; g.fillRect(0, 0, SIZE, SIZE);
       for (let k = 0; k < 2500; k++) { g.fillStyle = `rgba(${r() > 0.5 ? '255,235,200' : '80,50,25'},${0.04 + r() * 0.06})`; g.fillRect(r() * SIZE, r() * SIZE, 1, 3 + r() * 4); }
       break;
     }
     case 'jaguar': case 'snow-leopard': { // rosettes with inner dots
       const snow = design === 'snow-leopard';
-      g.fillStyle = snow ? '#e9e6df' : (c2 === '#ffffff' ? '#d39a4a' : c2); g.fillRect(0, 0, SIZE, SIZE);
+      g.fillStyle = c2; g.fillRect(0, 0, SIZE, SIZE);
       for (let k = 0; k < (snow ? 26 : 34); k++) {
         const x = r() * SIZE; const y = r() * SIZE; const rr = 8 + r() * 6;
-        g.fillStyle = snow ? '#b8b4ab' : '#a8641f'; g.beginPath(); g.ellipse(x, y, rr * 0.75, rr * 0.6, r() * 3, 0, 6.3); g.fill();
-        g.strokeStyle = snow ? '#3b3a38' : c1; g.lineWidth = 3;
+        g.fillStyle = c3; g.beginPath(); g.ellipse(x, y, rr * 0.75, rr * 0.6, r() * 3, 0, 6.3); g.fill();
+        g.strokeStyle = c1; g.lineWidth = 3;
         for (let a = 0; a < 6.2; a += 1.1 + r() * 0.4) { g.beginPath(); g.arc(x, y, rr, a, a + 0.7); g.stroke(); }
         if (!snow) for (let d = 0; d < 3; d++) { g.fillStyle = c1; g.beginPath(); g.arc(x + (r() - 0.5) * rr * 0.6, y + (r() - 0.5) * rr * 0.6, 1.6, 0, 6.3); g.fill(); }
+      }
+      break;
+    }
+    case 'dalmatian': { // irregular black blotches of mixed size on white
+      g.fillStyle = c2; g.fillRect(0, 0, SIZE, SIZE);
+      g.fillStyle = c1;
+      for (let k = 0; k < 46; k++) {
+        const x = r() * SIZE; const y = r() * SIZE; const rad = k % 5 === 0 ? 9 + r() * 7 : 3 + r() * 6; const n = 7 + Math.floor(r() * 4); const ph = r() * 6.3;
+        g.beginPath();
+        for (let a = 0; a <= n; a++) { const an = ph + (a / n) * Math.PI * 2; const rr = rad * (0.7 + r() * 0.5); const px = x + Math.cos(an) * rr * 1.15; const py = y + Math.sin(an) * rr; a ? g.quadraticCurveTo(x + Math.cos(an - Math.PI / n) * rr * 1.3, y + Math.sin(an - Math.PI / n) * rr * 1.15, px, py) : g.moveTo(px, py); }
+        g.closePath(); g.fill();
       }
       break;
     }
@@ -269,7 +281,7 @@ function loadImage(src, onload) {
  */
 /** Natural repeat of a print design, in cm (before the user's print size multiplier). */
 export function printTileCm(design) {
-  if (['leopard', 'cheetah', 'tiger', 'cougar', 'jaguar', 'snow-leopard', 'zebra', 'camo'].includes(design)) return 36;
+  if (['leopard', 'cheetah', 'tiger', 'cougar', 'jaguar', 'snow-leopard', 'dalmatian', 'zebra', 'camo'].includes(design)) return 36;
   if (['snakeskin', 'houndstooth', 'pinstripe', 'gingham', 'checkerboard', 'ditsy-floral'].includes(design)) return 10;
   if (['stripes', 'breton', 'polka', 'hearts', 'stars', 'triangles', 'zigzag', 'chevron'].includes(design)) return 14;
   return 28; // florals, paisley, tartan, argyle, ikat, waves, gradient, logo, image

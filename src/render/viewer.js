@@ -23,6 +23,7 @@ import { legwearTop } from '../core/legwear.js';
 import { panelAnchor } from '../sim/cloth.js';
 import { fabricTextures } from './textures.js';
 import { buildCollar } from './collars.js';
+import { designBitmap, previewCanvas, loadArtwork, STITCH_TYPES } from '../make/embroidery.js';
 import { buildJewelry, metalMaterial, gemMaterial } from './jewelry3d.js';
 import { loadModel, deformGeometry } from '../io/import.js';
 import { METALS } from '../core/jewelry.js';
@@ -640,7 +641,8 @@ export class Viewer {
       const pts = anchors.map(pt); const c = [0, 0]; for (const q of pts) { c[0] += q[0] / pts.length; c[1] += q[2] / pts.length; }
       const order = anchors.map((a, i) => [Math.atan2(pts[i][0] - c[0], -(pts[i][2] - c[1])), a]).sort((x, y) => x[0] - y[0]);
       const stations = []; let last = -9;
-      for (const [ang, a] of order) { if (ang - last < 0.012) continue; last = ang; stations.push(a); }
+      // collars that open at the front (polo, shirt) stop short of the centre line
+      for (const [ang, a] of order) { if (ang - last < 0.012 || (spec.gap && Math.abs(ang) > Math.PI - spec.gap / 2)) continue; last = ang; stations.push(a); }
       const mat = this.materialFor(project, panel, spec.fabric, 0.97);
       if (spec.fabric === 'rib-knit') { const f = resolveFabric(project, panel.fabric, panel.fabricOverrides); mat.color.set(panel.finish?.color || f.look.color).multiplyScalar(0.93); mat.map = null; }
       const base = new THREE.Color(panel.finish?.color || resolveFabric(project, panel.fabric, panel.fabricOverrides).look.color);
@@ -650,8 +652,39 @@ export class Viewer {
     }
   }
 
+  /** Embroidery: the digitised design, sewn-look, following the cloth. */
+  buildEmbroidery(project, sim) {
+    for (const e of project.embroidery || []) {
+      if (!project.panels.some((p) => p.id === e.panel)) continue;
+      if (e.kind === 'image' && e.image) loadArtwork(e.image).then(() => { if (this.project === project && !this._embSeen?.has(e.id + e.image.length)) { (this._embSeen ||= new Set()).add(e.id + e.image.length); this.refreshLooks(project); } });
+      const bmp = designBitmap(e); if (!bmp) continue;
+      const w = bmp.widthMm / 10; const hgt = bmp.heightMm / 10; // cm
+      const nx = Math.max(2, Math.ceil(w / 0.9)); const ny = Math.max(2, Math.ceil(hgt / 0.9));
+      const an = ((e.rotation || 0) * Math.PI) / 180; const c = Math.cos(an); const sn = Math.sin(an);
+      const anchors = []; const uv = []; const idx = [];
+      for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
+        const lx = (i / nx - 0.5) * w; const ly = (j / ny - 0.5) * hgt;
+        const a = panelAnchor(sim, e.panel, e.at[0] + lx * c - ly * sn, e.at[1] + lx * sn + ly * c);
+        anchors.push(a || { ids: [sim.panels.find((p) => p.id === e.panel).offset], w: [1] }); uv.push(i / nx, j / ny);
+      }
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { const a = j * (nx + 1) + i; idx.push(a, a + 1, a + nx + 2, a, a + nx + 2, a + nx + 1); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(anchors.length * 3), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(anchors.length * 3), 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      const tex = new THREE.CanvasTexture(previewCanvas(bmp, e.stitch)); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+      const puff = STITCH_TYPES[e.stitch]?.foam;
+      const mat = new THREE.MeshPhysicalMaterial({ map: tex, bumpMap: tex, bumpScale: puff ? 2.5 : 1.2, transparent: true, alphaTest: 0.5, roughness: 0.42, sheen: 0.8, sheenRoughness: 0.4, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
+      const mesh = new THREE.Mesh(g, mat); mesh.frustumCulled = false; mesh.userData.embroidery = e.id;
+      this.garment.add(mesh);
+      this.overlays.push({ mesh, anchors, lift: puff ? 0.0045 : 0.0022 });
+    }
+  }
+
   buildStitches(project, sim) {
     this.buildTopstitch(project, sim);
+    this.buildEmbroidery(project, sim);
     this.buildCollars(project, sim);
     // seam joins: a narrow strip of the fabric bridges the two sewn edges, so a seam never shows a gap
     for (const sl of sim.seamLines) {

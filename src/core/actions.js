@@ -28,6 +28,9 @@ export const ACTION_DOCS = {
   remove_garment: '{ garment: "g0" }',
   add_pocket: '{ panel, at: [x,y] cm (top centre of the opening), pocket: "<pocket id>", width?, height?, angle? deg, closure?: none|button|snap|zip|velcro|magnet, mirror? } add an outside or inside pocket (catalog pockets)',
   remove_pocket: '{ id: "<pocket id from the project>" }',
+  add_embroidery: '{ panel, at: [x,y] cm (centre), kind: "text"|"motif"|"image", text?, font?: block|sans|serif|script|mono|varsity, motif?: star|heart|crown|anchor|bolt|laurel|shield|rose|circle|diamond, image?: data URL, width: cm, stitch?: fill|satin|cross|puff|applique|chenille, colors?: ["#rrggbb", ... up to 15 threads], threads?: n (image: how many thread colours), rotation? deg, outline?, underlay? } embroider lettering, a motif or artwork',
+  update_embroidery: '{ id, ...any add_embroidery field }',
+  remove_embroidery: '{ id }',
   add_design: '{ design: <saved project> } put a saved design from the collection on as part of the outfit (keeps all its materials and details)',
   set_layer: '{ garment: "g0", layer: 0-5 | null } outfit layering order: 0 underwear, 1 base, 2 mid/knit, 3 jacket, 4 coat, 5 accessory (null = automatic)',
   set_option: '{ garment: "g0", key, value } or { garment, options: {key: value} } change a template option (fit, length, sleeve, cuff, collar, lapel, closure, inseam, leg, style, ...; see catalog.generators)',
@@ -458,6 +461,30 @@ export function applyAction(project, action) {
       result = `overlay ${id} added`;
       break;
     }
+    case 'add_embroidery': {
+      const pan = panelOf(p, a.panel);
+      if (!Array.isArray(a.at)) throw new Error('add_embroidery needs at: [x, y]');
+      const { type, panel, ...e } = a;
+      const kind = e.kind || (e.image ? 'image' : e.motif ? 'motif' : 'text');
+      if (!['text', 'motif', 'image'].includes(kind)) throw new Error('kind must be text, motif or image');
+      if (kind === 'image' && !e.image) throw new Error('image embroidery needs image: data URL');
+      const item = { id: uid('emb'), panel: pan.id, kind, text: e.text || (kind === 'text' ? 'GENZ' : undefined), font: e.font || 'block', motif: e.motif || (kind === 'motif' ? 'star' : undefined), image: e.image, at: e.at, width: clamp(Number(e.width) || 8, 1, 40), rotation: Number(e.rotation) || 0, stitch: e.stitch || (kind === 'text' ? 'satin' : 'fill'), colors: (e.colors || (kind === 'image' ? [] : ['#111111'])).slice(0, 15), threads: clamp(Number(e.threads) || 6, 1, 15), outline: Boolean(e.outline), underlay: e.underlay !== false, name: e.name };
+      p.embroidery = [...(p.embroidery || []), item];
+      result = `embroidery ${item.id} added`;
+      break;
+    }
+    case 'update_embroidery': {
+      const list = p.embroidery || []; const i = list.findIndex((x) => x.id === a.id);
+      if (i < 0) throw new Error(`no embroidery "${a.id}"`);
+      const { type, id, ...patch } = a;
+      if (patch.colors) patch.colors = patch.colors.slice(0, 15);
+      if (patch.width != null) patch.width = clamp(Number(patch.width), 1, 40);
+      p.embroidery = list.map((x, k) => (k === i ? { ...x, ...patch } : x));
+      break;
+    }
+    case 'remove_embroidery':
+      p.embroidery = (p.embroidery || []).filter((x) => x.id !== a.id);
+      break;
     case 'add_pocket': {
       const pan = panelOf(p, a.panel);
       if (!Array.isArray(a.at)) throw new Error('add_pocket needs at: [x, y]');
@@ -602,7 +629,7 @@ export function applyAction(project, action) {
 
 /** Which actions only change looks (no physics rebuild needed). */
 export function isLookOnly(type) {
-  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket'].includes(type);
+  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket', 'add_embroidery', 'update_embroidery', 'remove_embroidery'].includes(type);
 }
 
 export function applyActions(project, actions) {
