@@ -4,6 +4,7 @@ import { createProject } from '../src/core/project.js';
 import { buildCloth, initSolver } from '../src/sim/cloth.js';
 globalThis.fetch = async () => ({ arrayBuffer: async () => readFileSync(new URL('../public/atelier_sim.wasm', import.meta.url)) });
 await initSolver('x');
+{ const { loadBodyMesh } = await import('../src/sim/cloth.js'); await loadBodyMesh('male'); await loadBodyMesh('female'); }
 const p = createProject(process.argv[2] || 'crew-tee');
 const sim = buildCloth(p);
 for (let f = 0; f < 300; f++) sim.step(1 / 60);

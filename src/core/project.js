@@ -5,7 +5,7 @@ import { TEMPLATES, templateGarments, buildGarment } from './templates.js';
 import { bodyFor } from './sizes.js';
 import { knitFabric } from './knit.js';
 
-export const PROJECT_VERSION = 2;
+export const PROJECT_VERSION = 3;
 
 let counter = 0;
 export function uid(prefix = 'id') {
@@ -60,7 +60,7 @@ export function mergeGarment(p, g) {
     for (const pan of out.panels) pan.fabric = fid;
   }
   for (const pan of out.panels) {
-    const old = keep[pan.id];
+    const old = keep[pan.id] || keep[pan.id.replace(/front-[rl]$/, 'front')] || keep[pan.id.replace(/front$/, 'front-r')];
     p.panels.push({
       fabricOverrides: {},
       ...pan,
@@ -70,7 +70,7 @@ export function mergeGarment(p, g) {
   for (const s of out.seams) p.seams.push({ id: uid('seam'), threadColor: '#d8d2c4', thread: 'poly-corespun', ...s });
   for (const t of out.trims) p.trims.push({ id: uid('trim'), ...t });
   for (const o of out.overlays) p.overlays.push({ id: uid('ov'), ...o });
-  p.garmentForms = { ...(p.garmentForms || {}), [g.id]: { colliders: out.colliders || [], display: out.display || {}, meta: out.meta || {}, shells: out.shells || [] } };
+  p.garmentForms = { ...(p.garmentForms || {}), [g.id]: { colliders: out.colliders || [], display: out.display || {}, meta: out.meta || {}, shells: out.shells || [], collars: out.collars || [] } };
   syncForms(p);
 }
 
@@ -79,6 +79,7 @@ export function syncForms(p) {
   const forms = Object.entries(p.garmentForms || {}).filter(([gid]) => (p.garments || []).some((g) => g.id === gid)).map(([, v]) => v);
   p.colliders = forms.flatMap((f) => f.colliders);
   p.shells = forms.flatMap((f) => f.shells || []);
+  p.collars = forms.flatMap((f) => f.collars || []);
   // show the body if any garment is worn; bags-only projects show a product stand
   p.display = { avatar: !forms.length || forms.some((f) => f.display.avatar !== false) };
 }
@@ -116,6 +117,11 @@ export function migrateProject(p) {
   }
   p.sizeChart = p.sizeChart || 'unisex';
   p.size = p.size || 'M';
+  if (p.version < 3) {
+    // v3: patterns are re-drafted (true curves, separate overlapping fronts, 45 degree arm pose); materials are kept
+    if (p.mode !== 'jewelry') { try { regradeProject(p); } catch { /* keep the old draft */ } }
+    p.version = 3;
+  }
   return p;
 }
 
@@ -147,7 +153,7 @@ export { LAYER_NAMES };
 export function addDesign(p, src) {
   if (!src || src.mode === 'jewelry') throw new Error('only clothing designs can be added to an outfit');
   const clone = (o) => JSON.parse(JSON.stringify(o));
-  src = clone(src);
+  src = migrateProject(clone(src));
   p.garments = p.garments || [];
   const used = new Set(p.garments.map((g) => g.id));
   const next = () => { let i = 0; while (used.has(`g${i}`)) i++; used.add(`g${i}`); return `g${i}`; };

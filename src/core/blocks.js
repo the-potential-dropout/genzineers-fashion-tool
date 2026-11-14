@@ -82,6 +82,7 @@ export const TOP_OPTIONS = {
   lapel: { label: 'Lapel', type: 'select', values: ['none', 'notch', 'peak', 'shawl', 'biker'], default: 'none' },
   lapelWidth: { label: 'Lapel width (cm)', type: 'range', min: 4, max: 13, step: 0.5, default: 8 },
   collar: { label: 'Collar', type: 'select', values: ['none', 'point', 'spread', 'button-down', 'camp', 'mandarin', 'band-snap', 'polo', 'corduroy', 'hood', 'funnel', 'rib'], default: 'none' },
+  hood: { label: 'Hood construction', type: 'select', values: ['three-panel', 'two-panel', 'crossover', 'scuba', 'lined-double', 'snorkel', 'detachable'], default: 'three-panel' },
   pockets: { label: 'Pockets', type: 'select', values: ['none', 'chest', 'patch', 'welt', 'flap', 'kangaroo', 'bellows', 'zip'], default: 'none' },
   vent: { label: 'Back vent', type: 'select', values: ['none', 'center', 'side'], default: 'none' },
   belt: { label: 'Belt', type: 'select', values: ['none', 'self-belt', 'buckle-belt'], default: 'none' },
@@ -95,79 +96,139 @@ export const TOP_OPTIONS = {
   sleeveAdj: { label: 'Tailor: sleeve length (cm)', type: 'range', min: -15, max: 10, step: 0.5, default: 0 },
 };
 
+/** Sample a cubic Bezier into the outline: points t = 0 .. (n-1)/n, all tagged (the end point belongs to the next run). */
+function bez(p, P0, P1, P2, P3, tag, n = 8) {
+  for (let k = 0; k < n; k++) {
+    const t = k / n; const u = 1 - t;
+    p.add(u * u * u * P0[0] + 3 * u * u * t * P1[0] + 3 * u * t * t * P2[0] + t * t * t * P3[0], u * u * u * P0[1] + 3 * u * u * t * P1[1] + 3 * u * t * t * P2[1] + t * t * t * P3[1], tag);
+  }
+}
+function polyLen(pts) { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; }
+/** Clip a polygon to x >= 0 (side = 1) or x <= 0 (side = -1). */
+function clipX(pts, side) {
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]; const b = pts[(i + 1) % pts.length];
+    const ia = a[0] * side >= 0; const ib = b[0] * side >= 0;
+    if (ia) out.push(a);
+    if (ia !== ib) { const t = a[0] / (a[0] - b[0]); out.push([0, a[1] + (b[1] - a[1]) * t]); }
+  }
+  return out;
+}
+const polyArea = (pts) => { let A = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i]; const b = pts[(i + 1) % pts.length]; A += a[0] * b[1] - b[0] * a[1]; } return Math.abs(A) / 2; };
+
+/** Front-opening garments are cut as two real front pieces that overlap and fasten. */
+const OPEN_FRONT = ['single-breasted', 'double-breasted', 'zip', 'two-way-zip', 'asymmetric-zip', 'snaps', 'toggles', 'placket'];
+
+/**
+ * Bodice draft. Coordinates: x from centre front/back, y up from the hem,
+ * H = high point of the shoulder. Curves are true drafted curves (neck,
+ * armscye, side shaping, shirt-tail hem), not straight segments.
+ */
 function topPanels(o) {
   const BODY = bodyOf(o);
   const ease = (FIT[o.fit] ?? 14) + (o.chestAdj || 0);
-  const hw = (BODY.chest + ease) / 4; // half panel width at chest
+  const hw = (BODY.chest + ease) / 4; // quarter chest incl. ease
   const H = o.length;
   const sleeveless = o.sleeve === 'none';
-  const armDepth = sleeveless ? ({ full: 22, tank: 24, 'a-shirt': 27, racer: 26, strap: 24 }[o.shoulder] ?? 23) : 21 + ease * 0.12;
+  const armDepth = sleeveless ? ({ full: 22, tank: 24, 'a-shirt': 27, racer: 26, strap: 24 }[o.shoulder] ?? 23) : 21.5 + ease * 0.12;
   const sideH = H - armDepth;
-  const neckW = o.neckline === 'boat' ? 13 : 8;
+  const neckBase = (BODY.neckC || 38) / 5 + 0.6;
+  const neckW = neckBase + ({ boat: 5, scoop: 2.5, 'deep-v': 0.5, 'collar-stand': -0.4, mock: -0.3 }[o.neckline] || 0) + (o.lapel !== 'none' ? 0.6 : 0);
+  const natural = (BODY.shoulderW || 46) / 2 - 3; // shoulder point of the body
   const shoulderX = sleeveless
-    ? ({ full: 19, tank: neckW + 6, 'a-shirt': neckW + 3.5, racer: neckW + 4, strap: neckW + 2.5 }[o.shoulder] ?? 19)
-    : 19.5 + (FIT[o.fit] ?? 14) * 0.08 + (o.shoulderAdj || 0) / 2;
-  const shoulderDrop = sleeveless && o.shoulder !== 'full' ? 1 : 4;
+    ? ({ full: natural - 0.5, tank: neckW + 6, 'a-shirt': neckW + 3.5, racer: neckW + 4, strap: neckW + 2.5 }[o.shoulder] ?? natural)
+    : natural + ({ slim: 0, regular: 0.6, relaxed: 2.2, oversized: 6 }[o.fit] ?? 0.6) + (o.shoulderAdj || 0) / 2;
+  const shoulderDrop = sleeveless && o.shoulder !== 'full' ? 1.2 : 3.2 + (shoulderX - neckW) * 0.1;
   const hemW = hw + o.flare;
-  const curvedHem = o.hem === 'curved' ? 5 : 0;
-  const drops = { crew: [8, 2.5], 'v-neck': [17, 2.5], 'deep-v': [26, 2.5], scoop: [14, 3], boat: [3, 2], mock: [5, 2], henley: [8, 2.5], 'collar-stand': [7, 2.5] };
-  const [frontDrop, backDrop] = drops[o.neckline] || drops.crew;
+  const tail = o.hem === 'curved' ? 6 : 0;
+  const drops = { crew: [8.5, 2.2], 'v-neck': [17, 2.2], 'deep-v': [26, 2.2], scoop: [14, 3], boat: [3.5, 2], mock: [6, 2], henley: [8.5, 2.2], 'collar-stand': [7.5, 2.2] };
+  let [frontDrop, backDrop] = drops[o.neckline] || drops.crew;
+  const split = OPEN_FRONT.includes(o.closure);
+  const lapel = o.lapel !== 'none' && o.lapel !== 'biker';
+  const breakY = H * 0.62; // where the lapel roll line meets the front edge
+  if (split && lapel) frontDrop = H - breakY;
+  // overlap past the centre line (button stand); zips meet edge to edge
+  const ext = !split ? 0 : o.closure === 'double-breasted' ? 8 : ['zip', 'two-way-zip'].includes(o.closure) ? 0 : o.closure === 'asymmetric-zip' ? 6 : (o.lapel !== 'none' || o.length > 80 ? 2.2 : 1.6);
   const aDeep = sleeveless && (o.shoulder === 'a-shirt' || o.shoulder === 'racer');
+  const waistY = Math.max(tail + 6, H - 43 * (BODY.hs || 1));
+  const sup = (o.waistAdj || 0) / 4 + (o.fit === 'slim' ? 1.2 : 0) + (lapel ? 1.2 : 0);
+  const shaped = H - waistY > armDepth + 6 && (sup > 0.3 || Math.abs(o.flare) > 2);
 
-  const build = (drop, isBack) => {
+  /** Right half outline from the hem at the centre, anticlockwise to the centre neck point. */
+  const half = (drop, isBack) => {
     const p = new Poly();
-    // right half (wearer's left when viewed from the front), bottom -> top
-    p.add(0, 0, 'hem-r');
-    if (curvedHem) p.add(hemW * 0.6, 0.5, 'hem-r');
-    p.add(hemW, curvedHem, 'side-r');
-    if ((Math.abs(o.flare) > 2 && H > 75) || o.waistAdj) p.add(hw - 1 - (o.waistAdj || 0) / 4, Math.max(curvedHem + 5, sideH - 24), 'side-r'); // waist shaping / suppression
-    p.add(hw, sideH, 'arm-r');
-    const scoop = aDeep ? 6 : 1.5;
-    p.add(hw - scoop, sideH + armDepth * 0.35, 'arm-r');
-    p.add(shoulderX + (aDeep ? 0.5 : 0.8), sideH + armDepth * 0.72, 'arm-r');
-    p.add(shoulderX, H - shoulderDrop, 'sh-r');
-    p.add(neckW, H, 'neck-r');
-    if (o.neckline === 'v-neck' || o.neckline === 'deep-v') {
-      p.add(neckW * 0.5, H - drop * 0.5, 'neck-r');
-    } else {
-      p.add(neckW * 0.75, H - drop * 0.55, 'neck-r');
-      p.add(neckW * 0.35, H - drop * 0.92, 'neck-r');
-    }
-    // centre front/back neck point; then mirror the left half
-    const right = p.pts.slice();
-    const tags = p.tags.slice();
+    const S = [shoulderX, H - shoulderDrop];
+    const U = [hw, sideH];
+    if (tail) { p.add(0, 0, 'hem-r'); bez(p, [hemW * 0.35, 0], [hemW * 0.75, 0], [hemW, tail * 0.35], [hemW, tail], 'hem-r', 6); } else p.add(0, 0, 'hem-r');
+    // side seam, with waist shaping
+    if (shaped) {
+      const W = [hw - sup, waistY];
+      bez(p, [hemW, tail], [hemW - (hemW - W[0]) * 0.35, tail + (waistY - tail) * 0.5], [W[0], waistY - (waistY - tail) * 0.25], W, 'side-r', 6);
+      bez(p, W, [W[0], waistY + (sideH - waistY) * 0.4], [hw, sideH - (sideH - waistY) * 0.35], U, 'side-r', 6);
+    } else p.add(hemW, tail, 'side-r');
+    // armscye: front is scooped for the arm moving forwards, back stays fuller
+    const xc = Math.min(hw - 0.8, sleeveless ? S[0] - (aDeep ? 5 : 1.5) + (isBack && aDeep && o.shoulder === 'racer' ? -3 : 0) : S[0] - (isBack ? 0.5 : 2));
+    const ah = S[1] - sideH;
+    bez(p, U, [xc - 0.6, sideH + ah * 0.02], [xc - 0.4, sideH + ah * 0.5], S, 'arm-r', 10);
+    p.add(S[0], S[1], 'sh-r');
+    const N = [neckW, H];
+    const vneck = o.neckline === 'v-neck' || o.neckline === 'deep-v' || (split && lapel && !isBack);
+    if (isBack || !vneck) bez(p, N, [neckW, H - drop * 0.75], [neckW * 0.6, H - drop], [0, H - drop], 'neck-r', isBack ? 5 : 8);
+    else p.add(N[0], N[1], 'neck-r');
+    return p;
+  };
+  const whole = (drop, isBack) => {
+    const r = half(drop, isBack);
     const full = new Poly();
-    for (let i = 0; i < right.length; i++) full.add(right[i][0], right[i][1], tags[i]);
+    for (let i = 0; i < r.pts.length; i++) full.add(r.pts[i][0], r.pts[i][1], r.tags[i]);
     full.add(0, H - drop, 'neck-l');
-    for (let i = right.length - 1; i >= 1; i--) {
-      const tag = swapSide(tags[i - 1]);
-      full.add(-right[i][0], right[i][1], tag);
-    }
-    void isBack;
+    for (let i = r.pts.length - 1; i >= 1; i--) full.add(-r.pts[i][0], r.pts[i][1], swapSide(r.tags[i - 1]));
     return full;
   };
-  return { front: build(frontDrop, false), back: build(backDrop, true), hw, H, sideH, armDepth, ease, neckW, shoulderX };
+  // one front piece of an open-front garment: the half plus the overlap past centre
+  const frontPiece = () => {
+    const r = half(frontDrop, false);
+    const p = new Poly();
+    // start at the bottom of the front edge
+    p.add(-ext, 0, 'hem-r');
+    for (let i = ext > 0 ? 0 : 1; i < r.pts.length; i++) p.add(r.pts[i][0], r.pts[i][1], r.tags[i]);
+    p.add(-ext, H - frontDrop - (lapel ? 0 : 0), 'cf');
+    if (!lapel && ext > 0) { p.tags[p.tags.length - 1] = 'cf'; p.pts.splice(p.pts.length - 1, 0, [0, H - frontDrop]); p.tags.splice(p.tags.length - 1, 0, 'neck-r'); }
+    return p;
+  };
+  const back = whole(backDrop, true);
+  const front = split ? null : whole(frontDrop, false);
+  const fr = split ? frontPiece() : null;
+  const fl = split ? mirror(fr) : null;
+  const armLen = (poly, tag) => polyLen(pathOf(poly, tag));
+  const scye = split ? armLen(fr, 'arm-r') + armLen(back, 'arm-r') : armLen(front, 'arm-r') + armLen(back, 'arm-r');
+  return { front, back, fr, fl, split, ext, lapel, breakY, hw, H, sideH, armDepth, ease, neckW, shoulderX, natural, scye, frontDrop, waistY };
 }
 
-function sleevePanel(o, ease, side) {
+/** Set-in sleeve with a true cap: the cap curve is solved to match the armscye it is sewn into. */
+function sleevePanel(o, t, side) {
   const BODY = bodyOf(o);
-  const lengths = { cap: 9, short: 22, elbow: 32, 'three-quarter': 44, long: 60 };
-  const L = (lengths[o.sleeve] || 22) + (o.sleeveAdj || 0);
-  const W = 34 * BODY.gs + ease * 0.5; // bicep circumference incl. ease
-  const cuffW = o.sleeve === 'long' || o.sleeve === 'three-quarter' ? (o.cuff === 'rib' || o.cuff === 'elastic' ? 21 : 25 + ease * 0.2) : W - 3;
-  const capH = 9 + (o.fit === 'slim' ? 3 : 0);
+  const ease = t.ease;
+  const W = 34 * BODY.gs + 4 + ease * 0.5 + (o.fit === 'oversized' ? 3 : 0); // bicep girth incl. ease
+  const capLen = (ch) => { const p = new Poly(); bez(p, [0, W / 2], [0, W / 2 - W * 0.2], [-ch, W * 0.24], [-ch, 0], 'c', 12); p.add(-ch, 0, 'c'); return polyLen(p.pts) * 2; };
+  let lo = 1; let hi = 24;
+  const target = t.scye + 1.2;
+  for (let k = 0; k < 24; k++) { const mid = (lo + hi) / 2; if (capLen(mid) < target) lo = mid; else hi = mid; }
+  const capH = Math.max(2, Math.min(19, (lo + hi) / 2));
+  const total = ({ cap: 8, short: 22, elbow: 33, 'three-quarter': 46, long: (BODY.armCm || 61) + 3 }[o.sleeve] || 22) + (o.sleeveAdj || 0) - Math.max(0, t.shoulderX - t.natural) ;
+  const L = Math.max(2, total - capH);
+  const longish = o.sleeve === 'long' || o.sleeve === 'three-quarter';
+  const cuffW = longish ? (o.cuff === 'rib' || o.cuff === 'elastic' ? 20 : ['barrel', 'french', 'button-tab'].includes(o.cuff) ? 24 : 23 + ease * 0.25) * (o.sleeve === 'three-quarter' ? 1.12 : 1) : Math.max(W - 2 - L * 0.12, W * 0.8);
   const p = new Poly();
   p.add(L, -cuffW / 2, 'cuff');
-  p.add(L, cuffW / 2, 'under-f');
-  p.add(0, W / 2, 'cap-f');
-  p.add(-capH * 0.45, W * 0.3, 'cap-f');
-  p.add(-capH * 0.9, W * 0.1, 'cap-f');
-  p.add(-capH, 0, 'cap-b');
-  p.add(-capH * 0.9, -W * 0.1, 'cap-b');
-  p.add(-capH * 0.45, -W * 0.3, 'cap-b');
-  p.add(0, -W / 2, 'under-b');
+  // underarm seam (front): gently shaped through the elbow on long sleeves
+  if (longish) bez(p, [L, cuffW / 2], [L * 0.6, cuffW / 2 + (W - cuffW) * 0.12], [L * 0.3, W / 2 - (W - cuffW) * 0.08], [0, W / 2], 'under-f', 6); else p.add(L, cuffW / 2, 'under-f');
+  bez(p, [0, W / 2], [0, W / 2 - W * 0.2], [-capH, W * 0.24], [-capH, 0], 'cap-f', 12);
+  bez(p, [-capH, 0], [-capH, -W * 0.24], [0, -W / 2 + W * 0.2], [0, -W / 2], 'cap-b', 12);
+  if (longish) bez(p, [0, -W / 2], [L * 0.3, -W / 2 + (W - cuffW) * 0.08], [L * 0.6, -cuffW / 2 - (W - cuffW) * 0.12], [L, -cuffW / 2], 'under-b', 6); else p.add(0, -W / 2, 'under-b');
   const R = W / (2 * Math.PI) / 100;
-  return { poly: p, L, W, cuffW, R: Math.max(R, 0.058), side };
+  return { poly: p, L, W, cuffW, capH, R: Math.max(R, 0.055), side };
 }
 
 export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
@@ -177,33 +238,58 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   const baseY = BODY.shoulderY - t.H / 100 + 0.035; // arrange slightly above the shoulders, gravity settles it
   const R = 0.21 + t.ease / 400;
   const Rh = Math.max(R, (t.hw + o.flare) / 145); // hem radius (cone) so wide hems don't overlap
-  const panels = [
-    { id: id('front'), name: 'Front', role: 'body', points: t.front.pts, placement: { position: [0, baseY, R], rotationY: 0, wrap: Rh, wrapTop: R, wrapTopY: t.H, wrapMax: o.sleeve === 'none' ? 1.5 : 0.95 }, fabric },
-    { id: id('back'), name: 'Back', role: 'body', points: t.back.pts, placement: { position: [0, baseY, -R], rotationY: Math.PI, wrap: Rh, wrapTop: R, wrapTopY: t.H, wrapMax: o.sleeve === 'none' ? 1.5 : 0.95 }, fabric },
-  ];
+  const wrapMax = o.sleeve === 'none' ? 1.5 : 0.95;
+  // arrange the pieces close around the torso (which is deeper behind the arms than in front),
+  // so the shoulder seams close on top of the shoulder ridge instead of sliding off it
+  const zc = -0.027; const Rz = 0.135 + t.ease / 800;
+  const place = (z, rot, dz = 0) => ({ position: [0, baseY, zc + Math.sign(z) * (Rz + (Rh - R)) + dz], rotationY: rot, wrap: Rh, wrapTop: R, wrapTopY: t.H, wrapMax });
+  const panels = [];
+  // open fronts: the wearer's-left piece laps over the right one (menswear side)
+  if (t.split) {
+    panels.push({ id: id('front-r'), name: 'Front (left, on top)', role: 'body', points: t.fr.pts, placement: place(R, 0, 0.004), fabric, zBias: 1 });
+    panels.push({ id: id('front-l'), name: 'Front (right, under)', role: 'body', points: t.fl.pts, placement: place(R, 0), fabric });
+  } else panels.push({ id: id('front'), name: 'Front', role: 'body', points: t.front.pts, placement: place(R, 0), fabric });
+  panels.push({ id: id('back'), name: 'Back', role: 'body', points: t.back.pts, placement: place(-R, Math.PI), fabric });
   const sideStitch = o.__stitch || 'overlock-504';
+  // [panel id, poly] that carries the right / left front edges
+  const FR = t.split ? [id('front-r'), t.fr] : [id('front'), t.front];
+  const FL = t.split ? [id('front-l'), t.fl] : [id('front'), t.front];
   const seams = [
-    seam(id('front'), t.front, 'side-r', id('back'), t.back, 'side-l', sideStitch),
-    seam(id('front'), t.front, 'side-l', id('back'), t.back, 'side-r', sideStitch),
-    seam(id('front'), t.front, 'sh-r', id('back'), t.back, 'sh-l', sideStitch),
-    seam(id('front'), t.front, 'sh-l', id('back'), t.back, 'sh-r', sideStitch),
+    seam(FR[0], FR[1], 'side-r', id('back'), t.back, 'side-l', sideStitch),
+    seam(FL[0], FL[1], 'side-l', id('back'), t.back, 'side-r', sideStitch),
+    seam(FR[0], FR[1], 'sh-r', id('back'), t.back, 'sh-l', sideStitch),
+    seam(FL[0], FL[1], 'sh-l', id('back'), t.back, 'sh-r', sideStitch),
   ];
   const trims = [];
   const overlays = [];
+  if (t.split) {
+    const top = t.lapel ? t.breakY : o.collar === 'hood' || ['zip', 'two-way-zip'].includes(o.closure) ? t.H - t.frontDrop : t.H - t.frontDrop - 1;
+    // tailored jackets fasten at the buttons and fall open below the last one
+    const bottom = t.lapel && o.closure !== 'double-breasted' ? Math.max(6, t.breakY - Math.max(1, o.buttons - 1) * 10 - 9) : 0;
+    if (t.ext === 0) seams.push({ ...seam(id('front-r'), t.fr, 'cf', id('front-l'), t.fl, 'cf', 'lockstitch-301'), closure: true });
+    else {
+      // overlapping fronts: fastened along the centre line through both layers
+      const pts = []; for (let y = bottom; y <= top; y += 2.5) pts.push([0, y]);
+      panels[0].attach = [{ to: id('front-l'), pts }];
+    }
+  }
 
   if (o.sleeve !== 'none') {
+    const an = (BODY.armAngle * Math.PI) / 180;
     for (const side of [1, -1]) {
-      const sl = sleevePanel(o, t.ease, side);
+      const sl = sleevePanel(o, t, side);
       const sid = id(side > 0 ? 'sleeve-r' : 'sleeve-l');
       // front body panel: wearer-left is +x in world; front 'arm-r' is at +x,
       // back 'arm-l' is at +x (back panel is rotated 180 degrees)
-      panels.push({ id: sid, name: side > 0 ? 'Sleeve (right)' : 'Sleeve (left)', role: 'sleeve', points: sl.poly.pts, placement: { arm: side, radius: sl.R + 0.01, position: [BODY.armStartX * side, BODY.armY, 0] }, fabric });
+      const d0 = 0.035 + Math.max(0, t.shoulderX - t.natural) / 100;
+      panels.push({ id: sid, name: side > 0 ? 'Sleeve (left)' : 'Sleeve (right)', role: 'sleeve', points: sl.poly.pts, placement: { arm: side, angle: BODY.armAngle, radius: sl.R + 0.012, position: [(BODY.armStartX + d0 * Math.sin(an)) * side, BODY.armY - d0 * Math.cos(an), 0] }, fabric });
       seams.push(seam(sid, sl.poly, 'under-f', sid, sl.poly, 'under-b', sideStitch));
-      seams.push(seam(sid, sl.poly, 'cap-f', id('front'), t.front, side > 0 ? 'arm-r' : 'arm-l', sideStitch));
+      seams.push(seam(sid, sl.poly, 'cap-f', side > 0 ? FR[0] : FL[0], side > 0 ? FR[1] : FL[1], side > 0 ? 'arm-r' : 'arm-l', sideStitch));
       seams.push(seam(sid, sl.poly, 'cap-b', id('back'), t.back, side > 0 ? 'arm-l' : 'arm-r', sideStitch));
       // cuffs
       const cuffDepth = { rib: 7, barrel: 6, french: 8, 'button-tab': 0, elastic: 3, rolled: 5, storm: 0, 'snap-tab': 0, zip: 0, hemmed: 2.5, none: 0 }[o.cuff] ?? 0;
       if (cuffDepth) overlays.push({ kind: 'cuff', style: o.cuff, panel: sid, points: rect(sl.L - cuffDepth, -sl.cuffW / 2, sl.L, sl.cuffW / 2) });
+      if (o.cuff === 'rib' || o.cuff === 'elastic') panels[panels.length - 1].gatherX = [{ x0: sl.L - cuffDepth, x1: sl.L + 1, ratio: 0.82 }];
       if (['barrel', 'button-tab'].includes(o.cuff)) trims.push({ type: 'button-4hole', panel: sid, at: [sl.L - 3, sl.cuffW / 2 - 3], size: 11 });
       if (o.cuff === 'french') trims.push({ type: 'cufflink', panel: sid, at: [sl.L - 4, sl.cuffW / 2 - 2], size: 14 });
       if (o.cuff === 'snap-tab') trims.push({ type: 'snap', panel: sid, at: [sl.L - 3, sl.cuffW / 2 - 2] });
@@ -212,7 +298,7 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   }
 
   // hem / neck finishes
-  if (o.hem === 'rib') overlays.push({ kind: 'band', style: 'rib', panel: id('front'), points: rect(-t.hw, 0, t.hw, 7) }, { kind: 'band', style: 'rib', panel: id('back'), points: rect(-t.hw, 0, t.hw, 7) });
+  if (o.hem === 'rib') { overlays.push({ kind: 'band', style: 'rib', panel: id('front'), points: rect(-t.hw, 0, t.hw, 7) }, { kind: 'band', style: 'rib', panel: id('back'), points: rect(-t.hw, 0, t.hw, 7) }); for (const pan of panels) if (pan.role === 'body') pan.gather = [{ y0: -1, y1: 7, ratio: 0.86 }]; }
   if (o.hem === 'drawcord') { trims.push({ type: 'cord-stopper', panel: id('front'), at: [t.hw - 4, 2] }, { type: 'grommet', panel: id('front'), at: [-t.hw + 4, 2] }); }
   if (o.neckline === 'henley') { overlays.push({ kind: 'placket', panel: id('front'), points: rect(-1.5, t.H - 22, 1.5, t.H - 8) }); for (const y of [t.H - 11, t.H - 15, t.H - 19]) trims.push({ type: 'button-2hole', panel: id('front'), at: [0, y], size: 10 }); }
 
@@ -246,36 +332,75 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   const lw = o.lapelWidth;
   const breakY = t.H * 0.62;
   if (o.lapel === 'notch' || o.lapel === 'peak' || o.lapel === 'shawl') {
-    for (const s of [1, -1]) {
-      const pts = o.lapel === 'shawl'
-        ? [[0, breakY], [s * lw, t.H - 16], [s * (t.neckW + 2), t.H - 3], [s * t.neckW, t.H], [s * 1, t.H - 12]]
-        : [[0, breakY], [s * lw, t.H - 18], [s * (lw + (o.lapel === 'peak' ? 3 : 0)), t.H - (o.lapel === 'peak' ? 8 : 12)], [s * (lw - 3), t.H - (o.lapel === 'peak' ? 10 : 9)], [s * (t.neckW + 1), t.H - 4], [s * t.neckW, t.H], [s * 1, t.H - 12]];
-      overlays.push({ kind: 'lapel', style: o.lapel, panel: id('front'), points: s > 0 ? pts : pts.slice().reverse() });
+    // The lapel is the front edge folded back along the roll line (break point -> neck point);
+    // it lies on the chest, with the collar joining it at the gorge.
+    const B = [-t.ext, breakY]; const N = [t.neckW, t.H];
+    const len = Math.hypot(N[0] - B[0], N[1] - B[1]);
+    const d = [(N[0] - B[0]) / len, (N[1] - B[1]) / len]; const pr = [d[1], -d[0]];
+    const at = (u, off) => [B[0] + d[0] * len * u + pr[0] * off, B[1] + d[1] * len * u + pr[1] * off];
+    let lap; let col;
+    if (o.lapel === 'shawl') {
+      lap = [B]; for (let k = 1; k <= 10; k++) { const u = k / 10; lap.push(at(u, lw * Math.pow(Math.sin(Math.PI * Math.min(1, u * 0.62 + 0.02)), 0.7))); }
+      lap.push(N);
+      col = null;
+    } else if (o.lapel === 'peak') {
+      lap = [B, at(0.3, lw * 0.5), at(0.62, lw * 0.95), at(0.86, lw + 2.2), at(0.8, lw * 0.62), at(0.84, 0)];
+      col = [at(0.8, lw * 0.62), at(0.87, lw * 0.9), at(1.02, lw * 0.5 + 2.5), [N[0] + 1.5, N[1] - 0.4], N, at(0.84, 0)];
+    } else {
+      lap = [B, at(0.3, lw * 0.5), at(0.6, lw * 0.92), at(0.74, lw), at(0.8, lw * 0.6), at(0.84, 0)];
+      col = [at(0.8, lw * 0.6), at(0.86, lw * 0.98), at(1.02, lw * 0.5 + 2.5), [N[0] + 1.5, N[1] - 0.4], N, at(0.84, 0)];
     }
+    const mir = (pts) => pts.map(([x, y]) => [-x, y]).reverse();
+    overlays.push({ kind: 'lapel', style: o.lapel, panel: id('front-r'), points: lap }, { kind: 'lapel', style: o.lapel, panel: id('front-l'), points: mir(lap) });
+    void col;
   }
   if (o.lapel === 'biker') {
     overlays.push({ kind: 'lapel', style: 'biker', panel: id('front'), points: [[-2, t.H - 22], [-12, t.H - 10], [-9, t.H - 3], [-t.neckW, t.H], [-3, t.H - 10]] });
     overlays.push({ kind: 'lapel', style: 'biker', panel: id('front'), points: [[8, t.H - 26], [16, t.H - 12], [12, t.H - 4], [t.neckW, t.H], [4, t.H - 14]] });
     trims.push({ type: 'snap', panel: id('front'), at: [-10, t.H - 8] }, { type: 'snap', panel: id('front'), at: [14, t.H - 10] });
   }
-  if (['point', 'spread', 'button-down', 'camp', 'polo', 'corduroy'].includes(o.collar)) {
-    const spread = { point: 4, spread: 7, 'button-down': 4.5, camp: 9, polo: 6, corduroy: 8 }[o.collar];
-    const len = { camp: 11, corduroy: 10 }[o.collar] || 8;
-    for (const s of [1, -1]) {
-      const pts = [[s * 0.5, t.H - 6], [s * (spread + 2), t.H - 6 - len * 0.7], [s * (t.neckW + 3), t.H - 1], [s * t.neckW, t.H + 0.5]];
-      overlays.push({ kind: 'collar', style: o.collar, panel: id('front'), points: s > 0 ? pts : pts.slice().reverse(), fabric: o.collar === 'corduroy' ? 'corduroy' : undefined });
-      if (o.collar === 'button-down') trims.push({ type: 'button-2hole', panel: id('front'), at: [s * (spread + 1), t.H - 6 - len * 0.6], size: 9 });
+  // ---- collars, neckbands and hoods: real 3D pieces that follow the sewn neckline ----
+  const COLLARS = {
+    point: { stand: 3, fall: 4.3, point: 7.5, spread: 2.5 }, spread: { stand: 3.2, fall: 4.5, point: 8, spread: 6.5 },
+    'button-down': { stand: 3, fall: 4.3, point: 8.2, spread: 3.5, roll: 1 }, camp: { stand: 0.6, fall: 6, point: 8.5, spread: 7.5, flat: 1 },
+    polo: { stand: 1.6, fall: 6, point: 7, spread: 3.5, fabric: 'rib-knit' }, corduroy: { stand: 1.2, fall: 7, point: 9, spread: 5, fabric: 'corduroy' },
+    mandarin: { stand: 3.5 }, 'band-snap': { stand: 4 }, funnel: { stand: 8, lean: 0.05 }, rib: { stand: 2.6, fabric: 'rib-knit' },
+    hood: { hood: 1, stand: 1 },
+  };
+  const collars = [];
+  // neckline of each body piece, trimmed to where the collar is sewn (lapel jackets: down to the gorge)
+  const neckPaths = (frontLen) => {
+    const out = {};
+    for (const pan of panels) {
+      if (pan.role !== 'body') continue;
+      const poly = pan.id === id('back') ? t.back : pan.id === id('front-r') ? t.fr : pan.id === id('front-l') ? t.fl : t.front;
+      let path = [...pathOf(poly, 'neck-r'), ...pathOf(poly, 'neck-l').slice(pathOf(poly, 'neck-r').length ? 1 : 0)];
+      if (frontLen && pan.id !== id('back')) path = path.filter(([, y]) => y >= t.H - frontLen);
+      if (frontLen && pan.id !== id('back') && path.length === 1) { const N = path[0]; const B = [-t.ext * Math.sign(N[0]), breakY]; const L = Math.hypot(N[0] - B[0], N[1] - B[1]); const u = Math.min(1, frontLen / L); path = [N, [N[0] + (B[0] - N[0]) * u, N[1] + (B[1] - N[1]) * u]]; }
+      if (path.length >= 2) out[pan.id] = path;
     }
-    overlays.push({ kind: 'collar', style: o.collar, panel: id('back'), points: rect(-t.neckW - 1, t.H - 5, t.neckW + 1, t.H) });
+    return out;
+  };
+  const tailored = t.split && t.lapel;
+  if (tailored && o.lapel !== 'shawl') collars.push({ kind: 'collar', style: 'tailored', stand: 2.6, fall: 4.4, point: 5.2, spread: 0, paths: neckPaths(Math.hypot(t.neckW + t.ext, t.H - breakY) * 0.2) });
+  else if (o.lapel === 'biker') collars.push({ kind: 'collar', style: 'biker', stand: 1.2, fall: 7.5, point: 10, spread: 6, flat: 1, paths: neckPaths() });
+  else if (COLLARS[o.collar]) collars.push({ kind: COLLARS[o.collar].hood ? 'hood' : 'collar', style: o.collar, ...COLLARS[o.collar], hoodStyle: o.hood || 'three-panel', paths: neckPaths() });
+  else if (o.neckline === 'mock') collars.push({ kind: 'collar', style: 'mock', stand: 5, fabric: /knit|jersey|fleece|terry|rib/.test(fabric) ? 'rib-knit' : undefined, paths: neckPaths() });
+  else if (!t.split && /knit|jersey|fleece|terry|rib|pique|interlock/.test(fabric) && o.shoulder !== 'strap') collars.push({ kind: 'neckband', style: 'rib-neckband', stand: o.neckline === 'henley' ? 1.6 : 2, fabric: 'rib-knit', paths: neckPaths() });
+  // pattern pieces for the cut list (the 3D collar is drawn from the spec above)
+  if (['point', 'spread', 'button-down', 'camp', 'polo', 'corduroy'].includes(o.collar)) {
+    const c = COLLARS[o.collar];
+    overlays.push({ kind: 'collar', style: o.collar, hidden: true, panel: id('back'), points: rect(-t.neckW - 12, t.H - c.fall - 1, t.neckW + 12, t.H) });
+    if (c.stand > 1) overlays.push({ kind: 'collar', style: 'collar-stand', hidden: true, panel: id('back'), points: rect(-t.neckW - 12, t.H - c.stand, t.neckW + 12, t.H) });
+    if (o.collar === 'button-down') for (const sd of [1, -1]) trims.push({ type: 'button-2hole', panel: id('front'), at: [sd * 5.5, t.H - t.frontDrop - 5.5], size: 9 });
   }
   if (['mandarin', 'band-snap', 'funnel', 'rib'].includes(o.collar)) {
-    const hgt = { mandarin: 3.5, 'band-snap': 4, funnel: 7, rib: 2.5 }[o.collar];
-    for (const pid of ['front', 'back']) overlays.push({ kind: 'collar', style: o.collar, panel: id(pid), points: rect(-t.neckW - 1, t.H - hgt - 1, t.neckW + 1, t.H) });
-    if (o.collar === 'band-snap') trims.push({ type: 'snap', panel: id('front'), at: [-3, t.H - 2] });
+    overlays.push({ kind: 'collar', style: o.collar, hidden: true, panel: id('back'), points: rect(-t.neckW - 12, t.H - COLLARS[o.collar].stand, t.neckW + 12, t.H) });
+    if (o.collar === 'band-snap') trims.push({ type: 'snap', panel: id('front'), at: [-1, t.H - t.frontDrop - 1.5] });
   }
   if (o.collar === 'hood') {
-    overlays.push({ kind: 'hood', panel: id('back'), points: [[-16, t.H - 1], [16, t.H - 1], [15, t.H - 24], [6, t.H - 33], [-6, t.H - 33], [-15, t.H - 24]] });
-    trims.push({ type: 'grommet', panel: id('front'), at: [4, t.H - 4] }, { type: 'grommet', panel: id('front'), at: [-4, t.H - 4] });
+    overlays.push({ kind: 'hood', hidden: true, panel: id('back'), points: [[-16, t.H - 1], [16, t.H - 1], [15, t.H - 24], [6, t.H - 33], [-6, t.H - 33], [-15, t.H - 24]] });
+    trims.push({ type: 'grommet', panel: id('front'), at: [4, t.H - t.frontDrop - 3] }, { type: 'grommet', panel: id('front'), at: [-4, t.H - t.frontDrop - 3] });
   }
 
   // pockets
@@ -294,15 +419,32 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
     if (o.belt === 'buckle-belt') trims.push({ type: 'buckle', panel: id('front'), at: [0, t.sideH - 21.5] });
   }
   // decorative-edge paths
-  panels[0].edges = { hem: [...pathOf(t.front, 'hem-l'), ...pathOf(t.front, 'hem-r').slice(1)], neck: [...pathOf(t.front, 'neck-r'), ...pathOf(t.front, 'neck-l').slice(1)], armhole: o.sleeve === 'none' ? pathOf(t.front, 'arm-r') : [] };
-  panels[1].edges = { hem: [...pathOf(t.back, 'hem-l'), ...pathOf(t.back, 'hem-r').slice(1)], neck: [...pathOf(t.back, 'neck-r'), ...pathOf(t.back, 'neck-l').slice(1)], armhole: o.sleeve === 'none' ? pathOf(t.back, 'arm-r') : [] };
-  for (const pan of panels) if (pan.role === 'sleeve') { const c = pan.points; pan.edges = { cuff: [c[0], c[1]] }; }
+  const edgesOf = (poly) => ({ hem: [...pathOf(poly, 'hem-l'), ...pathOf(poly, 'hem-r').slice(pathOf(poly, 'hem-l').length ? 1 : 0)], neck: [...pathOf(poly, 'neck-r'), ...pathOf(poly, 'neck-l').slice(pathOf(poly, 'neck-r').length ? 1 : 0)], armhole: o.sleeve === 'none' ? [...pathOf(poly, 'arm-r'), ...pathOf(poly, 'arm-l')] : [] });
+  for (const pan of panels) {
+    if (pan.role === 'sleeve') { const c = pan.points; pan.edges = { cuff: [c[0], c[1]] }; continue; }
+    pan.edges = edgesOf(pan.id === id('back') ? t.back : pan.id === id('front-r') ? t.fr : pan.id === id('front-l') ? t.fl : t.front);
+  }
   if (o.insulation && o.insulation !== 'none') {
     for (const pan of panels) pan.insulation = { fill: o.insulation, weight: o.fillWeight, quilting: o.quilting };
   }
   if (o.sleeve === 'none') for (const pan of panels) if (pan.role === 'body') pan.tack = { y0: t.H - (o.shoulder === 'strap' ? 2 : 5), y1: t.H + 1 };
   if (o.lining && o.lining !== 'none') for (const pan of panels) if (o.lining === 'full' || pan.role === 'body') pan.lining = 'acetate-satin';
-  return { panels, seams, trims, overlays };
+  // open fronts: details drafted on "the front" land on the piece they sit on
+  if (t.split) {
+    const fid = id('front');
+    const routed = [];
+    for (const ov of overlays) {
+      if (ov.panel !== fid) { routed.push(ov); continue; }
+      const xs = ov.points.map((q) => q[0]);
+      // a piece wholly inside the overlap belongs to the top front
+      if (Math.min(...xs) >= -t.ext - 0.01 && Math.max(...xs) > 0) { routed.push({ ...ov, panel: id('front-r') }); continue; }
+      if (Math.max(...xs) <= 0) { routed.push({ ...ov, panel: id('front-l') }); continue; }
+      for (const sd of [1, -1]) { const pts = clipX(ov.points, sd); if (pts.length >= 3 && polyArea(pts) > 0.5) routed.push({ ...ov, panel: id(sd > 0 ? 'front-r' : 'front-l'), points: pts }); }
+    }
+    overlays.length = 0; overlays.push(...routed);
+    for (const tr of trims) if (tr.panel === fid) tr.panel = id(tr.at && tr.at[0] < -t.ext - 0.01 && !tr.to ? 'front-l' : 'front-r');
+  }
+  return { panels, seams, trims, overlays, collars };
 }
 
 // =====================================================================

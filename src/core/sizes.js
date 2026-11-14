@@ -36,7 +36,7 @@ export const SIZE_CHARTS = {
 };
 
 import { MANNEQUINS } from '../sim/mannequins.js';
-import { bodyScales, gradePoint, girthAt, REF_BODY } from '../sim/avatar.js';
+import { bodyScales, gradePoint, girthAt, REF_BODY, ARM_ANGLE } from '../sim/avatar.js';
 
 /**
  * Map body measurements to the reference body used by the generators and the
@@ -57,8 +57,13 @@ export function bodyFromMeasurements(m, mannequin = 'male') {
     waistY: gp(0, L.waistY - 0.06)[1], // where waistbands sit (just below the natural waist)
     naturalWaistY: gp(0, L.waistY)[1],
     crotchY: gp(0, L.crotchY)[1],
-    armY: gp(L.armStartX + 0.05, L.armY)[1],
-    armStartX: L.armStartX * sc.shoulderS + 0.025,
+    armY: gp(L.armStartX, L.armY)[1],
+    armStartX: L.armStartX * sc.shoulderS,
+    armAngle: m.armAngle ?? ARM_ANGLE,
+    shoulderW: R.shoulder * sc.shoulderS,
+    neckC: m.neck || R.neck,
+    armCm: R.arm * sc.armS,
+    armLen: (L.wristX ? L.wristX - L.armStartX : 0.56) * sc.armS,
     legX: L.legX * girthAt(body, L.crotchY - 0.2),
     headY: gp(0, L.headY)[1],
     headR: L.headR * 1.12 * ((m.head || R.head) / R.head),
@@ -71,7 +76,7 @@ export function bodyFor(project) {
   const chart = SIZE_CHARTS[project.sizeChart || 'unisex'] || SIZE_CHARTS.unisex;
   const m = project.customBody || chart.sizes[project.size || 'M'] || chart.sizes.M;
   const mannequin = project.mannequin || (project.sizeChart === 'womens' ? 'female' : 'male');
-  return bodyFromMeasurements(m, mannequin);
+  return bodyFromMeasurements(project.armAngle != null ? { ...m, armAngle: project.armAngle } : m, mannequin);
 }
 
 export const DEFAULT_BODY = bodyFromMeasurements(SIZE_CHARTS.unisex.sizes.M, 'male');

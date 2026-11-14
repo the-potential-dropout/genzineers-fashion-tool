@@ -5,6 +5,7 @@ import { applyAction } from '../src/core/actions.js';
 import { buildCloth, initSolver } from '../src/sim/cloth.js';
 globalThis.fetch = async () => ({ arrayBuffer: async () => readFileSync(new URL('../public/atelier_sim.wasm', import.meta.url)) });
 await initSolver('x');
+{ const { loadBodyMesh } = await import('../src/sim/cloth.js'); await loadBodyMesh('male'); await loadBodyMesh('female'); }
 for (const t of ['crew-tee', 'blazer-sb', 'jeans-straight', 'skirt-aline', 'baseball-cap']) for (const [chart, size] of [['womens', 'XS'], ['unisex', 'M'], ['mens', '4XL']]) {
   let p = createProject(t); p = applyAction(p, { type: 'set_size', chart, size }).project;
   const sim = buildCloth(p); let y0 = -1e9; for (let i = 1; i < sim.pos.length; i += 3) y0 = Math.max(y0, sim.pos[i]);

@@ -6,6 +6,7 @@ import { BODY_SHAPES } from '../src/sim/avatar.js';
 import { buildCloth, initSolver } from '../src/sim/cloth.js';
 globalThis.fetch = async () => ({ arrayBuffer: async () => readFileSync(new URL('../public/atelier_sim.wasm', import.meta.url)) });
 await initSolver('x');
+{ const { loadBodyMesh } = await import('../src/sim/cloth.js'); await loadBodyMesh('male'); await loadBodyMesh('female'); }
 let fails = 0;
 for (const t of ['crew-tee', 'blazer-sb', 'jeans-straight', 'skirt-aline', 'slip-dress']) for (const chart of ['mens', 'womens']) for (const shape of Object.keys(BODY_SHAPES)) {
   let p = createProject(t); p = applyAction(p, { type: 'set_size', chart, size: 'M' }).project; p = applyAction(p, { type: 'set_size', shape }).project;

@@ -3,7 +3,7 @@
 import { createStore, settings } from './app/store.js';
 import { createPatternEditor } from './app/pattern.js';
 import { Viewer } from './render/viewer.js';
-import { initSolver, buildCloth, solverKind } from './sim/cloth.js';
+import { initSolver, buildCloth, solverKind, loadBodyMesh } from './sim/cloth.js';
 import { TEMPLATES, TEMPLATE_GROUPS } from './core/templates.js';
 import { GENERATORS } from './core/blocks.js';
 import { FABRICS, FABRIC_FAMILIES, FABRIC_CATEGORIES, resolveFabric } from './core/fabrics.js';
@@ -11,7 +11,7 @@ import { ASSEMBLY, ASSEMBLY_GROUPS, THREADS } from './core/assembly.js';
 import { TRIMS, TRIM_GROUPS, ZIPPER_TYPES, ZIPPER_SIZES, ZIPPER_ENDS, ZIPPER_SLIDERS, ZIPPER_PULLERS, EDGE_TREATMENTS, LACING_STYLES, zipperSpec } from './core/trims.js';
 import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS, compatible } from './core/color.js';
 import { BLENDS, FIBERS, INSULATION, QUILTING, WATERPROOF } from './core/materials.js';
-import { SIZE_CHARTS, REF_BODY } from './core/sizes.js';
+import { SIZE_CHARTS, REF_BODY, bodyFor } from './core/sizes.js';
 import { BODY_SHAPES } from './sim/avatar.js';
 import { recommendFor, checkProject, fabricTip } from './core/guidance.js';
 import { JEWELRY_TEMPLATES, JEWELRY_GROUPS, METALS, GEMS, CUTS, SETTINGS, LINKS, CLASPS, BAILS, EARRING_BACKS, RING_PROFILES, PLATINGS, estimateMetal, caratEstimate, ringSize, goldAlloy } from './core/jewelry.js';
@@ -100,7 +100,10 @@ function rebuild(info = {}) {
   if (p.mode === 'jewelry') { sim?.dispose?.(); sim = null; viewer.setProject(p, null); simStatus = { text: 'Jewelry preview', live: false }; renderHud(); return; }
   if (info.lookOnly && sim) { viewer.refreshLooks(p); return; }
   clearTimeout(rebuildTimer);
-  rebuildTimer = setTimeout(() => {
+  rebuildTimer = setTimeout(async () => {
+    // the body collision field needs the mannequin mesh (cached after the first load)
+    if (p.display?.avatar !== false) { try { await loadBodyMesh(bodyFor(p).mannequin, import.meta.env.BASE_URL); } catch (e) { console.warn('body mesh unavailable, using capsules', e); } }
+    if (store.get() !== p) return; // a newer change is already queued
     sim?.dispose?.();
     const t0 = performance.now();
     sim = buildCloth(p);

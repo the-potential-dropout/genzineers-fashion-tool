@@ -21,8 +21,9 @@
     "mannequins": "node scripts/fit-mannequins.mjs"
   },
   "dependencies": {
-    "three": "0.170.0",
     "@modelcontextprotocol/sdk": "1.12.1",
+    "delaunator": "^5.0.1",
+    "three": "0.170.0",
     "ws": "8.18.0",
     "zod": "3.25.67"
   },

@@ -51,6 +51,9 @@ export function girthAt(body, y) {
 }
 
 /** Map a point from the reference mannequin frame to the graded body. */
+/** Default arm angle from the body's vertical axis, in degrees (45 = natural A-pose, 90 = T-pose). */
+export const ARM_ANGLE = 45;
+
 export function gradePoint(body, x, y, z) {
   const s = body?._scales || bodyScales(body || {}, body?.mannequin || 'male');
   const L = s.L;
@@ -62,7 +65,13 @@ export function gradePoint(body, x, y, z) {
     const nx = sx * (root + (Math.abs(x) - L.armStartX) * s.armS);
     const ag = Math.sqrt(s.chestS); // arm girth follows the body gently
     const nArmY = s.crotch * s.legS + (L.armY - s.crotch) * s.torsoS;
-    return [nx, nArmY + (y - L.armY) * ag, z * ag];
+    // pose: lower the arm from the T-pose by rotating about the shoulder joint; the
+    // angle eases in over the shoulder cap so the deltoid bends smoothly
+    const lower = ((90 - (body?.armAngle ?? ARM_ANGLE)) * Math.PI) / 180;
+    const d = Math.abs(nx) - root; const dy = (y - L.armY) * ag;
+    const u = Math.max(0, Math.min(1, d / 0.1)); const th = lower * u * u * (3 - 2 * u);
+    const c = Math.cos(th); const sn = Math.sin(th);
+    return [sx * (root + d * c + dy * sn), nArmY - d * sn + dy * c, z * ag];
   }
   const g = girthAt(body, y);
   const sw = y > L.armY - 0.15 ? 1 + (s.shoulderS - 1) * Math.min(1, (y - (L.armY - 0.15)) / 0.15) * 0.6 : 1;
@@ -76,6 +85,8 @@ export function buildAvatar(body) {
     const ym = (c.a[1] + c.b[1]) / 2;
     const g = girthAt(body, ym);
     const vs = ym < s.crotch ? s.legS : s.torsoS;
+    const arm = Math.abs(c.a[0]) > m.landmarks.armStartX && Math.abs(c.b[0]) > m.landmarks.armStartX && Math.abs(ym - m.landmarks.armY) < 0.14;
+    if (arm) return { a: gradePoint(body, ...c.a), b: gradePoint(body, ...c.b), r: c.r * Math.sqrt(s.chestS) * (ym < m.landmarks.armY - 0.02 || Math.abs(c.a[0]) > m.landmarks.armStartX + 0.05 ? 0.88 : 1), zs: 1, ys: 1 };
     return { a: gradePoint(body, ...c.a), b: gradePoint(body, ...c.b), r: c.r * g, zs: c.zs, ys: (c.ys ?? 1) * (vs / g) };
   });
 }

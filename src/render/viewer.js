@@ -22,12 +22,42 @@ import { MANNEQUINS } from '../sim/mannequins.js';
 import { legwearTop } from '../core/legwear.js';
 import { panelAnchor } from '../sim/cloth.js';
 import { fabricTextures } from './textures.js';
+import { buildCollar } from './collars.js';
 import { buildJewelry, metalMaterial, gemMaterial } from './jewelry3d.js';
 import { loadModel, deformGeometry } from '../io/import.js';
 import { METALS } from '../core/jewelry.js';
 
 const OVERLAY_TINT = { lapel: 0.92, collar: 0.95, cuff: 0.9, band: 0.88, waistband: 0.9, pocket: 0.97, flap: 0.94, placket: 0.96, yoke: 0.98, hood: 0.93, belt: 0.85, fly: 0.97, vent: 0.7, pleat: 0.75, pinch: 0.8 };
 
+/** Shrink a polygon by d (cm): each vertex moves along its inward bisector. */
+function insetPoly(pts, d) {
+  const n = pts.length; if (n < 3) return null;
+  let A = 0; for (let i = 0; i < n; i++) { const a = pts[i]; const b = pts[(i + 1) % n]; A += a[0] * b[1] - b[0] * a[1]; }
+  const sg = A > 0 ? 1 : -1; const out = [];
+  for (let i = 0; i < n; i++) {
+    const p = pts[(i - 1 + n) % n]; const c = pts[i]; const q = pts[(i + 1) % n];
+    let ax = c[0] - p[0]; let ay = c[1] - p[1]; let bx = q[0] - c[0]; let by = q[1] - c[1];
+    const la = Math.hypot(ax, ay) || 1; const lb = Math.hypot(bx, by) || 1; ax /= la; ay /= la; bx /= lb; by /= lb;
+    let nx = -(ay + by) * sg; let ny = (ax + bx) * sg; const nl = Math.hypot(nx, ny);
+    if (nl < 1e-6) { out.push([c[0], c[1]]); continue; }
+    nx /= nl; ny /= nl;
+    const k = Math.min(3, 1 / Math.max(0.3, Math.sqrt((1 + ax * bx + ay * by) / 2)));
+    out.push([c[0] + nx * d * k, c[1] + ny * d * k]);
+  }
+  return out;
+}
+/** Offset an open path by d (cm) towards the inside of the piece. */
+function offsetPath(path, d, outline) {
+  const out = [];
+  for (let i = 0; i < path.length; i++) {
+    const a = path[Math.max(0, i - 1)]; const b = path[Math.min(path.length - 1, i + 1)];
+    let tx = b[0] - a[0]; let ty = b[1] - a[1]; const l = Math.hypot(tx, ty); if (l < 1e-6) continue; tx /= l; ty /= l;
+    let x = path[i][0] - ty * d; let y = path[i][1] + tx * d;
+    if (!pointInPoly(x, y, outline)) { x = path[i][0] + ty * d; y = path[i][1] - tx * d; if (!pointInPoly(x, y, outline)) continue; }
+    out.push([x, y]);
+  }
+  return out;
+}
 function pointInPoly(x, y, pts) {
   let inside = false;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -306,6 +336,7 @@ export class Viewer {
       g.setIndex(new THREE.BufferAttribute(pan.tris, 1));
       g.computeBoundingSphere();
       const mesh = new THREE.Mesh(g, this.materialFor(project, pan.panel));
+      if (pan.panel.zBias) { mesh.material.polygonOffset = true; mesh.material.polygonOffsetFactor = -2; mesh.material.polygonOffsetUnits = -4; }
       mesh.userData.panelId = pan.id;
       mesh.frustumCulled = false;
       this.garment.add(mesh);
@@ -355,6 +386,7 @@ export class Viewer {
     for (const ov of project.overlays || []) {
       const panel = project.panels.find((p) => p.id === ov.panel);
       if (!panel) continue;
+      if (ov.hidden) continue; // cut-list piece drawn elsewhere (e.g. 3D collars)
       const pts = ov.points;
       const xs = pts.map((p) => p[0]); const ys = pts.map((p) => p[1]);
       const h = 1.0;
@@ -385,6 +417,12 @@ export class Viewer {
       this.garment.add(mesh);
       const lift = ov.kind === 'vent' || ov.kind === 'pleat' ? 0.0012 : ov.kind === 'lapel' || ov.kind === 'collar' || ov.kind === 'flap' ? 0.0045 : 0.003;
       this.overlays.push({ mesh, anchors, lift });
+      // every sewn-on piece gets a crisp edge and its topstitching
+      if (ov.kind !== 'pleat' && !ov.hidden) {
+        const base = new THREE.Color(ov.color || panel.finish?.color || resolveFabric(project, fabric || panel.fabric, fabric ? {} : panel.fabricOverrides).look.color);
+        this.addPathLine(sim, ov.panel, [...pts, pts[0]], lift + 0.0007, base.clone().multiplyScalar(0.45), false);
+        if (!['vent', 'yoke-line'].includes(ov.kind)) { const ins = insetPoly(pts, ov.kind === 'waistband' || ov.kind === 'band' || ov.kind === 'cuff' ? 0.5 : 0.35); if (ins) this.addPathLine(sim, ov.panel, [...ins, ins[0]], lift + 0.0009, this.threadColor(project, panel), true); }
+      }
     }
   }
 
@@ -542,7 +580,92 @@ export class Viewer {
     return grp;
   }
 
+  /** Topstitch thread: gold on denim, otherwise tonal (a shade off the cloth), unless set on the garment. */
+  threadColor(project, panel) {
+    const g = (project.garments || []).find((x) => x.id === panel.garment);
+    if (g?.threadColor) return new THREE.Color(g.threadColor);
+    const fab = resolveFabric(project, panel.fabric, panel.fabricOverrides);
+    if (/denim/.test(panel.fabric) && !panel.finish?.color) return new THREE.Color('#c8912f');
+    const c = new THREE.Color(panel.finish?.color || fab.look.color);
+    const l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    return l < 0.25 ? c.lerp(new THREE.Color('#ffffff'), 0.32) : c.multiplyScalar(0.68);
+  }
+
+  /** A line that follows the cloth along a panel-space path: solid (edge) or dashed (stitches). */
+  addPathLine(sim, panelId, path, lift, color, stitches) {
+    const anchors = this.pathAnchors(sim, panelId, path, stitches ? 0.3 : 0.9);
+    if (anchors.length < 2) return;
+    if (stitches && anchors.length % 2) anchors.pop();
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(anchors.length * 3), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(anchors.length * 3), 3));
+    const line = new (stitches ? THREE.LineSegments : THREE.Line)(g, new THREE.LineBasicMaterial({ color }));
+    line.frustumCulled = false;
+    this.garment.add(line);
+    this.overlays.push({ mesh: line, anchors, lift });
+  }
+
+  /** Construction stitching every garment ships with: hems, necklines, cuffs, armholes. */
+  buildTopstitch(project, sim) {
+    for (const pan of sim.panels) {
+      const panel = pan.panel; if (!panel?.edges || !pan.count) continue;
+      const knit = /knit|jersey|rib|fleece|terry|interlock|pique/.test(panel.fabric) || pan.fab.category === 'Knits';
+      const col = this.threadColor(project, panel);
+      for (const [where, path] of Object.entries(panel.edges)) {
+        if (!path || path.length < 2 || panel.edgeFinish?.[where] === 'raw') continue;
+        const depth = { hem: knit ? 2 : 1.2, cuff: knit ? 2 : 1, neck: 0.6, armhole: 0.6, leg: 0.8, waist: 0.6 }[where] ?? 0.8;
+        const rows = knit && (where === 'hem' || where === 'cuff') ? [depth, depth - 0.6] : [depth];
+        for (const dpt of rows) { const off = offsetPath(path, dpt, panel.points); if (off.length > 1) this.addPathLine(sim, panel.id, off, 0.0012, col, true); }
+      }
+    }
+  }
+
+  /** 3D collars, neckbands and hoods swept along the sewn neckline. */
+  buildCollars(project, sim) {
+    for (const spec of project.collars || []) {
+      const anchors = []; let panel = null;
+      for (const [pid, path] of Object.entries(spec.paths || {})) {
+        const pan = project.panels.find((p) => p.id === pid); if (!pan) continue;
+        panel = panel && !/back$/.test(panel.id) ? panel : pan;
+        for (const a of this.pathAnchors(sim, pid, path, 0.9)) anchors.push(a);
+      }
+      if (anchors.length < 6 || !panel) continue;
+      // order the stations round the neck: front end -> back -> other front end
+      const P = sim.pos; const pt = (a) => { const o = [0, 0, 0]; a.ids.forEach((q, k) => { o[0] += P[q * 3] * a.w[k]; o[1] += P[q * 3 + 1] * a.w[k]; o[2] += P[q * 3 + 2] * a.w[k]; }); return o; };
+      const pts = anchors.map(pt); const c = [0, 0]; for (const q of pts) { c[0] += q[0] / pts.length; c[1] += q[2] / pts.length; }
+      const order = anchors.map((a, i) => [Math.atan2(pts[i][0] - c[0], -(pts[i][2] - c[1])), a]).sort((x, y) => x[0] - y[0]);
+      const stations = []; let last = -9;
+      for (const [ang, a] of order) { if (ang - last < 0.012) continue; last = ang; stations.push(a); }
+      const mat = this.materialFor(project, panel, spec.fabric, 0.97);
+      if (spec.fabric === 'rib-knit') { const f = resolveFabric(project, panel.fabric, panel.fabricOverrides); mat.color.set(panel.finish?.color || f.look.color).multiplyScalar(0.93); mat.map = null; }
+      const base = new THREE.Color(panel.finish?.color || resolveFabric(project, panel.fabric, panel.fabricOverrides).look.color);
+      const col = buildCollar(spec, stations, mat, base.clone().multiplyScalar(0.45), this.threadColor(project, panel));
+      this.garment.add(col.group);
+      this.stitchLines.push({ line: col.group, update: col.update });
+    }
+  }
+
   buildStitches(project, sim) {
+    this.buildTopstitch(project, sim);
+    this.buildCollars(project, sim);
+    // seam joins: a narrow strip of the fabric bridges the two sewn edges, so a seam never shows a gap
+    for (const sl of sim.seamLines) {
+      const n = sl.pairs.length / 2;
+      const pan = project.panels.find((p) => p.id === sl.panel);
+      if (n < 2 || !pan) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 6), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n * 6), 3));
+      const uv = new Float32Array(n * 4);
+      for (let k = 0; k < n; k++) { const a = sl.pairs[k * 2]; uv[k * 4] = uv[k * 4 + 2] = sim.uv[a * 2]; uv[k * 4 + 1] = uv[k * 4 + 3] = sim.uv[a * 2 + 1]; }
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      const idx = []; for (let k = 0; k < n - 1; k++) idx.push(k * 2, k * 2 + 1, k * 2 + 2, k * 2 + 1, k * 2 + 3, k * 2 + 2);
+      g.setIndex(idx);
+      const mesh = new THREE.Mesh(g, this.materialFor(project, pan));
+      mesh.frustumCulled = false;
+      this.garment.add(mesh);
+      this.stitchLines.push({ line: mesh, join: sl.pairs });
+    }
     for (const sl of sim.seamLines) {
       const st = resolveStitch(sl.stitch);
       if (!st.visible || sl.particles.length < 2) continue;
@@ -647,7 +770,14 @@ export class Viewer {
       }
     }
     for (const s of this.stitchLines) {
+      if (s.update) { s.update(P, N); continue; }
       const arr = s.line.geometry.attributes.position.array;
+      if (s.join) {
+        const na = s.line.geometry.attributes.normal.array;
+        for (let k = 0; k < s.join.length; k++) { const q = s.join[k] * 3; arr[k * 3] = P[q]; arr[k * 3 + 1] = P[q + 1]; arr[k * 3 + 2] = P[q + 2]; const m = s.join[k - (k % 2)] * 3; na[k * 3] = N[m]; na[k * 3 + 1] = N[m + 1]; na[k * 3 + 2] = N[m + 2]; }
+        s.line.geometry.attributes.position.needsUpdate = true; s.line.geometry.attributes.normal.needsUpdate = true;
+        continue;
+      }
       let o = 0;
       const off = 0.0035;
       for (let i = 0; i < s.ids.length - 1; i++) {

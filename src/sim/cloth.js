@@ -20,8 +20,13 @@ import { resolveStitch } from '../core/stitches.js';
 import { buildAvatar, packColliders, binColliders } from './avatar.js';
 import { INSULATION } from '../core/materials.js';
 import { bodyFor } from '../core/sizes.js';
+import { meshPanel, pointInPoly } from './mesh.js';
+import { bodyField, sampleField, loadBodyMesh } from './bodyfield.js';
+export { loadBodyMesh };
+export { pointInPoly };
 
 let wasm = null; // { exports, memory }
+let wasmField = null; // { field, ptr }: body distance field currently held in WASM memory
 
 export async function initSolver(url) {
   try {
@@ -41,16 +46,6 @@ export function solverKind() {
   return wasm ? 'rust/wasm' : 'js';
 }
 
-function pointInPoly(x, y, pts) {
-  let inside = false;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    const [xi, yi] = pts[i];
-    const [xj, yj] = pts[j];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
-
 /**
  * Panel-local cm -> world metres using the panel placement.
  * placement.wrap (m) bends the flat panel around a vertical cylinder of that
@@ -67,7 +62,11 @@ export function panelToWorld(panel, x, y) {
     const R = pl.radius || 0.065;
     const [sx, sy, sz] = pl.position || [0.2 * sd, 1.38, 0];
     const t = y / 100 / R;
-    return [sx + sd * (x / 100), sy + R * Math.cos(t), sz + R * Math.sin(t)];
+    // the arm hangs at pl.angle from vertical (90 = T-pose): axis (sin, -cos), "up" (cos, sin)
+    const an = ((pl.angle ?? 90) * Math.PI) / 180;
+    const ax = Math.sin(an); const ay = -Math.cos(an);
+    const d = x / 100; const up = R * Math.cos(t);
+    return [sx + sd * (d * ax - up * ay), sy + d * ay + up * ax, sz + R * Math.sin(t)];
   }
   const { position: [px, py, pz], rotationY: r = 0, rotationX: rx = 0, wrap = 0, wrapMax = 1.2, wrapTop, wrapTopY } = pl;
   let lx = x / 100;
@@ -127,47 +126,32 @@ export function buildCloth(project) {
       const loftMm = (fill?.loft || 1.5) * w / 10;
       fab = { ...fab, weightGsm: fab.weightGsm * 2 + w, bend: Math.min(0.9, fab.bend + 0.12 + w / 2000), thicknessMm: fab.thicknessMm + loftMm, look: { ...fab.look, fx: panel.insulation.quilting === 'none' ? fab.look.fx : 'quilted' } };
     }
-    const xs = panel.points.map((q) => q[0]);
-    const ys = panel.points.map((q) => q[1]);
-    const minX = Math.min(...xs);
-    const minY = Math.min(...ys);
-    const nx = Math.ceil((Math.max(...xs) - minX) / h) + 1;
-    const ny = Math.ceil((Math.max(...ys) - minY) / h) + 1;
-    const grid = new Int32Array((nx + 1) * (ny + 1)).fill(-1);
-    const gi = (i, j) => j * (nx + 1) + i;
+    // seam end points must stay mesh vertices so matching seams pair up cleanly
+    const keep = new Set();
+    for (const sm of project.seams) for (const side of [sm.a, sm.b]) if (side.panel === panel.id) { keep.add(side.edge % panel.points.length); keep.add(((side.to ?? side.edge) + 1) % panel.points.length); }
+    const mesh = meshPanel(panel.points, h, keep);
     const offset = P.length / 3;
-    const tris = [];
-    const mass = (fab.weightGsm / 1000) * (h / 100) ** 2;
-    const vert = (i, j) => {
-      const k = gi(i, j);
-      if (grid[k] < 0) {
-        const x = minX + i * h;
-        const y = minY + j * h;
-        grid[k] = P.length / 3;
-        P.push(...panelToWorld(panel, x, y));
-        local.push(x, y);
-        UV.push(x / 10, y / 10);
-        inv.push(1 / mass);
-        fric.push(Math.min(0.95, fab.friction * 0.6));
-        thk.push(0.006 + layerRank(project, panel) * 0.007);
-        gar.push(panel.garment);
-      }
-      return grid[k];
-    };
-    const cells = new Uint8Array(nx * ny);
-    for (let j = 0; j < ny; j++) {
-      for (let i = 0; i < nx; i++) {
-        if (!pointInPoly(minX + (i + 0.5) * h, minY + (j + 0.5) * h, panel.points)) continue;
-        cells[j * nx + i] = 1;
-        const a = vert(i, j);
-        const b = vert(i + 1, j);
-        const c = vert(i + 1, j + 1);
-        const d = vert(i, j + 1);
-        tris.push(a - offset, b - offset, c - offset, a - offset, c - offset, d - offset);
-      }
+    const count = mesh.xy.length / 2;
+    const tris = mesh.tris;
+    if (!count || !tris.length) { panels.push({ id: panel.id, offset, count: 0, tris: new Uint32Array(0), fab }); continue; }
+    // lumped mass: a third of each adjacent triangle
+    const area = new Float64Array(count);
+    for (let k = 0; k < tris.length; k += 3) {
+      const [i0, i1, i2] = [tris[k], tris[k + 1], tris[k + 2]];
+      const ar = Math.abs((mesh.xy[i1 * 2] - mesh.xy[i0 * 2]) * (mesh.xy[i2 * 2 + 1] - mesh.xy[i0 * 2 + 1]) - (mesh.xy[i2 * 2] - mesh.xy[i0 * 2]) * (mesh.xy[i1 * 2 + 1] - mesh.xy[i0 * 2 + 1])) / 2;
+      area[i0] += ar / 3; area[i1] += ar / 3; area[i2] += ar / 3;
     }
-    const count = P.length / 3 - offset;
-    if (!count) { panels.push({ id: panel.id, offset, count: 0, tris: new Uint32Array(0), fab }); continue; }
+    const rank = layerRank(project, panel);
+    for (let q = 0; q < count; q++) {
+      const x = mesh.xy[q * 2]; const y = mesh.xy[q * 2 + 1];
+      P.push(...panelToWorld(panel, x, y));
+      local.push(x, y);
+      UV.push(x / 10, y / 10);
+      inv.push(1 / ((fab.weightGsm / 1000) * (Math.max(area[q], h * h * 0.2) / 1e4)));
+      fric.push(Math.min(0.95, fab.friction * 0.6));
+      thk.push(0.006 + rank * 0.007 + (panel.zBias ? 0.0035 : 0));
+      gar.push(panel.garment);
+    }
 
     // Per-substep stiffness. With small-step PBD, stretch must stay near 1 or
     // long panels sag like rubber; stretchy knits get a lower value.
@@ -177,63 +161,76 @@ export function buildCloth(project) {
     // Max stretch before hard limiting: ~5% for rigid wovens, ~60% for spandex.
     const lim = 0.04 + 0.6 * (1 - fab.stretch) ** 1.5;
     const cStart = R.length;
-    const add = (p, q, k) => {
-      if (p < 0 || q < 0) return;
-      const dx = P[q * 3] - P[p * 3];
-      const dy = P[q * 3 + 1] - P[p * 3 + 1];
-      const dz = P[q * 3 + 2] - P[p * 3 + 2];
-      C.push(p, q);
-      R.push(Math.hypot(dx, dy, dz));
-      K.push(k);
-      L.push(lim);
-    };
-    const at = (i, j) => (i < 0 || j < 0 || i > nx || j > ny ? -1 : grid[gi(i, j)]);
-    for (let j = 0; j <= ny; j++) {
-      for (let i = 0; i <= nx; i++) {
-        const p = at(i, j);
-        if (p < 0) continue;
-        // structural (only along existing cell edges)
-        const cellA = j < ny && i < nx && cells[j * nx + i];
-        const cellBelow = j > 0 && i < nx && cells[(j - 1) * nx + i];
-        const cellLeft = i > 0 && j < ny && cells[j * nx + i - 1];
-        if (cellA || cellBelow) add(p, at(i + 1, j), kS);
-        if (cellA || cellLeft) add(p, at(i, j + 1), kS);
-        if (cellA) { add(p, at(i + 1, j + 1), kSh); add(at(i + 1, j), at(i, j + 1), kSh); }
-        // bending (skip-one)
-        if (at(i + 1, j) >= 0) add(p, at(i + 2, j), kB);
-        if (at(i, j + 1) >= 0) add(p, at(i, j + 2), kB);
-      }
+    const flat = (p, q) => Math.hypot(mesh.xy[p * 2] - mesh.xy[q * 2], mesh.xy[p * 2 + 1] - mesh.xy[q * 2 + 1]) / 100;
+    const add = (p, q, k, l = lim) => { C.push(p + offset, q + offset); R.push(flat(p, q)); K.push(k); L.push(l); };
+    // edges: along the grain = stretch, on the bias = shear (cloth shears far more easily)
+    const edges = new Map();
+    for (let k = 0; k < tris.length; k += 3) for (let e = 0; e < 3; e++) {
+      const p = tris[k + e]; const q = tris[k + (e + 1) % 3]; const o = tris[k + (e + 2) % 3];
+      const key = p < q ? p * 65536 + q : q * 65536 + p;
+      const rec = edges.get(key); if (rec) rec.push(o); else edges.set(key, [p, q, o]);
     }
-    // Long-range tethers along rows and columns: tension-only (k = 0, they act
-    // only past the strain limit), rest = true flat-pattern length. They stop
-    // heavy garments and waistbands from stretching over the body in one pass.
-    const tether = (p, q, steps) => {
-      if (p < 0 || q < 0) return;
-      C.push(p, q);
-      R.push((steps * h) / 100);
-      K.push(0);
-      L.push(lim * 0.8);
-    };
-    const runOk = (i, j, di, dj, s) => { for (let k = 1; k <= s; k++) if (at(i + di * k, j + dj * k) < 0) return false; return true; };
-    for (let j = 0; j <= ny; j++) {
-      for (let i = 0; i <= nx; i++) {
-        const p = at(i, j);
-        if (p < 0 || (i + j) % 2) continue;
-        for (const s of i % 6 === 0 ? [6, 18] : [6]) if (runOk(i, j, 1, 0, s)) tether(p, at(i + s, j), s);
-        for (const s of j % 6 === 0 ? [6, 18] : [6]) if (runOk(i, j, 0, 1, s)) tether(p, at(i, j + s), s);
-      }
+    // Only the diagonals of the interior grain lattice are "bias" (shear) edges. Everything
+    // else, including the strip along the cut edges, resists stretch fully.
+    const onGrid = new Uint8Array(count); for (const q of mesh.grid.values()) onGrid[q] = 1;
+    for (const [p, q, o1, o2] of edges.values()) {
+      const dx = Math.abs(mesh.xy[p * 2] - mesh.xy[q * 2]); const dy = Math.abs(mesh.xy[p * 2 + 1] - mesh.xy[q * 2 + 1]);
+      const diag = onGrid[p] && onGrid[q] && Math.abs(dx - dy) < 0.05 * h && o2 !== undefined && onGrid[o1] && onGrid[o2];
+      add(p, q, diag ? kSh : kS, diag ? lim * 3 : lim);
+      if (o2 !== undefined) add(o1, o2, diag ? kSh : kB, diag ? lim * 3 : lim);
     }
-    // Gathering (elastic waists, rib cuffs, drawcords): shorten horizontal
-    // rest lengths inside a band of the pattern.
+    // stay-stitching: cut edges (necklines, armholes, hems) cannot grow
+    for (let q = 0; q < mesh.nb; q++) for (const st of [3, 8]) {
+      if (mesh.nb < st * 2) continue;
+      let len = 0; for (let k = 0; k < st; k++) len += flat((q + k) % mesh.nb, (q + k + 1) % mesh.nb);
+      if (flat(q, (q + st) % mesh.nb) > len * 0.97) { C.push(q + offset, ((q + st) % mesh.nb) + offset); R.push(flat(q, (q + st) % mesh.nb)); K.push(0); L.push(Math.min(lim, 0.03)); }
+    }
+    // Long-range tethers along the grain: tension-only (k = 0, they act only
+    // past the strain limit), rest = true flat-pattern length. They stop heavy
+    // garments and waistbands from stretching over the body in one pass.
+    const at = (i, j) => (i < 0 || j < 0 ? -1 : mesh.grid.get(i + j * 4096) ?? -1);
+    const tether = (p, q, steps) => { if (p < 0 || q < 0) return; C.push(p + offset, q + offset); R.push((steps * h) / 100); K.push(0); L.push(lim * 0.8); };
+    const runOk = (i, j, di, dj, st) => { for (let k = 1; k <= st; k++) if (at(i + di * k, j + dj * k) < 0) return false; return true; };
+    for (let j = 0; j <= mesh.ny; j++) for (let i = 0; i <= mesh.nx; i++) {
+      const p = at(i, j);
+      if (p < 0 || (i + j) % 2) continue;
+      for (const st of i % 6 === 0 ? [6, 18] : [6]) if (runOk(i, j, 1, 0, st)) tether(p, at(i + st, j), st);
+      for (const st of j % 6 === 0 ? [6, 18] : [6]) if (runOk(i, j, 0, 1, st)) tether(p, at(i, j + st), st);
+    }
+    // Gathering (elastic waists, rib cuffs, drawcords): shorten the rest
+    // lengths across a band of the pattern.
     for (const g of panel.gather || []) {
       for (let e = cStart; e < R.length; e++) {
-        const a = C[e * 2]; const b = C[e * 2 + 1];
-        const ya = local[a * 2 + 1]; const yb = local[b * 2 + 1];
-        if (ya >= g.y0 && ya <= g.y1 && yb >= g.y0 && yb <= g.y1 && Math.abs(ya - yb) < h * 0.5) R[e] *= g.ratio;
+        const pa = C[e * 2]; const pb = C[e * 2 + 1];
+        const ya = local[pa * 2 + 1]; const yb = local[pb * 2 + 1];
+        if (ya >= g.y0 && ya <= g.y1 && yb >= g.y0 && yb <= g.y1) {
+          const ddx = Math.abs(local[pa * 2] - local[pb * 2]); const ddy = Math.abs(ya - yb);
+          const hor = ddx / (ddx + ddy || 1); // only the widthwise part gathers
+          R[e] *= 1 + (g.ratio - 1) * hor;
+        }
+      }
+    }
+    for (const g of panel.gatherX || []) {
+      for (let e = cStart; e < R.length; e++) {
+        const pa = C[e * 2]; const pb = C[e * 2 + 1];
+        const xa = local[pa * 2]; const xb = local[pb * 2];
+        if (xa >= g.x0 && xa <= g.x1 && xb >= g.x0 && xb <= g.x1) {
+          const ddx = Math.abs(xa - xb); const ddy = Math.abs(local[pa * 2 + 1] - local[pb * 2 + 1]);
+          R[e] *= 1 + (g.ratio - 1) * (ddy / (ddx + ddy || 1));
+        }
+      }
+    }
+    // triangle buckets for fast panel-space lookups (overlays, trims, stitches)
+    const cell = Math.max(2 * h, 3);
+    const bk = new Map();
+    for (let k = 0; k < tris.length; k += 3) {
+      const X = [mesh.xy[tris[k] * 2], mesh.xy[tris[k + 1] * 2], mesh.xy[tris[k + 2] * 2]]; const Y = [mesh.xy[tris[k] * 2 + 1], mesh.xy[tris[k + 1] * 2 + 1], mesh.xy[tris[k + 2] * 2 + 1]];
+      for (let cx = Math.floor(Math.min(...X) / cell); cx <= Math.floor(Math.max(...X) / cell); cx++) for (let cy = Math.floor(Math.min(...Y) / cell); cy <= Math.floor(Math.max(...Y) / cell); cy++) {
+        const key = cx * 8192 + cy; const arr = bk.get(key); if (arr) arr.push(k); else bk.set(key, [k]);
       }
     }
     dampSum += fab.damping * count;
-    panels.push({ id: panel.id, offset, count, tris: new Uint32Array(tris), fab, panel, grid, minX, minY, nx, ny, h });
+    panels.push({ id: panel.id, offset, count, tris: new Uint32Array(tris), fab, panel, h, nb: mesh.nb, buckets: bk, cell });
   }
 
   const n = P.length / 3;
@@ -243,10 +240,10 @@ export function buildCloth(project) {
   const SR = [];
   const SK = [];
   const seamLines = [];
-  const nearest = (pan, x, y) => {
+  const nearest = (pan, x, y, boundaryOnly) => {
     let best = -1;
     let bd = Infinity;
-    for (let p = pan.offset; p < pan.offset + pan.count; p++) {
+    for (let p = pan.offset; p < pan.offset + (boundaryOnly ? pan.nb : pan.count); p++) {
       const dx = local[p * 2] - x;
       const dy = local[p * 2 + 1] - y;
       const d = dx * dx + dy * dy;
@@ -271,11 +268,12 @@ export function buildCloth(project) {
     const k = perSub(0.5 + 0.5 * st.strength, substeps);
     const seen = new Set();
     const line = [];
+    const pairs = [];
     for (let s = 0; s < samples; s++) {
       const t = s / (samples - 1);
       const tb = reverse ? 1 - t : t;
-      const ia = nearest(pa, ...pathAt(ea, t));
-      const ib = nearest(pb, ...pathAt(eb, tb));
+      const ia = nearest(pa, ...pathAt(ea, t), true);
+      const ib = nearest(pb, ...pathAt(eb, tb), true);
       if (ia === ib) continue;
       const key = ia * 1e6 + ib;
       if (seen.has(key)) continue;
@@ -284,8 +282,25 @@ export function buildCloth(project) {
       SR.push(Math.hypot(P[ib * 3] - P[ia * 3], P[ib * 3 + 1] - P[ia * 3 + 1], P[ib * 3 + 2] - P[ia * 3 + 2]));
       SK.push(k);
       if (line[line.length - 1] !== ia) line.push(ia);
+      pairs.push(ia, ib);
     }
-    seamLines.push({ id: seam.id, stitch: seam.stitch, threadColor: seam.threadColor, particles: line });
+    seamLines.push({ id: seam.id, stitch: seam.stitch, threadColor: seam.threadColor, particles: line, pairs, panel: pa.id, closure: seam.closure });
+  }
+
+  // ---- fastened overlaps (button stands, double-breasted fronts): stitched through both layers ----
+  for (const pa of panels) {
+    for (const at of pa.panel?.attach || []) {
+      const pb = panels.find((x) => x.id === at.to);
+      if (!pa.count || !pb?.count) continue;
+      const k = perSub(0.9, substeps);
+      for (const [x, y] of at.pts) {
+        const ia = nearest(pa, x, y); const ib = nearest(pb, x, y);
+        if (ia < 0 || ib < 0) continue;
+        S.push(ia, ib);
+        SR.push(Math.hypot(P[ib * 3] - P[ia * 3], P[ib * 3 + 1] - P[ia * 3 + 1], P[ib * 3 + 2] - P[ia * 3 + 2]));
+        SK.push(k);
+      }
+    }
   }
 
   // ---- tacks: waistbands / hat bands held in place once sewing completes ----
@@ -339,12 +354,14 @@ export function buildCloth(project) {
     }
     thk.push(out);
   }
-  const body = project.display?.avatar === false ? [] : buildAvatar(bodyFor(project));
+  // body collision: distance field of the real mannequin mesh when loaded, capsules otherwise
+  const field = project.display?.avatar === false ? null : bodyField(bodyFor(project));
+  const body = project.display?.avatar === false || field ? [] : buildAvatar(bodyFor(project));
   const colliders = packColliders([...body, ...(project.colliders || [])]);
   const bins = binColliders(colliders);
   const damping = n ? Math.min(0.2, (dampSum / n) / Math.sqrt(substeps)) : 0.02;
   const sim = makeBackend({
-    n, P, inv, fric, thk, C, R, K, L, S, tack, tackNow, bins, SR, SK, colliders, allTris,
+    n, P, inv, fric, thk, C, R, K, L, S, tack, tackNow, bins, SR, SK, colliders, allTris, field,
     substeps, gravity: project.sim.gravity, damping,
     sewRate: project.sim.sewSpeed,
     thickness: 0.006,
@@ -435,6 +452,18 @@ function makeBackend(d) {
       ci: U(m * 2), rest: F(m), kc: F(m), lim: F(m), si: U(s * 2), srest: F(s), sk: F(s),
       col: F(c * 9), tri: U(t * 3), bst: U(d.bins.nb + 1), bix: U(d.bins.idx.length),
     };
+    // body distance field lives in WASM memory once per body (shared by successive sims)
+    let fptr = 0;
+    if (d.field) {
+      if (wasmField?.field !== d.field) {
+        if (wasmField) x.free_f32(wasmField.ptr, wasmField.field.data.length);
+        const p = x.alloc_f32(d.field.data.length);
+        new Float32Array(wasm.memory.buffer, p, d.field.data.length).set(d.field.data);
+        wasmField = { field: d.field, ptr: p };
+      }
+      fptr = wasmField.ptr;
+    }
+    const useField = () => { const f = d.field; if (f) x.set_sdf(fptr, f.nx, f.ny, f.nz, f.ox, f.oy, f.oz, f.inv); else x.set_sdf(0, 0, 0, 0, 0, 0, 0, 0); };
     // views are created after ALL allocations (memory growth detaches old views)
     const buf = wasm.memory.buffer;
     const f32 = (p, len) => new Float32Array(buf, p, len);
@@ -449,6 +478,7 @@ function makeBackend(d) {
       ...views,
       kind: 'rust/wasm',
       step(dt) {
+        useField();
         const mv = x.step(n, ptr.pos, ptr.prev, ptr.inv, ptr.fric, m, ptr.ci, ptr.rest, ptr.kc, ptr.lim, s, ptr.si, ptr.srest, ptr.sk,
           c, ptr.col, d.bins.nb, ptr.bst, ptr.bix, d.bins.y0, d.bins.inv, d.substeps, dt, gravityNow(views.pos, views.si, dt, views.inv), d.damping, d.sewRate, 0.0015, ptr.thk, 0.25);
         if (!(mv < 2)) { views.pos.set(d.P); views.prev.set(d.P); views.srest.set(d.SR); views.inv.set(d.inv); sewn = false; tacked = false; simTime = 0; d.diverged = true; }
@@ -475,7 +505,7 @@ function makeBackend(d) {
     ...views,
     kind: 'js',
     step(dt) {
-      const mv = jsStep(v, n, m, s, c, d.bins, d.substeps, dt, gravityNow(v.pos, v.si, dt, v.inv), d.damping, d.sewRate, 0.0015, v.thk, 0.25);
+      const mv = jsStep(v, n, m, s, c, d.bins, d.substeps, dt, gravityNow(v.pos, v.si, dt, v.inv), d.damping, d.sewRate, 0.0015, v.thk, 0.25, d.field);
       if (!(mv < 2)) { v.pos.set(d.P); v.prev.set(d.P); v.srest.set(d.SR); v.inv.set(d.inv); sewn = false; tacked = false; simTime = 0; d.diverged = true; }
       jsNormals(v, n, t);
       return mv;
@@ -528,7 +558,8 @@ function dist(pos, inv, i, j, rest, k, compress, limit) {
   pos[j3] -= dx * sc * wj; pos[j3 + 1] -= dy * sc * wj; pos[j3 + 2] -= dz * sc * wj;
 }
 
-function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, sewMin, thkArr, compress) {
+const sdfOut = [0, 0, 0, 0];
+function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, sewMin, thkArr, compress, field) {
   const { pos, prev, inv, fric, ci, rest, kc, lim, si, srest, sk, col } = v;
   const h = dt / substeps;
   const g = -gravity * h * h;
@@ -552,7 +583,18 @@ function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, se
       let x = pos[b]; let y = pos[b + 1]; let z = pos[b + 2];
       let hit = false;
       const thick = thkArr[p];
-      const mout = thkArr[n + p];
+      let mout = thkArr[n + p];
+      let pulled = false;
+      if (field) {
+        if (sampleField(field, x, y, z, sdfOut)) {
+          const d = sdfOut[0]; const gl = Math.hypot(sdfOut[1], sdfOut[2], sdfOut[3]);
+          if (gl > 1e-7) {
+            if (d < thick) { const push = Math.min(thick - d, 0.03) / gl; x += sdfOut[1] * push; y += sdfOut[2] * push; z += sdfOut[3] * push; hit = true; }
+            else if (mout > 0 && d > mout && d < 0.25) { const pull = (d - mout) / gl; x -= sdfOut[1] * pull; y -= sdfOut[2] * pull; z -= sdfOut[3] * pull; pulled = true; }
+          }
+        }
+        mout = 0;
+      }
       let best = 1e9; let bcx = 0; let bcy = 0; let bcz = 0; let bdx = 0; let bdy = 0; let bdz = 0; let bys = 1; let bzs = 1; let bd = 0;
       let bi = Math.floor((y - bins.y0) * bins.inv); bi = bi < 0 ? 0 : bi >= bins.nb ? bins.nb - 1 : bi;
       for (let kk = bins.start[bi]; kk < bins.start[bi + 1]; kk++) {
@@ -578,7 +620,6 @@ function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, se
           hit = true;
         }
       }
-      let pulled = false;
       if (mout > 0 && !hit && best > mout && best < 0.25) { const f = (bd - (best - mout)) / bd; x = bcx + bdx * f; y = (bcy + bdy * f) * bys; z = (bcz + bdz * f) * bzs; pulled = true; }
       if (y < thick) { y = thick; hit = true; }
       if (pulled && !hit) { prev[b] += x - pos[b]; prev[b + 1] += y - pos[b + 1]; prev[b + 2] += z - pos[b + 2]; pos[b] = x; pos[b + 1] = y; pos[b + 2] = z; }
@@ -637,24 +678,27 @@ function jsNormals(v, n, t) {
 export function panelAnchor(sim, panelId, x, y) {
   const pan = sim.panels.find((p) => p.id === panelId);
   if (!pan || !pan.count) return null;
-  const fx = (x - pan.minX) / pan.h; const fy = (y - pan.minY) / pan.h;
-  const i = Math.max(0, Math.min(pan.nx - 1, Math.floor(fx))); const j = Math.max(0, Math.min(pan.ny - 1, Math.floor(fy)));
-  const u = Math.max(0, Math.min(1, fx - i)); const v = Math.max(0, Math.min(1, fy - j));
-  const g = (a, b) => pan.grid[b * (pan.nx + 1) + a];
-  const ids = [g(i, j), g(i + 1, j), g(i + 1, j + 1), g(i, j + 1)];
-  const w = [(1 - u) * (1 - v), u * (1 - v), u * v, (1 - u) * v];
-  const ok = ids.map((q) => q >= 0);
-  if (!ok.some(Boolean)) {
-    // nearest particle of the panel
-    let best = pan.offset; let bd = Infinity;
-    for (let q = pan.offset; q < pan.offset + pan.count; q++) { const d = (sim.local[q * 2] - x) ** 2 + (sim.local[q * 2 + 1] - y) ** 2; if (d < bd) { bd = d; best = q; } }
-    return { ids: [best], w: [1] };
+  const L = sim.local; const o = pan.offset;
+  const list = pan.buckets.get(Math.floor(x / pan.cell) * 8192 + Math.floor(y / pan.cell));
+  let best = null; let bd = Infinity;
+  for (const k of list || []) {
+    const a = pan.tris[k] + o; const b = pan.tris[k + 1] + o; const c = pan.tris[k + 2] + o;
+    const ax = L[a * 2]; const ay = L[a * 2 + 1];
+    const v0x = L[b * 2] - ax; const v0y = L[b * 2 + 1] - ay; const v1x = L[c * 2] - ax; const v1y = L[c * 2 + 1] - ay;
+    const den = v0x * v1y - v1x * v0y; if (Math.abs(den) < 1e-9) continue;
+    const u = ((x - ax) * v1y - v1x * (y - ay)) / den; const v = (v0x * (y - ay) - (x - ax) * v0y) / den;
+    const w = 1 - u - v;
+    const out = Math.max(0, -u, -v, -w);
+    if (out < bd) { bd = out; best = { ids: [a, b, c], w: [w, u, v] }; if (out === 0) break; }
   }
-  const tw = w.reduce((s2, wi, k) => s2 + (ok[k] ? wi : 0), 0);
-  const kept = ids.filter((_, k) => ok[k]);
-  // all remaining weight sits on missing corners: share equally among existing ones
-  if (tw < 1e-6) return { ids: kept, w: kept.map(() => 1 / kept.length) };
-  return { ids: kept, w: w.filter((_, k) => ok[k]).map((wi) => wi / tw) };
+  if (best && bd < 0.5) {
+    if (bd > 0) { const w = best.w.map((q) => Math.max(0, q)); const t = w[0] + w[1] + w[2] || 1; best.w = w.map((q) => q / t); }
+    return best;
+  }
+  // outside the piece: nearest particle
+  let nb = o; let d0 = Infinity;
+  for (let q = o; q < o + pan.count; q++) { const d = (L[q * 2] - x) ** 2 + (L[q * 2 + 1] - y) ** 2; if (d < d0) { d0 = d; nb = q; } }
+  return { ids: [nb], w: [1] };
 }
 
 /** Garment layer: 0 underwear, 1 base (tees, shirts, trousers), 2 mid (knits), 3 jackets, 4 coats, 5 accessories. */

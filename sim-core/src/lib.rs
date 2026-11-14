@@ -37,6 +37,44 @@ pub unsafe extern "C" fn free_u32(ptr: *mut u32, len: usize) {
     drop(Vec::from_raw_parts(ptr, len.max(1), len.max(1)));
 }
 
+/// Body collision field: signed distance grid sampled from the real mannequin mesh.
+struct Sdf { ptr: *const f32, nx: usize, ny: usize, nz: usize, ox: f32, oy: f32, oz: f32, inv: f32 }
+static mut SDF: Sdf = Sdf { ptr: core::ptr::null(), nx: 0, ny: 0, nz: 0, ox: 0.0, oy: 0.0, oz: 0.0, inv: 0.0 };
+
+#[no_mangle]
+pub unsafe extern "C" fn set_sdf(ptr: *const f32, nx: usize, ny: usize, nz: usize, ox: f32, oy: f32, oz: f32, inv: f32) {
+    SDF = Sdf { ptr, nx, ny, nz, ox, oy, oz, inv };
+}
+
+/// Trilinear distance + gradient; None outside the grid.
+#[inline(always)]
+unsafe fn sdf_sample(f: &Sdf, x: f32, y: f32, z: f32) -> Option<(f32, f32, f32, f32)> {
+    let (fx, fy, fz) = ((x - f.ox) * f.inv, (y - f.oy) * f.inv, (z - f.oz) * f.inv);
+    if fx < 0.0 || fy < 0.0 || fz < 0.0 {
+        return None;
+    }
+    let (i, j, k) = (fx as usize, fy as usize, fz as usize);
+    if i + 1 >= f.nx || j + 1 >= f.ny || k + 1 >= f.nz {
+        return None;
+    }
+    let (u, v, w) = (fx - i as f32, fy - j as f32, fz - k as f32);
+    let sy = f.nx;
+    let sz = f.nx * f.ny;
+    let q = i + sy * j + sz * k;
+    let d = |o: usize| *f.ptr.add(q + o);
+    let (c000, c100, c010, c110) = (d(0), d(1), d(sy), d(sy + 1));
+    let (c001, c101, c011, c111) = (d(sz), d(sz + 1), d(sz + sy), d(sz + sy + 1));
+    let c00 = c000 + (c100 - c000) * u;
+    let c10 = c010 + (c110 - c010) * u;
+    let c01 = c001 + (c101 - c001) * u;
+    let c11 = c011 + (c111 - c011) * u;
+    let c0 = c00 + (c10 - c00) * v;
+    let c1 = c01 + (c11 - c01) * v;
+    let gx = ((c100 - c000) * (1.0 - v) + (c110 - c010) * v) * (1.0 - w) + ((c101 - c001) * (1.0 - v) + (c111 - c011) * v) * w;
+    let gy = (c10 - c00) * (1.0 - w) + (c11 - c01) * w;
+    Some((c0 + (c1 - c0) * w, gx, gy, c1 - c0))
+}
+
 #[inline(always)]
 fn solve_dist(pos: &mut [f32], inv: &[f32], i: usize, j: usize, rest: f32, k: f32, compress: f32, limit: f32) {
     let (wi, wj) = (inv[i], inv[j]);
@@ -135,7 +173,33 @@ pub unsafe extern "C" fn step(
             let b = p * 3;
             let (mut x, mut y, mut z) = (pos[b], pos[b + 1], pos[b + 2]);
             let mut hit = false;
-            let mout = thk[n + p];
+            let mut mout = thk[n + p];
+            let mut pulled = false;
+            // body: one lookup in the distance field of the real mannequin mesh
+            let sdf = &*core::ptr::addr_of!(SDF);
+            if !sdf.ptr.is_null() {
+                if let Some((d, gx, gy, gz)) = sdf_sample(sdf, x, y, z) {
+                    let gl = (gx * gx + gy * gy + gz * gz).sqrt();
+                    if gl > 1e-7 {
+                        let t = thk[p];
+                        if d < t {
+                            let push = (t - d).min(0.03) / gl;
+                            x += gx * push;
+                            y += gy * push;
+                            z += gz * push;
+                            hit = true;
+                        } else if mout > 0.0 && d > mout && d < 0.25 {
+                            // inner outfit layer: stay close to the body, under the layer above
+                            let pull = (d - mout) / gl;
+                            x -= gx * pull;
+                            y -= gy * pull;
+                            z -= gz * pull;
+                            pulled = true;
+                        }
+                    }
+                }
+                mout = 0.0;
+            }
             let mut best = f32::MAX;
             let mut bv = (0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 1f32, 1f32, 0f32);
             // only colliders overlapping this particle's height bin
@@ -188,7 +252,6 @@ pub unsafe extern "C" fn step(
                 }
             }
             // inner outfit layer: stay close to the body so it never pokes through the layer above
-            let mut pulled = false;
             if mout > 0.0 && !hit && best > mout && best < 0.25 {
                 let (cx, cy, cz, dx, dy, dz, ys, zs, d) = bv;
                 let f = (d - (best - mout)) / d;

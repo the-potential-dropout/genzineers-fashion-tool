@@ -11,3 +11,10 @@ scripts/.live.json
 .DS_Store
 Thumbs.db
 .claude/
+
+# never commit secrets
+.env
+.env.*
+*.pem
+*.key
+.gft/

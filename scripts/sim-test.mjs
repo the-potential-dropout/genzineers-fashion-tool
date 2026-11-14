@@ -8,7 +8,9 @@ const wasmPath = new URL('../public/atelier_sim.wasm', import.meta.url);
 globalThis.fetch = async () => ({ arrayBuffer: async () => readFileSync(wasmPath) });
 
 for (const backend of ['wasm', 'js']) {
-  if (backend === 'wasm') await initSolver('x'); else { globalThis.fetch = async () => { throw new Error('off'); }; await initSolver('x'); }
+  if (backend === 'wasm') await initSolver('x');
+{ const { loadBodyMesh } = await import('../src/sim/cloth.js'); await loadBodyMesh('male'); await loadBodyMesh('female'); } else { globalThis.fetch = async () => { throw new Error('off'); }; await initSolver('x');
+{ const { loadBodyMesh } = await import('../src/sim/cloth.js'); await loadBodyMesh('male'); await loadBodyMesh('female'); } }
   for (const id of Object.keys(TEMPLATES)) {
     const p = createProject(id);
     const sim = buildCloth(p);

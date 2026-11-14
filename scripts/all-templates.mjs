@@ -8,6 +8,7 @@ import { TRIMS } from '../src/core/trims.js';
 import { buildCloth, initSolver } from '../src/sim/cloth.js';
 globalThis.fetch = async () => ({ arrayBuffer: async () => readFileSync(new URL('../public/atelier_sim.wasm', import.meta.url)) });
 await initSolver('x');
+{ const { loadBodyMesh } = await import('../src/sim/cloth.js'); await loadBodyMesh('male'); await loadBodyMesh('female'); }
 const only = process.argv[2];
 let bad = 0;
 for (const id of Object.keys(TEMPLATES)) {

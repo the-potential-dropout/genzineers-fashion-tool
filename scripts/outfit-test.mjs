@@ -5,6 +5,7 @@ import { applyAction } from '../src/core/actions.js';
 import { buildCloth, initSolver, layerRank } from '../src/sim/cloth.js';
 globalThis.fetch = async () => ({ arrayBuffer: async () => readFileSync(new URL('../public/atelier_sim.wasm', import.meta.url)) });
 await initSolver('x');
+{ const { loadBodyMesh } = await import('../src/sim/cloth.js'); await loadBodyMesh('male'); await loadBodyMesh('female'); }
 const OUTFITS = [['crew-tee', 'jeans-straight', 'blazer-sb'], ['oxford-shirt', 'chinos', 'knit-crew', 'overcoat'], ['lace-bralette', 'boxer-briefs', 'opaque-tights', 'skirt-pencil', 'camisole'], ['pullover-hoodie', 'joggers', 'beanie']];
 let bad = 0;
 for (const list of OUTFITS) {
