@@ -505,9 +505,10 @@ export class Viewer {
     this.dirty = true;
   }
 
-  materialFor(project, panel, overrideFabric, tint = 1) {
+  materialFor(project, panel, overrideFabric, tint = 1, look = null) {
     const fab = resolveFabric(project, overrideFabric || panel.fabric, overrideFabric ? {} : panel.fabricOverrides);
-    const finish = panel.finish || {};
+    // a sub-piece with its own material / colour does not inherit the body's dye or print
+    const finish = look ? { color: look.color || (look.fabric ? undefined : panel.finish?.color) } : panel.finish || {};
     const dyeFx = finish.dye ? DYES[finish.dye]?.effect : null;
     const tex = fabricTextures(fab, finish, dyeFx, () => this.refreshLooks(this.project));
     const map = tex.map.clone(); const bump = tex.bump.clone();
@@ -562,9 +563,9 @@ export class Viewer {
       g.setIndex(idx);
       let fabric = ov.fabric;
       if (!fabric && (ov.style === 'rib' || ov.kind === 'band' || ov.kind === 'cuff' && ov.style === 'rib')) fabric = 'rib-knit';
-      const mat = this.materialFor(project, panel, fabric, OVERLAY_TINT[ov.kind] ?? 0.95);
-      if (ov.color) mat.color.set(ov.color);
-      if (fabric === 'rib-knit' && !ov.color) { const f = resolveFabric(project, panel.fabric, panel.fabricOverrides); mat.color.set(panel.finish?.color || f.look.color).multiplyScalar(0.95); mat.map = null; }
+      const mat = this.materialFor(project, panel, fabric, ov.look ? 1 : OVERLAY_TINT[ov.kind] ?? 0.95, ov.look);
+      if (ov.color && !ov.look) mat.color.set(ov.color);
+      if (fabric === 'rib-knit' && !ov.color && !ov.look) { const f = resolveFabric(project, panel.fabric, panel.fabricOverrides); mat.color.set(panel.finish?.color || f.look.color).multiplyScalar(0.95); mat.map = null; }
       if (ov.kind === 'distress') { // wear and damage: a decal of the damage itself over the cloth
         const basecol = panel.finish?.color || resolveFabric(project, panel.fabric, panel.fabricOverrides).look.color;
         const tex = new THREE.CanvasTexture(distressTexture(ov.style, basecol, (ov.id || '').length * 7 + Math.round(xs[0] * 3), project.look?.skin || '#9aa1ab')); tex.colorSpace = THREE.SRGBColorSpace;
@@ -579,7 +580,7 @@ export class Viewer {
       this.overlays.push({ mesh, anchors, lift });
       // every sewn-on piece gets a crisp edge and its topstitching
       if (ov.kind !== 'pleat' && ov.kind !== 'distress' && !ov.hidden) {
-        const base = new THREE.Color(ov.color || panel.finish?.color || resolveFabric(project, fabric || panel.fabric, fabric ? {} : panel.fabricOverrides).look.color);
+        const base = new THREE.Color(ov.look?.color || (ov.look?.fabric ? resolveFabric(project, ov.look.fabric).look.color : null) || ov.color || panel.finish?.color || resolveFabric(project, fabric || panel.fabric, fabric ? {} : panel.fabricOverrides).look.color);
         this.addPathLine(sim, ov.panel, [...pts, pts[0]], lift + 0.0007, base.clone().multiplyScalar(0.45), false);
         if (!['vent', 'yoke-line'].includes(ov.kind)) { const ins = insetPoly(pts, ov.kind === 'waistband' || ov.kind === 'band' || ov.kind === 'cuff' ? 0.5 : 0.35); if (ins) this.addPathLine(sim, ov.panel, [...ins, ins[0]], lift + 0.0009, this.threadColor(project, panel), true); }
       }
@@ -799,9 +800,9 @@ export class Viewer {
       const stations = []; let last = -9;
       // collars that open at the front (polo, shirt) stop short of the centre line
       for (const [ang, a] of order) { if (ang - last < 0.012 || (spec.gap && Math.abs(ang) > Math.PI - spec.gap / 2)) continue; last = ang; stations.push(a); }
-      const mat = this.materialFor(project, panel, spec.fabric, 0.97);
-      if (spec.fabric === 'rib-knit') { const f = resolveFabric(project, panel.fabric, panel.fabricOverrides); mat.color.set(panel.finish?.color || f.look.color).multiplyScalar(0.93); mat.map = null; }
-      const base = new THREE.Color(panel.finish?.color || resolveFabric(project, panel.fabric, panel.fabricOverrides).look.color);
+      const mat = this.materialFor(project, panel, spec.fabric, spec.look ? 1 : 0.97, spec.look);
+      if (spec.fabric === 'rib-knit' && !spec.look) { const f = resolveFabric(project, panel.fabric, panel.fabricOverrides); mat.color.set(panel.finish?.color || f.look.color).multiplyScalar(0.93); mat.map = null; }
+      const base = new THREE.Color(spec.look?.color || (spec.look?.fabric ? resolveFabric(project, spec.look.fabric).look.color : null) || panel.finish?.color || resolveFabric(project, panel.fabric, panel.fabricOverrides).look.color);
       const bd = bodyFor(project);
       const col = buildCollar(spec, stations, mat, base.clone().multiplyScalar(0.45), this.threadColor(project, panel), { x: 0, y: bd.headY, z: 0.012, r: bd.headR / 1.12 });
       this.garment.add(col.group);

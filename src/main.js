@@ -33,7 +33,7 @@ import { TIE_PATHS, TIE_KNOTS, BOW_STYLES } from './render/neckwear.js';
 import { POCKETS, POCKET_CLOSURES } from './core/pockets.js';
 import { TANNING, LEATHER_FINISHES, LEATHER_COLOURS, LEATHER_USE, leatherFit } from './core/leather.js';
 import { STITCH_TYPES, FONTS, THREADS_EMB, MOTIFS_EMB, rasterizeDesign, digitize, writeDST, embroiderySheet, loadArtwork } from './make/embroidery.js';
-import { LAYER_NAMES } from './core/project.js';
+import { LAYER_NAMES, listParts } from './core/project.js';
 import { layerOf } from './sim/cloth.js';
 
 const LINKS_OUT = {
@@ -481,8 +481,32 @@ const tgt = () => (ui.target.startsWith('p:') ? { panel: ui.target.slice(2) } : 
 const tgtPanel = (p) => (ui.target.startsWith('p:') ? p.panels.find((x) => x.id === ui.target.slice(2)) : ui.target.startsWith('g:') ? p.panels.find((x) => x.garment === ui.target.slice(2)) : p.panels[0]);
 
 // ===== Clothing: Materials =====
+// ---- sub-pieces: each collar, cuff, pocket, placket, lapel, strap... in its own material and colour ----
+function partLooks(p) {
+  const parts = listParts(p).filter((x) => !ui.garment || (p.garments || []).length < 2 || x.garment === ui.garment || !x.garment);
+  if (!parts.length) return null;
+  const together = ui.partsTogether !== false;
+  const groups = new Map();
+  for (const x of parts) { const k = together ? `${x.garment}|${x.kind}|${x.name}` : x.key; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+  const fabOpts = [{ value: '', label: 'Same as the piece it is sewn to' }, ...FABRIC_CATEGORIES.map((c) => ({ group: c, items: Object.values(FABRIC_FAMILIES).filter((fm) => fm.category === c).flatMap((fm) => fm.variants.map((v) => ({ value: v, label: FABRICS[v].name }))) })), ...(Object.keys(p.customFabrics || {}).length ? [{ group: 'Your fabrics', items: Object.values(p.customFabrics).map((c) => ({ value: c.id, label: c.name || c.id })) }] : [])];
+  const set = (g, a) => store.dispatch({ type: 'set_part_look', keys: g.map((x) => x.key), ...a });
+  const changed = parts.filter((x) => x.fabric || x.color).length;
+  return h('details', { class: 'sec', open: ui.partsOpen || changed > 0, ontoggle: (e) => { ui.partsOpen = e.target.open; } }, h('summary', {}, h('b', {}, `Sub-pieces: material & colour${changed ? ` · ${changed} changed` : ''}`)),
+    h('div', { class: 'tip' }, 'A garment is assembled from smaller pieces. Give any of them its own material and colour: a leather collar on a denim jacket, contrast cuffs and plackets, suede elbow or pocket pieces, a rib waistband in another shade. The 3D view, cut list, bill of materials and pattern pieces all follow.'),
+    h('label', { class: 'check', style: 'margin:6px 0' }, h('input', { type: 'checkbox', checked: together, onchange: (e) => { ui.partsTogether = e.target.checked; renderPanel(); } }), h('span', {}, 'Change matching pieces together (both cuffs, both lapels…). Untick to set left and right separately.')),
+    h('div', { class: 'list' }, [...groups.values()].map((g) => { const x = g[0]; const base = resolveFabric(p, x.fabric || x.base);
+      return h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px' },
+        h('span', { class: 'sw', style: `background:${x.color || base.look.color}` }),
+        h('div', { class: 'grow', style: 'min-width:120px' }, h('div', { class: 't' }, `${x.name}${g.length > 1 ? ` × ${g.length}` : ''}`), h('div', { class: 's' }, `${together ? [...new Set(g.map((y) => y.on))].filter(Boolean).join(', ') : x.on}${x.fabric ? '' : ` · ${base.name}`}`)),
+        sel(x.fabric || '', fabOpts, (v) => set(g, { fabric: v || null }), { class: 'inp', style: 'flex:1 1 150px;min-width:130px', 'aria-label': `${x.name} material` }),
+        h('input', { type: 'color', title: `${x.name} colour`, 'aria-label': `${x.name} colour`, value: x.color || base.look.color, onchange: (e) => set(g, { color: e.target.value }), style: 'width:36px;height:32px;border:0;background:none' }),
+        x.fabric || x.color ? h('button', { class: 'btn sm ghost', title: 'Back to the same material and colour as the piece it is sewn to', onclick: () => set(g, { clear: true }) }, 'Reset') : null); })),
+    h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:6px' }, 'The main pieces (fronts, back, sleeves, legs…) are chosen with “Apply to” above: pick one, then pick its fabric and colour below.'));
+}
+
 function cMaterials(el, p) {
   el.append(targetChips(p));
+  const pl = partLooks(p); if (pl) el.append(pl);
   const cur = tgtPanel(p); if (!cur) return;
   const fab = resolveFabric(p, cur.fabric, cur.fabricOverrides);
   const rec = recommendFor(cur.fabric, p);

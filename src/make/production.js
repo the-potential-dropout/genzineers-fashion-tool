@@ -49,11 +49,11 @@ export function cutList(project) {
     const key = `${o.kind}-${o.style || ''}-${JSON.stringify(o.points.map((p) => [Math.abs(p[0]).toFixed(0), p[1].toFixed(0)]))}`;
     if (seen[key]) { seen[key].qty++; continue; }
     const host = project.panels.find((p) => p.id === o.panel);
-    const piece = { id: o.id, name: `${o.kind[0].toUpperCase()}${o.kind.slice(1)}${o.style ? ` (${o.style})` : ''}`, points: o.points, fabric: o.fabric || (o.style === 'rib' ? 'rib-knit' : host?.fabric), qty: o.cut || (o.kind === 'lapel' || o.kind === 'collar' || o.kind === 'epaulette' || o.kind === 'flap' ? 2 : 1), kind: 'overlay', panel: host, note: o.note || '' };
+    const piece = { id: o.id, name: `${o.kind[0].toUpperCase()}${o.kind.slice(1)}${o.style ? ` (${o.style})` : ''}`, points: o.points, fabric: o.fabric || (o.style === 'rib' ? 'rib-knit' : host?.fabric), qty: o.cut || (o.kind === 'lapel' || o.kind === 'collar' || o.kind === 'epaulette' || o.kind === 'flap' ? 2 : 1), kind: 'overlay', panel: host, note: o.note || '', color: o.look?.color || null };
     seen[key] = piece; pieces.push(piece);
   }
   // pocket bags, welts, flaps and other made-up pieces
-  for (const k of project.pieces || []) pieces.push({ id: k.id, name: k.name, points: k.points, fabric: k.fabric, qty: k.cut || 1, kind: 'piece', panel: project.panels.find((p) => p.id === k.forPanel), note: k.note });
+  for (const k of project.pieces || []) pieces.push({ id: k.id, name: k.name, points: k.points, fabric: k.fabric, qty: k.cut || 1, kind: 'piece', color: k.color || null, panel: project.panels.find((p) => p.id === k.forPanel), note: k.note });
   return pieces;
 }
 

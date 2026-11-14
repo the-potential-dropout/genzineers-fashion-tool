@@ -15,7 +15,7 @@ import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS } from './color.js';
 import { POCKETS, POCKET_CLOSURES, draftPocket, pocketPieces } from './pockets.js';
 import { recommendFor } from './guidance.js';
 import { BLENDS, FIBERS, INSULATION, QUILTING, WATERPROOF, blendFabric } from './materials.js';
-import { createProject, mergeGarment, regradeProject, syncForms, uid, validateProject, summarizeProject, addDesign, LAYER_NAMES } from './project.js';
+import { createProject, mergeGarment, regradeProject, syncForms, uid, validateProject, summarizeProject, addDesign, LAYER_NAMES, applyPartLooks, listParts } from './project.js';
 import { SIZE_CHARTS, REF_BODY } from './sizes.js';
 import { BODY_SHAPES } from '../sim/avatar.js';
 import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitDefaults } from './knit.js';
@@ -26,6 +26,7 @@ export const ACTION_DOCS = {
   add_garment: '{ template } add another garment (e.g. trousers to a jacket = suit)',
   new_blank: '{ name? } start an empty design: draft your own pieces with add_panel and join them with add_seam',
   remove_garment: '{ garment: "g0" }',
+  set_part_look: '{ key or keys:[...], fabric?, color?, clear? } give one sub-piece (collar, cuff, pocket, placket, lapel, strap; keys from summary.parts) its own material and colour',
   add_pocket: '{ panel, at: [x,y] cm (top centre of the opening), pocket: "<pocket id>", width?, height?, angle? deg, closure?: none|button|snap|zip|velcro|magnet, mirror? } add an outside or inside pocket (catalog pockets)',
   remove_pocket: '{ id: "<pocket id from the project>" }',
   add_embroidery: '{ panel, at: [x,y] cm (centre), kind: "text"|"motif"|"image", text?, font?: block|sans|serif|script|mono|varsity, motif?: star|heart|crown|anchor|bolt|laurel|shield|rose|circle|diamond, image?: data URL, width: cm, stitch?: fill|satin|cross|puff|applique|chenille, colors?: ["#rrggbb", ... up to 15 threads], threads?: n (image: how many thread colours), rotation? deg, outline?, underlay? } embroider lettering, a motif or artwork',
@@ -259,6 +260,21 @@ export function applyAction(project, action) {
     case 'rename':
       p.name = String(a.name || 'Untitled').slice(0, 120);
       break;
+    case 'set_part_look': { // a = { keys:[...] | key, fabric?, color?, clear? } : one sub-piece (or several) in its own material / colour
+      const keys = a.keys || [a.key]; const known = new Set(listParts(p).map((x) => x.key));
+      if (a.fabric && !fabricExists(p, a.fabric)) throw new Error(`unknown fabric "${a.fabric}"`);
+      p.partLooks = { ...(p.partLooks || {}) };
+      for (const k of keys) {
+        if (!known.has(k)) throw new Error(`unknown sub-piece "${k}"`);
+        if (a.clear) { delete p.partLooks[k]; continue; }
+        const L = { ...(p.partLooks[k] || {}) };
+        if ('fabric' in a) { if (a.fabric) L.fabric = a.fabric; else delete L.fabric; }
+        if ('color' in a) { if (a.color) L.color = a.color; else delete L.color; }
+        if (L.fabric || L.color) p.partLooks[k] = L; else delete p.partLooks[k];
+      }
+      applyPartLooks(p); syncForms(p);
+      break;
+    }
     case 'set_fabric': {
       const targets = targetsPanels(p, a);
       if (a.fabric && !fabricExists(p, a.fabric)) throw new Error(`unknown fabric "${a.fabric}"`);
@@ -672,7 +688,7 @@ export function applyAction(project, action) {
 
 /** Which actions only change looks (no physics rebuild needed). */
 export function isLookOnly(type) {
-  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket', 'add_embroidery', 'update_embroidery', 'remove_embroidery', 'set_look'].includes(type);
+  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket', 'add_embroidery', 'update_embroidery', 'remove_embroidery', 'set_look', 'set_part_look'].includes(type);
 }
 
 export function applyActions(project, actions) {

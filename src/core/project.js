@@ -76,8 +76,42 @@ export function mergeGarment(p, g) {
   syncForms(p);
 }
 
+/**
+ * Sub-pieces (collar, cuffs, plackets, pockets, lapels, epaulettes, waistband, yokes, glove fourchettes...) can each be
+ * cut from their own material in their own colour. Choices live in p.partLooks under a key that survives re-drafting.
+ */
+export function applyPartLooks(p) {
+  const looks = p.partLooks || {}; const n = {};
+  for (const o of p.overlays || []) {
+    const base = `ov:${o.panel}:${o.kind}`; n[base] = (n[base] || 0) + 1; o.key = `${base}:${n[base]}`;
+    if (o._base === undefined) o._base = { fabric: o.fabric ?? null };
+    const L = looks[o.key];
+    if (L && (L.fabric || L.color)) { o.look = L; o.fabric = L.fabric || o._base.fabric || undefined; } else { delete o.look; if (o._base.fabric) o.fabric = o._base.fabric; else delete o.fabric; }
+  }
+  for (const k of p.pieces || []) { k.key = `pc:${k.id}`; if (k._base === undefined) k._base = { fabric: k.fabric }; const L = looks[k.key]; k.fabric = L?.fabric || k._base.fabric; if (L?.color) k.color = L.color; else delete k.color; }
+  for (const [gid, f] of Object.entries(p.garmentForms || {})) (f.collars || []).forEach((c, i) => {
+    c.key = `col:${gid}:${i}`; if (c._base === undefined) c._base = { fabric: c.fabric ?? null };
+    const L = looks[c.key];
+    if (L && (L.fabric || L.color)) { c.look = L; c.fabric = L.fabric || c._base.fabric || undefined; } else { delete c.look; if (c._base.fabric) c.fabric = c._base.fabric; else delete c.fabric; }
+  });
+  // the flat cut pieces of a collar / hood (drawn in 3D as the swept collar) follow that collar's choice
+  for (const o of p.overlays || []) { if (!o.hidden) continue; const gid = p.panels.find((x) => x.id === o.panel)?.garment; const c = (p.garmentForms?.[gid]?.collars || []).find((k) => k.look); if (c) { o.look = c.look; o.fabric = c.look.fabric || o._base.fabric || undefined; } }
+}
+
+/** Every sub-piece that can take its own material and colour, for menus and the cut list. */
+export function listParts(p) {
+  applyPartLooks(p);
+  const nm = (s) => s[0].toUpperCase() + s.slice(1).replace(/-/g, ' ');
+  const out = [];
+  for (const o of p.overlays || []) { if (o.hidden || o.kind === 'distress' || o.kind === 'pleat' || o.kind === 'vent' || o.kind === 'yoke-line') continue; const host = p.panels.find((x) => x.id === o.panel); out.push({ key: o.key, kind: o.kind, garment: host?.garment, name: `${nm(o.kind)}${o.style ? ` (${o.style})` : ''}`, on: host?.name || '', fabric: o.look?.fabric || null, color: o.look?.color || null, base: o._base?.fabric || host?.fabric }); }
+  for (const [gid, f] of Object.entries(p.garmentForms || {})) for (const c of f.collars || []) out.push({ key: c.key, kind: c.kind, garment: gid, name: `${nm(c.kind)}${c.style ? ` (${c.style})` : ''}`, on: 'neckline', fabric: c.look?.fabric || null, color: c.look?.color || null, base: c._base?.fabric || p.panels.find((x) => x.garment === gid)?.fabric });
+  for (const k of p.pieces || []) out.push({ key: k.key, kind: 'piece', garment: k.garment, name: k.name, on: '', fabric: (p.partLooks || {})[k.key]?.fabric || null, color: k.color || null, base: k._base?.fabric });
+  return out;
+}
+
 /** Combine per-garment collision forms (bag stuffing etc.) and display flags. */
 export function syncForms(p) {
+  applyPartLooks(p);
   const forms = Object.entries(p.garmentForms || {}).filter(([gid]) => (p.garments || []).some((g) => g.id === gid)).map(([, v]) => v);
   p.colliders = forms.flatMap((f) => f.colliders);
   p.shells = forms.flatMap((f) => f.shells || []);
