@@ -4,7 +4,7 @@ const w = 60 * PX_PER_MM; const h = 40 * PX_PER_MM; const data = new Uint8Array(
 for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const dx = x - w * 0.3; const dy = y - h / 2; if (dx * dx + dy * dy < (h * 0.4) ** 2) data[y * w + x] = 0; else if (x > w * 0.62 && x < w * 0.95 && y > h * 0.2 && y < h * 0.8) data[y * w + x] = 1; }
 const bmp = { w, h, data, colors: ['#d0202e', '#152447'], widthMm: 60, heightMm: 40 };
 let bad = 0;
-for (const type of Object.keys(STITCH_TYPES)) {
+for (const type of Object.keys(STITCH_TYPES).filter((k) => !STITCH_TYPES[k].print)) {
   const { cmds, stats } = digitize(bmp, { type });
   const dst = writeDST(cmds, 'TEST');
   const back = readDST(dst);

@@ -52,6 +52,8 @@ export function cutList(project) {
     const piece = { id: o.id, name: `${o.kind[0].toUpperCase()}${o.kind.slice(1)}${o.style ? ` (${o.style})` : ''}`, points: o.points, fabric: o.fabric || (o.style === 'rib' ? 'rib-knit' : host?.fabric), qty: o.kind === 'lapel' || o.kind === 'collar' ? 2 : 1, kind: 'overlay', panel: host };
     seen[key] = piece; pieces.push(piece);
   }
+  // pocket bags, welts, flaps and other made-up pieces
+  for (const k of project.pieces || []) pieces.push({ id: k.id, name: k.name, points: k.points, fabric: k.fabric, qty: k.cut || 1, kind: 'piece', panel: project.panels.find((p) => p.id === k.forPanel), note: k.note });
   return pieces;
 }
 
@@ -257,4 +259,27 @@ export function rfqTemplates(project) {
     { to: 'Trim supplier (buttons, zips, labels)', subject: `Trim enquiry for ${p.name}`, body: `Hello,\n\nPlease quote the following trims for ${q} units:\n\n${bom(p).filter((r) => r.cat === 'Trim' || r.cat === 'Labels').map((r) => `- ${r.item} (${r.spec}) x ${r.total}`).join('\n')}\n\nPlease include MOQ, colour matching (to Pantone), lead time and samples.\n\nThank you,\n[Your name]` },
     { to: 'Cut-make-trim / full-package factory', subject: `RFQ: ${p.name} - ${q} pcs`, body: `Hello,\n\nWe are looking for a manufacturing partner for "${p.name}".\n\n- Quantity: ${q} pcs, sizes ${sizes}\n- Main fabric: ${fab.name}, ${fab.weightGsm} gsm (we can supply / please source)\n- Construction: ${[...new Set(p.seams.map((s) => ASSEMBLY[s.stitch]?.name))].join(', ')}\n- Target FOB price: ${p.production?.targetCost ? `$${p.production.targetCost}` : '[your target]'}\n- Target delivery: [date], terms FOB / DDP [port / address]\n\nAttached: tech pack (PDF), pattern (DXF), BOM (CSV), 3D reference.\n\nPlease quote CMT and full-package unit prices at ${q}/${q * 5}/${q * 10} pcs, MOQ, sample cost and lead time, bulk lead time, and payment terms. Please also share photos of similar products you make and your audits/certifications.\n\nThank you,\n[Your name]\n[Brand / website]` },
   ];
+}
+
+/**
+ * The project at its real making size. Designs are drafted on the life-size body; for a
+ * miniature (doll, puppet, merch figure) every length is multiplied by project.scale before
+ * any file is written, so patterns, specs and machine files come out at the size you will cut.
+ */
+export function atMakingSize(project) {
+  const k = project.scale || 1;
+  if (k === 1) return project;
+  const p = JSON.parse(JSON.stringify(project));
+  const m = (pt) => [Math.round(pt[0] * k * 100) / 100, Math.round(pt[1] * k * 100) / 100];
+  for (const pan of p.panels) { pan.points = pan.points.map(m); for (const key of Object.keys(pan.edges || {})) pan.edges[key] = (pan.edges[key] || []).map(m); for (const at of pan.attach || []) at.pts = at.pts.map(m); }
+  for (const o of p.overlays || []) o.points = o.points.map(m);
+  for (const t of p.trims || []) { if (t.at) t.at = m(t.at); if (t.to) t.to = m(t.to); if (t.path) t.path = t.path.map(m); if (t.size) t.size = Math.max(2, Math.round(t.size * k)); }
+  for (const e of p.embroidery || []) { e.at = m(e.at); e.width = Math.max(0.5, Math.round(e.width * k * 10) / 10); }
+  for (const q of p.pockets || []) { q.at = m(q.at); q.width = Math.round(q.width * k * 10) / 10; q.height = Math.round(q.height * k * 10) / 10; }
+  for (const c of p.collars || []) { for (const key of ['stand', 'fall', 'point', 'spread']) if (c[key]) c[key] = Math.round(c[key] * k * 10) / 10; }
+  if (p.customBody) for (const key of Object.keys(p.customBody)) if (typeof p.customBody[key] === 'number' && key !== 'weight') p.customBody[key] = Math.round(p.customBody[key] * k * 10) / 10;
+  p.production = { ...(p.production || {}), seamAllowance: p.production?.seamAllowance ?? (k < 0.6 ? 0.5 : 1), hemAllowance: p.production?.hemAllowance ?? (k < 0.6 ? 1 : 2.5) };
+  p.name = `${p.name} (${Math.round(k * 100)}% scale)`;
+  p.scale = 1; p.madeAtScale = k;
+  return p;
 }

@@ -12,7 +12,7 @@ import { TRIMS, STIFFENERS, ZIPPER_TYPES, ZIPPER_SIZES, ZIPPER_ENDS, ZIPPER_SLID
 import { TEMPLATES, templateGarments } from './templates.js';
 import { GENERATORS } from './blocks.js';
 import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS } from './color.js';
-import { POCKETS, POCKET_CLOSURES, draftPocket } from './pockets.js';
+import { POCKETS, POCKET_CLOSURES, draftPocket, pocketPieces } from './pockets.js';
 import { recommendFor } from './guidance.js';
 import { BLENDS, FIBERS, INSULATION, QUILTING, WATERPROOF, blendFabric } from './materials.js';
 import { createProject, mergeGarment, regradeProject, syncForms, uid, validateProject, summarizeProject, addDesign, LAYER_NAMES } from './project.js';
@@ -33,6 +33,9 @@ export const ACTION_DOCS = {
   remove_embroidery: '{ id }',
   add_design: '{ design: <saved project> } put a saved design from the collection on as part of the outfit (keeps all its materials and details)',
   set_wear: '{ garment: "g0", open?: 0..1 (how far a front zip / button front is undone from the top), buttons?: "all"|"none"|{ "0": false } (button rows, 0 = top), toggleButton?: n, hood?: "up"|"down", sleeves?: "rolled"|"down", fly?: "open"|"closed", cuff?: 0|1|2 (turn-ups on the hem) } how the garment is worn right now',
+  set_look: '{ skin?: "#rrggbb", hair?: "<style id>"|null, hairColor?: "#rrggbb", facialHair?: "<style id>"|null } mannequin appearance',
+  set_scale: '{ scale: 0.05-1.5 } make it for a miniature body: 1 = life size, 0.5 = half size, 0.167 = 1:6 fashion doll, 0.083 = 1:12 dollhouse. Patterns, measurements and files come out at that size.',
+  set_mannequin: '{ id, name, height } use an imported body mesh (null to go back to the built-in mannequin)',
   set_layer: '{ garment: "g0", layer: 0-5 | null } outfit layering order: 0 underwear, 1 base, 2 mid/knit, 3 jacket, 4 coat, 5 accessory (null = automatic)',
   set_option: '{ garment: "g0", key, value } or { garment, options: {key: value} } change a template option (fit, length, sleeve, cuff, collar, lapel, closure, inseam, leg, style, ...; see catalog.generators)',
   rename: '{ name }',
@@ -199,6 +202,24 @@ export function applyAction(project, action) {
       g.wear = w;
       mergeGarment(p, g);
       result = 'worn: ' + (Object.entries(w).map(([k, v]) => `${k} ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ') || 'default');
+      break;
+    }
+    case 'set_look': {
+      p.look = { ...(p.look || {}) };
+      for (const k of ['skin', 'hair', 'hairColor', 'facialHair']) if (k in a) { if (a[k] == null || a[k] === 'none') delete p.look[k]; else p.look[k] = a[k]; }
+      result = 'mannequin look updated';
+      break;
+    }
+    case 'set_scale': {
+      const sc = Number(a.scale);
+      if (!(sc >= 0.05 && sc <= 1.5)) throw new Error('scale must be between 0.05 (1:20) and 1.5');
+      p.scale = Math.round(sc * 1000) / 1000;
+      result = `scale ${Math.round(p.scale * 100)}%`;
+      break;
+    }
+    case 'set_mannequin': {
+      if (a.id) p.customMannequin = { id: a.id, name: a.name || 'Custom mannequin', height: a.height || 175 }; else delete p.customMannequin;
+      result = a.id ? `using ${p.customMannequin.name}` : 'built-in mannequin';
       break;
     }
     case 'set_layer': {
@@ -509,6 +530,10 @@ export function applyAction(project, action) {
       for (const ov of d.overlays) p.overlays.push({ id: uid('ov'), custom: true, pocket: pid, panel: pan.id, ...ov, ...(inside ? { inside: true } : {}), ...(a.color ? { color: a.color } : {}) });
       if (!inside) for (const tr of d.trims) p.trims.push({ id: uid('trim'), custom: true, pocket: pid, panel: pan.id, ...tr });
       for (const path of d.stitches) p.trims.push({ id: uid('trim'), custom: true, pocket: pid, panel: pan.id, type: 'stitch-line', path });
+      // the pieces that make the pocket (bag, welts, flap, facing) join the pattern; set-in pockets slash the garment piece
+      const made = pocketPieces(a.pocket, d.w, d.h);
+      p.pieces = [...(p.pieces || []), ...made.pieces.map((pc, i) => ({ id: `${pid}-p${i}`, pocket: pid, forPanel: pan.id, name: `${d.def.name.replace(/ pocket$| \(.*\)$/i, '')}: ${pc.name}`, points: pc.points.map(([x, y]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10]), fabric: pc.fabric === 'self' ? pan.fabric : pc.fabric, cut: pc.cut, note: pc.note }))];
+      if (made.slash) for (const ov of d.overlays.filter((o) => o.kind === 'pocket')) { const xs = ov.points.map((q) => q[0]); const ys = ov.points.map((q) => q[1]); const cx = (Math.min(...xs) + Math.max(...xs)) / 2; const cy = (Math.min(...ys) + Math.max(...ys)) / 2; const horiz = Math.max(...xs) - Math.min(...xs) >= Math.max(...ys) - Math.min(...ys); p.trims.push({ id: uid('trim'), custom: true, pocket: pid, panel: pan.id, type: 'cut-line', path: horiz ? [[Math.min(...xs) + 0.6, cy], [Math.max(...xs) - 0.6, cy]] : [[cx, Math.min(...ys) + 0.6], [cx, Math.max(...ys) - 0.6]] }); break; }
       p.pockets = [...(p.pockets || []), { id: pid, type: a.pocket, panel: pan.id, at: a.at, width: d.w, height: d.h, closure: a.closure || null, inside }];
       result = `${d.def.name} added${inside ? ' (inside)' : ''}`;
       break;
@@ -517,6 +542,7 @@ export function applyAction(project, action) {
       p.overlays = p.overlays.filter((o) => o.pocket !== a.id);
       p.trims = p.trims.filter((t) => t.pocket !== a.id);
       p.pockets = (p.pockets || []).filter((k) => k.id !== a.id);
+      p.pieces = (p.pieces || []).filter((k) => k.pocket !== a.id);
       break;
     }
     case 'remove_overlay':
@@ -643,7 +669,7 @@ export function applyAction(project, action) {
 
 /** Which actions only change looks (no physics rebuild needed). */
 export function isLookOnly(type) {
-  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket', 'add_embroidery', 'update_embroidery', 'remove_embroidery'].includes(type);
+  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket', 'add_embroidery', 'update_embroidery', 'remove_embroidery', 'set_look'].includes(type);
 }
 
 export function applyActions(project, actions) {

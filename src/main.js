@@ -19,7 +19,9 @@ import { JEWELRY_TEMPLATES, JEWELRY_GROUPS, METALS, GEMS, CUTS, SETTINGS, LINKS,
 import { PROVIDERS, IMAGE_PROVIDERS, chat, generateImage } from './ai/providers.js';
 import { SCOPES, systemPrompt, parseActions, filterActions } from './ai/assistant.js';
 import { connectBridge } from './ai/bridge.js';
-import { techPackHTML, patternSVG, patternDXF, tiledPrintHTML, bomCSV, GUIDE, rfqTemplates } from './make/production.js';
+import { techPackHTML, patternSVG, patternDXF, tiledPrintHTML, bomCSV, GUIDE, rfqTemplates, atMakingSize } from './make/production.js';
+import { importMannequin, ensureMannequin } from './app/mannequin.js';
+import { viewFile, saveAs, editedText } from './app/fileviewer.js';
 import { parseDXF, parseSVG, piecesToActions, MODEL_EXT, readAs } from './io/import.js';
 import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitChartSVG } from './core/knit.js';
 import { invoke } from './io/tauri.js';
@@ -59,16 +61,9 @@ const sel = (value, options, onchange, attrs = {}) => h('select', { ...attrs, on
 const field = (label, input, right) => h('label', { class: 'field' }, h('span', {}, label, right || ''), input);
 const pretty = (s) => String(s).replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 const toast = (msg, ms = 2600) => { const t = h('div', { class: 'toast', role: 'status' }, msg); document.body.append(t); setTimeout(() => t.remove(), ms); };
-function download(name, data, type = 'text/plain') {
-  const blob = data instanceof Blob ? data : new Blob([data], { type });
-  const a = h('a', { href: URL.createObjectURL(blob), download: name });
-  document.body.append(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-}
-function openDoc(html, name) {
-  const w = window.open('', '_blank');
-  if (w) { w.document.open(); w.document.write(html); w.document.close(); } else download(name, html, 'text/html');
-}
+function download(name, data, type = 'text/plain') { return saveAs(name, data, type); }
+/** Open a document in the in-app viewer (edit, print, download from there). */
+function openDoc(html, name) { return viewFile(name, 'text/html', html); }
 
 // ---------- app ----------
 const store = createStore();
@@ -84,9 +79,16 @@ const hud = h('div', { class: 'hud' });
 const placeHint = h('div', { class: 'pill place-hint hide' });
 const drawer = h('aside', { class: 'drawer', 'aria-label': 'AI assistant' });
 stage.append(viewEl, patternCanvas, hud, placeHint);
-root.append(top, h('div', { class: 'layout' }, panel, stage, drawer));
+// drag the edge of the side panel to make it wider or narrower (remembered); double-click resets
+const grip = h('div', { class: 'grip', role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize the side panel', tabindex: 0, title: 'Drag to resize the panel · double-click to reset' });
+const setPanelW = (w) => { const v = Math.max(280, Math.min(Math.round(innerWidth * 0.72), Math.round(w))); panel.style.width = `${v}px`; panel.style.maxWidth = 'none'; settings.set('panelW', v); setTimeout(() => { viewer?.resize?.(); pattern?.resize?.(); }, 0); };
+grip.addEventListener('pointerdown', (e) => { grip.setPointerCapture(e.pointerId); grip.classList.add('on'); const move = (ev) => setPanelW(ev.clientX - panel.getBoundingClientRect().left); const up = () => { grip.classList.remove('on'); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); }; grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); });
+grip.addEventListener('dblclick', () => { panel.style.width = ''; panel.style.maxWidth = ''; settings.set('panelW', null); setTimeout(() => { viewer.resize(); pattern.resize(); }, 0); });
+grip.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); setPanelW(panel.getBoundingClientRect().width + (e.key === 'ArrowRight' ? 24 : -24)); } });
+root.append(top, h('div', { class: 'layout' }, panel, grip, stage, drawer));
 
 const viewer = new Viewer(viewEl);
+if (settings.get('panelW', null) && !matchMedia('(max-width: 760px)').matches) { panel.style.width = `${settings.get('panelW')}px`; panel.style.maxWidth = 'none'; }
 window.__gft = { viewer, store }; // handy for debugging from the console
 viewer.onError = (m) => toast(m, 5000);
 // grade nest: the same design drafted in every size of the chart (cached per design)
@@ -121,6 +123,7 @@ function rebuild(info = {}) {
   clearTimeout(rebuildTimer);
   rebuildTimer = setTimeout(async () => {
     // the body collision field needs the mannequin mesh (cached after the first load)
+    if (p.customMannequin?.id) { try { if (!(await ensureMannequin(p.customMannequin.id))) toast('Your custom mannequin file is not on this device; using the built-in body', 4500); } catch { /* fall back */ } }
     if (p.display?.avatar !== false) { try { await loadBodyMesh(bodyFor(p).mannequin, import.meta.env.BASE_URL); } catch (e) { console.warn('body mesh unavailable, using capsules', e); } }
     if (store.get() !== p) return; // a newer change is already queued
     sim?.dispose?.();
@@ -250,7 +253,7 @@ function renderHud() {
     h('button', { class: 'pill', onclick: () => { viewer.setAutoOrbit(!viewer.autoOrbit); settings.set('orbit', viewer.autoOrbit); renderHud(); } }, viewer.autoOrbit ? '⟳ Orbit on' : '⟳ Orbit off'),
     p.mode !== 'jewelry' ? h('button', { class: `pill ${viewer.grabMode ? 'on' : ''}`, title: 'Pull mode: drag the cloth itself to pinch and tug it; it falls back naturally when you let go', onclick: () => { viewer.setGrab(!viewer.grabMode); renderHud(); toast(viewer.grabMode ? 'Pull mode: drag the cloth. Tap again to go back to orbiting.' : 'Orbit mode'); } }, viewer.grabMode ? '✋ Pulling' : '✋ Pull') : null,
     p.mode !== 'jewelry' ? h('button', { class: `pill ${viewer.fitMap ? 'on' : ''}`, title: 'Colour the cloth by tension: red = tight, blue = loose', onclick: () => { viewer.setFitMap(!viewer.fitMap); renderHud(); } }, viewer.fitMap ? '◐ Fit map on' : '◐ Fit map') : null,
-    p.mode !== 'jewelry' ? h('span', { class: 'pill' }, `Size ${p.customBody ? 'custom' : p.size} · ${SIZE_CHARTS[p.sizeChart || 'unisex'].label}`) : null,
+    p.mode !== 'jewelry' ? h('span', { class: 'pill' }, `Size ${p.customBody ? 'custom' : p.size} · ${SIZE_CHARTS[p.sizeChart || 'unisex'].label}${p.scale && p.scale !== 1 ? ` · ${Math.round(p.scale * 100)}% scale` : ''}`) : null,
     h('button', { class: 'pill', onclick: () => { ui.aiTab = 'images'; ui.useRef = true; toggleAI(true); } }, '✦ AI render'),
   ].filter(Boolean));
 }
@@ -325,7 +328,13 @@ function renderPanel() {
     body,
     h('div', { class: 'foot' }, 'Free for non-commercial use · ', h('a', { href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Commercial licence'), ' · by ', h('a', { href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener' }, 'Genzineers'), ' · ', h('a', { href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'Learn to launch')),
   );
-  panel.querySelector('.scroll').scrollTop = scrollTop;
+  const sc = panel.querySelector('.scroll');
+  const heads = [...sc.querySelectorAll('.sec > h3')];
+  if (heads.length > 2) {
+    const short = (t) => t.replace(/\s*\(.*\)\s*$/, '').replace(/^Start from a /i, '').replace(/^\w/, (c) => c.toUpperCase());
+    sc.prepend(h('div', { class: 'jump', role: 'navigation', 'aria-label': 'Sections on this step' }, sel('', [{ value: '', label: 'Jump to…' }, ...heads.map((hd, i) => ({ value: String(i), label: short(hd.textContent) }))], (v) => { if (v !== '') heads[Number(v)].scrollIntoView({ block: 'start', behavior: 'smooth' }); }, { 'aria-label': 'Jump to a section' }), heads.slice(0, 6).map((hd) => h('button', { class: 'chip', onclick: () => hd.scrollIntoView({ block: 'start', behavior: 'smooth' }) }, short(hd.textContent)))));
+  }
+  sc.scrollTop = scrollTop;
 }
 const next = (label, step) => h('div', { style: 'margin-top:14px;display:flex;justify-content:flex-end' }, h('button', { class: 'btn primary', onclick: () => { ui.step = step; renderPanel(); } }, label));
 
@@ -338,10 +347,11 @@ function cStyle(el, p) {
   const list = Object.entries(TEMPLATES).filter(([id, v]) => (ui.group === 'All' || v.group === ui.group) && (!ui.query || `${v.name} ${v.group} ${v.audience || ''}`.toLowerCase().includes(ui.query.toLowerCase())));
   el.append(h('div', { class: 'sec' },
     h('h3', {}, 'Start from a template'),
-    h('input', { class: 'inp', type: 'search', placeholder: 'Search: hoodie, peak lapel, 5 inch shorts, fedora, tote…', value: ui.query, oninput: (e) => { ui.query = e.target.value; const pos = e.target.selectionStart; renderPanel(); const i = panel.querySelector('input[type=search]'); i.focus(); i.setSelectionRange(pos, pos); }, 'aria-label': 'Search templates' }),
-    h('div', { class: 'chips scrollx', style: 'margin:8px 0' }, groups.map((g) => h('button', { class: `chip ${ui.group === g ? 'on' : ''}`, onclick: () => { ui.group = g; renderPanel(); } }, g))),
-    h('div', { class: 'grid2' }, list.slice(0, ui.query || ui.group !== 'All' ? 200 : 12).map(([id, v]) => h('button', { class: `tile ${p.template === id ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'new_garment', template: id }) }, h('div', { class: 't' }, v.name), h('div', { class: 's' }, v.group, v.audience ? ` · ${v.audience}` : '')))),
-    !ui.query && ui.group === 'All' ? h('div', { class: 's', style: 'margin-top:6px;color:var(--muted);font-size:12px' }, `${Object.keys(TEMPLATES).length} templates. Pick a category to see all.`) : null,
+    h('div', { class: 'pick-row' },
+      sel(ui.group, [{ value: 'All', label: `All categories (${Object.keys(TEMPLATES).length})` }, ...TEMPLATE_GROUPS.map((g) => ({ value: g, label: `${g} (${Object.values(TEMPLATES).filter((v) => v.group === g).length})` }))], (v) => { ui.group = v; renderPanel(); }, { 'aria-label': 'Category' }),
+      h('input', { class: 'inp', type: 'search', placeholder: 'Search…', value: ui.query, oninput: (e) => { ui.query = e.target.value; const pos = e.target.selectionStart; renderPanel(); const i = panel.querySelector('input[type=search]'); i.focus(); i.setSelectionRange(pos, pos); }, 'aria-label': 'Search templates' })),
+    h('div', { class: 'pick-list' }, list.length ? h('div', { class: 'grid2' }, list.map(([id, v]) => h('button', { class: `tile ${p.template === id ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'new_garment', template: id }) }, h('div', { class: 't' }, v.name), ui.group === 'All' ? h('div', { class: 's' }, v.group) : null))) : h('div', { class: 'empty' }, 'No template matches. Try another word or category.')),
+    h('div', { class: 's', style: 'margin-top:6px;color:var(--muted);font-size:12px' }, `${list.length} shown. Choose a category from the menu or type to search (hoodie, peak lapel, bootcut, slit dress, fedora, tote…).`),
   ));
   // garment options
   const gs = p.garments || [];
@@ -365,6 +375,12 @@ function cStyle(el, p) {
       keys.map(opt),
       h('details', {}, h('summary', {}, 'All options'), h('div', {}, Object.keys(schema).filter((k) => !keys.includes(k) && !/Adj$/.test(k)).map(opt))),
     ));
+    // ---- length presets for tops, jackets, coats and dresses ----
+    if (g.generator === 'top') {
+      const B = bodyFor(p); const cr = B.crotchY; const at = (y) => Math.round((B.shoulderY - y) * 100);
+      const LEN = [['Cropped', at(B.naturalWaistY + 0.06)], ['Waist', at(B.waistY)], ['Hip', at(cr + 0.1)], ['Seat', at(cr - 0.02)], ['Mid-thigh', at(cr * 0.8)], ['Above knee', at(cr * 0.62)], ['Knee', at(cr * 0.54)], ['Below knee', at(cr * 0.46)], ['Mid-calf', at(cr * 0.33)], ['Ankle', at(0.1)], ['Floor', at(0.025)]];
+      el.append(h('div', { class: 'sec' }, h('h3', {}, 'Length'), h('div', { class: 'chips' }, LEN.map(([l, v]) => h('button', { class: `chip ${Math.abs(g.options.length - v) < 2 ? 'on' : ''}`, title: `${v} cm from the shoulder`, onclick: () => store.dispatch({ type: 'set_option', garment: g.id, key: 'length', value: Math.max(30, Math.min(160, v)) }) }, l))), h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:4px' }, `Now ${g.options.length} cm from shoulder to hem. Works for jackets, trench coats, overcoats and dresses.`)));
+    }
     // ---- how it is worn right now ----
     {
       const w = g.wear || {}; const o = g.options; const W = (patch) => store.dispatch({ type: 'set_wear', garment: g.id, ...patch });
@@ -397,7 +413,16 @@ function cStyle(el, p) {
     h('div', { class: 'seg', style: 'margin-bottom:8px' }, Object.entries(SIZE_CHARTS).map(([k, c]) => h('button', { class: (p.sizeChart || 'unisex') === k ? 'on' : '', onclick: () => store.dispatch({ type: 'set_size', chart: k, size: c.sizes[p.size] ? p.size : 'M' }) }, c.label))),
     h('div', { class: 'chips' }, Object.keys(chart.sizes).map((s) => h('button', { class: `chip ${!p.customBody && p.size === s ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'set_size', size: s }) }, s))),
     field('Mannequin', sel(p.mannequin || 'auto', [{ value: 'auto', label: 'Match size chart' }, { value: 'female', label: 'Female body' }, { value: 'male', label: 'Male body' }], (v) => store.dispatch({ type: 'set_size', mannequin: v }))),
-    bodyEditor(p, chart),  ));
+    bodyEditor(p, chart),
+    field('Mannequin tone', h('div', { class: 'chips' }, [['#9aa1ab', 'Neutral grey (studio mannequin)'], ['#f6ddc9', 'Porcelain'], ['#f0c9a5', 'Light'], ['#e0ac84', 'Light-medium'], ['#c98f63', 'Medium'], ['#a9744d', 'Tan'], ['#8a5a3b', 'Brown'], ['#6b4129', 'Deep brown'], ['#4a2c1c', 'Dark'], ['#2e1b12', 'Deepest']].map(([c, n]) => h('button', { class: 'chip', title: n, 'aria-label': n, style: `background:${c};width:26px;height:26px;padding:0;border:2px solid ${(p.look?.skin || '#9aa1ab') === c ? 'var(--accent)' : 'var(--line)'}`, onclick: () => store.dispatch({ type: 'set_look', skin: c === '#9aa1ab' ? null : c }) })), h('input', { type: 'color', title: 'Any tone', value: p.look?.skin || '#9aa1ab', onchange: (e) => store.dispatch({ type: 'set_look', skin: e.target.value }) }))),
+    h('details', {}, h('summary', {}, `Scale & custom mannequin${p.scale && p.scale !== 1 ? ` · ${Math.round(p.scale * 100)}%` : ''}${p.customMannequin ? ' · custom body' : ''}`), h('div', {},
+      field('Make it for', sel(String(p.scale || 1), [{ value: '1', label: 'Life size (100%)' }, { value: '0.75', label: 'Child-size display form (75%)' }, { value: '0.5', label: 'Half scale 1:2 (pattern-making dress form)' }, { value: '0.333', label: '1:3 (large doll / BJD, about 58 cm)' }, { value: '0.25', label: '1:4 (BJD, about 44 cm)' }, { value: '0.167', label: '1:6 (fashion doll / action figure, about 29 cm)' }, { value: '0.083', label: '1:12 (dollhouse / small figure, about 15 cm)' }, { value: '0.05', label: '1:20 (tiny merch figure, about 9 cm)' }, ...([1, 0.75, 0.5, 0.333, 0.25, 0.167, 0.083, 0.05].includes(p.scale || 1) ? [] : [{ value: String(p.scale), label: `Custom ${Math.round(p.scale * 100)}%` }])], (v) => store.dispatch({ type: 'set_scale', scale: Number(v) }))),
+      field('Or any size: finished height (cm)', h('input', { type: 'number', min: 9, max: 260, step: 1, value: Math.round(((p.customBody?.height || SIZE_CHARTS[p.sizeChart || 'unisex'].sizes[p.size || 'M'].height) * (p.scale || 1)) * 10) / 10, onchange: (e) => { const full = p.customBody?.height || SIZE_CHARTS[p.sizeChart || 'unisex'].sizes[p.size || 'M'].height; const sc = Number(e.target.value) / full; if (sc >= 0.05 && sc <= 1.5) store.dispatch({ type: 'set_scale', scale: sc }); else toast('Height must be between about 9 cm and 260 cm'); } })),
+      h('div', { class: 's', style: 'font-size:12px;color:var(--muted)' }, 'For puppets, dolls and small merch: design on the body as usual; patterns and files are written at the small size, and the cloth is simulated stiffer and thicker, as real fabric behaves at that scale. Choose thin fabrics (lawn, jersey, silk) for miniatures.'),
+      h('hr'),
+      field('Use your own mannequin (STL, OBJ, PLY, GLB, FBX, DAE, 3MF, STEP)', h('input', { type: 'file', accept: MODEL_EXT.map((x) => `.${x}`).join(','), onchange: async (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; const hgt = Number(prompt('How tall is this body in real life, in cm? (feet to top of head)', '175')); if (!(hgt > 5)) return; toast('Preparing your mannequin…', 4000); try { const r = await importMannequin(f.name, await readAs(f, 'readAsDataURL'), { heightCm: hgt }); store.dispatch({ type: 'set_mannequin', id: r.id, name: r.name, height: hgt }); toast(`Mannequin ready (${r.triangles.toLocaleString()} triangles). Set the measurements above to match it so patterns are drafted to fit.`, 7000); } catch (err) { toast(`Could not use that file: ${err.message}`, 6000); } } })),
+      p.customMannequin ? h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, p.customMannequin.name), h('div', { class: 's' }, `${p.customMannequin.height} cm · used for display and cloth collision`)), h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'set_mannequin', id: null }) }, 'Use built-in body')) : h('div', { class: 's', style: 'font-size:12px;color:var(--muted)' }, 'Best results: body standing upright, facing forward, arms slightly away from the sides (A-pose). The cloth collides with your mesh exactly; patterns are drafted from the measurements above.'))),
+  ));
   el.append(h('div', { class: 'sec' }, h('h3', {}, 'Outfit (wear several pieces together)'),
     h('div', { class: 'chips', style: 'margin-bottom:8px' },
       h('button', { class: 'btn sm primary', onclick: () => openCollection({ pick: true }) }, '♡ Add from my collection'),
@@ -569,6 +594,13 @@ function cDetails(el, p) {
     const files = async (e) => {
       const image = e.kind === 'image' ? await loadArtwork(e.image) : null;
       const bmp = rasterizeDesign({ ...e, image });
+      if (STITCH_TYPES[e.stitch]?.print) { // placed print: production artwork + placement note
+        const { previewCanvas } = await import('./make/embroidery.js');
+        const nm0 = `${p.name}-print-${(e.text || e.motif || 'artwork').replace(/[^\w-]+/g, '_').slice(0, 20)}`;
+        previewCanvas(bmp, 'print', image).toBlob((b) => download(`${nm0}.png`, b), 'image/png');
+        download(`${nm0}-placement.txt`, [`PLACED PRINT: ${e.text || e.motif || 'artwork'}`, `On: ${p.panels.find((x) => x.id === e.panel)?.name}, centre at x ${e.at[0]} cm, y ${e.at[1]} cm from the piece origin (see tech pack), rotated ${e.rotation || 0} degrees`, `Printed size: ${bmp.widthMm.toFixed(0)} x ${bmp.heightMm.toFixed(0)} mm`, 'Method: DTF or heat transfer for under ~50 pieces; screen print (one screen per colour) or DTG for bulk.', 'Supply vector artwork (SVG / AI / PDF) if you have it; the PNG here is 127 dpi placement artwork.', 'Approve a strike-off on the production fabric before bulk.'].join('\r\n'), 'text/plain');
+        return;
+      }
       const { cmds, stats } = digitize(bmp, { type: e.stitch, underlay: e.underlay });
       const nm = `${p.name}-embroidery-${(e.text || e.motif || 'artwork').replace(/[^\w-]+/g, '_').slice(0, 20)}`;
       download(`${nm}.dst`, new Blob([writeDST(cmds, (e.text || e.motif || 'ART').toUpperCase())], { type: 'application/octet-stream' }));
@@ -576,7 +608,8 @@ function cDetails(el, p) {
       toast(`${stats.stitches.toLocaleString()} stitches, ${stats.colors.length} thread colour(s): .DST + run sheet saved`, 4500);
     };
     el.append(h('div', { class: 'sec' },
-      h('h3', {}, 'Embroidery'),
+      h('h3', {}, 'Embroidery, logos & artwork'),
+      h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-bottom:6px' }, 'Lettering, a motif or your own file (PNG, JPG, SVG), stitched or printed, placed anywhere on any piece.'),
       h('div', { class: 'seg', style: 'margin-bottom:8px' }, [['text', 'Lettering'], ['motif', 'Motif'], ['image', 'Your artwork']].map(([k, l]) => h('button', { class: d.kind === k ? 'on' : '', onclick: () => { d.kind = k; if (k !== 'text' && d.stitch === 'satin') d.stitch = 'fill'; renderPanel(); } }, l))),
       d.kind === 'text' ? h('div', { class: 'grid2' }, field('Text (Enter = new line)', h('textarea', { rows: 2, value: d.text, onchange: (e) => { d.text = e.target.value; } }, d.text)), field('Lettering style', sel(d.font, Object.entries(FONTS).map(([k, v]) => ({ value: k, label: v.name })), (v) => { d.font = v; if (v === 'varsity' && d.colors.length < 2) d.colors = [...d.colors, '#ffffff']; renderPanel(); }))) : null,
       d.kind === 'motif' ? field('Motif', sel(d.motif, Object.entries(MOTIFS_EMB).map(([k, v]) => ({ value: k, label: v })), (v) => { d.motif = v; })) : null,
@@ -591,7 +624,7 @@ function cDetails(el, p) {
         h('div', { class: 'grow' }, h('div', { class: 't' }, e.kind === 'text' ? `“${e.text}”` : e.kind === 'motif' ? MOTIFS_EMB[e.motif] : 'Artwork'), h('div', { class: 's' }, `${STITCH_TYPES[e.stitch]?.name} · ${e.width} cm · ${p.panels.find((x) => x.id === e.panel)?.name || e.panel}`)),
         h('input', { type: 'number', title: 'Width (cm)', style: 'width:64px', min: 1, max: 40, step: 0.5, value: e.width, onchange: (ev) => store.dispatch({ type: 'update_embroidery', id: e.id, width: Number(ev.target.value) }) }),
         h('input', { type: 'number', title: 'Rotation (degrees)', style: 'width:64px', step: 5, value: e.rotation || 0, onchange: (ev) => store.dispatch({ type: 'update_embroidery', id: e.id, rotation: Number(ev.target.value) }) }),
-        h('button', { class: 'btn sm primary', title: 'Tajima .DST machine file + run sheet with the colour sequence', onclick: () => files(e) }, 'Machine file'),
+        h('button', { class: 'btn sm primary', title: STITCH_TYPES[e.stitch]?.print ? 'Print artwork + placement note' : 'Tajima .DST machine file + run sheet with the colour sequence', onclick: () => files(e) }, STITCH_TYPES[e.stitch]?.print ? 'Print files' : 'Machine file'),
         h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_embroidery', id: e.id }) }, 'Remove'),
         e.colors?.length ? h('div', { style: 'flex-basis:100%' }, swatches(e.colors, (n) => store.dispatch({ type: 'update_embroidery', id: e.id, colors: n }))) : null))) : null,
     ));
@@ -661,26 +694,29 @@ function makeCommon(el, p) {
 function cMake(el, p) {
   makeCommon(el, p);
   const name = p.name.replace(/[^\w-]+/g, '_');
+  const design = p; p = atMakingSize(design); // files are written at the size you will actually make
+  if (design.scale && design.scale !== 1) el.append(h('div', { class: 'tip' }, h('b', {}, `Miniature: ${Math.round(design.scale * 100)}% scale. `), 'Patterns, measurements and machine files below are written at that size (seam allowance 0.5 cm, hems 1 cm).'));
   el.append(h('div', { class: 'sec' }, h('h3', {}, 'Files for manufacturers'),
+    h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-bottom:8px' }, 'Each file opens in the viewer: read it, edit it, undo, reset or save your edits, print, then download to the folder you choose.'),
     h('div', { class: 'grid2' },
       h('button', { class: 'btn primary', onclick: () => openDoc(techPackHTML(p, { image: viewer.snapshot(1000) }), `${name}-techpack.html`) }, 'Tech pack (PDF)'),
-      h('button', { class: 'btn', onclick: () => download(`${name}.dxf`, patternDXF(p), 'application/dxf') }, 'Pattern DXF (CAD)'),
-      h('button', { class: 'btn', onclick: () => download(`${name}.svg`, patternSVG(p), 'image/svg+xml') }, 'Pattern SVG'),
+      h('button', { class: 'btn', onclick: () => viewFile(`${name}.dxf`, 'application/dxf', patternDXF(p)) }, 'Pattern DXF (CAD)'),
+      h('button', { class: 'btn', onclick: () => viewFile(`${name}.svg`, 'image/svg+xml', patternSVG(p)) }, 'Pattern SVG'),
       h('button', { class: 'btn', onclick: () => openDoc(tiledPrintHTML(p, 'A4'), `${name}-A4.html`) }, 'Print at home (A4)'),
       h('button', { class: 'btn', onclick: () => openDoc(tiledPrintHTML(p, 'Letter'), `${name}-letter.html`) }, 'Print at home (Letter)'),
-      h('button', { class: 'btn', onclick: () => download(`${name}-BOM.csv`, bomCSV(p), 'text/csv') }, 'Bill of materials (CSV)'),
-      h('button', { class: 'btn', onclick: async () => download(`${name}.glb`, await viewer.exportModel('glb')) }, '3D model (GLB)'),
-      h('button', { class: 'btn', onclick: () => download(`${name}.gft.json`, JSON.stringify(p, null, 1), 'application/json') }, 'Project file'),
-      ...(p.garments || []).filter((g) => g.knit?.motif && g.knit.motif !== 'none').map((g) => h('button', { class: 'btn', onclick: () => download(`${name}-knitting-chart.svg`, knitChartSVG(g.knit), 'image/svg+xml') }, 'Knitting chart (SVG)')),
+      h('button', { class: 'btn', onclick: () => viewFile(`${name}-BOM.csv`, 'text/csv', bomCSV(p)) }, 'Bill of materials (CSV)'),
+      h('button', { class: 'btn', onclick: async () => viewFile(`${name}.glb`, 'model/gltf-binary', await viewer.exportModel('glb')) }, '3D model (GLB)'),
+      h('button', { class: 'btn', onclick: () => viewFile(`${name}.gft.json`, 'application/json', JSON.stringify(p, null, 1)) }, 'Project file'),
+      ...(p.garments || []).filter((g) => g.knit?.motif && g.knit.motif !== 'none').map((g) => h('button', { class: 'btn', onclick: () => viewFile(`${name}-knitting-chart.svg`, 'image/svg+xml', knitChartSVG(g.knit)) }, 'Knitting chart (SVG)')),
       h('button', { class: 'btn', onclick: () => openInBlender() }, 'Open in Blender'),
     ),
     h('h3', { style: 'margin-top:14px' }, 'Machine code & work protocols'),
     h('div', { class: 'tip' }, 'What the factory floor runs: the sewing operations in order, knitting programs, embroidery machine files, and print and dye instructions. The ', h('b', {}, 'manufacturing pack'), ' puts everything for this design in one ZIP.'),
     h('div', { class: 'grid2' },
       h('button', { class: 'btn primary', onclick: () => manufacturingPack() }, 'Manufacturing pack (ZIP)'),
-      h('button', { class: 'btn', onclick: () => download(`${name}-sewing-operations.csv`, operationsCSV(p), 'text/csv') }, 'Sewing operations (CSV)'),
-      (p.garments || []).some((g) => g.knit) ? h('button', { class: 'btn', onclick: () => { for (const f of knitFiles(p)) download(`${name}-${f.file.replace('knit/', '')}`, f.text, 'text/plain'); } }, 'Knitting programs (Knitout) + instructions') : null,
-      printProtocol(p) ? h('button', { class: 'btn', onclick: () => download(`${name}-print-dye-protocol.txt`, printProtocol(p, printTileCm), 'text/plain') }, 'Print & dye protocol') : null,
+      h('button', { class: 'btn', onclick: () => viewFile(`${name}-sewing-operations.csv`, 'text/csv', operationsCSV(p)) }, 'Sewing operations (CSV)'),
+      (p.garments || []).some((g) => g.knit) ? h('button', { class: 'btn', onclick: () => { for (const f of knitFiles(p)) viewFile(`${name}-${f.file.replace('knit/', '')}`, 'text/plain', f.text); } }, 'Knitting programs (Knitout) + instructions') : null,
+      printProtocol(p) ? h('button', { class: 'btn', onclick: () => viewFile(`${name}-print-dye-protocol.txt`, 'text/plain', printProtocol(p, printTileCm)) }, 'Print & dye protocol') : null,
       (p.embroidery || []).length ? h('div', { class: 's', style: 'font-size:12px;color:var(--muted);align-self:center' }, 'Embroidery machine files: Details → Embroidery → Machine file, or in the pack.') : null,
     )));
   guideSection(el, p);
@@ -904,11 +940,12 @@ function showAbout() {
 
 // ---------- manufacturing pack: every file a factory needs, in one ZIP ----------
 async function manufacturingPack() {
-  const p = store.get(); const name = p.name.replace(/[^\w-]+/g, '_');
+  const p = atMakingSize(store.get()); const name = p.name.replace(/[^\w-]+/g, '_');
   toast('Building the manufacturing pack…');
   try {
     const { zipSync, strToU8 } = await import('three/examples/jsm/libs/fflate.module.js');
-    const files = {}; const put = (path, data) => { files[`${name}/${path}`] = typeof data === 'string' ? strToU8(data) : data; };
+    const EDIT = { '01-tech-pack.html': `${name}-techpack.html`, '02-bill-of-materials.csv': `${name}-BOM.csv`, '03-sewing-operations.csv': `${name}-sewing-operations.csv`, 'pattern/pattern.dxf': `${name}.dxf`, 'pattern/pattern.svg': `${name}.svg`, 'prints/print-and-dye-protocol.txt': `${name}-print-dye-protocol.txt` };
+    const files = {}; const put = (path, data) => { const ed = EDIT[path] && editedText(EDIT[path]); files[`${name}/${path}`] = typeof (ed ?? data) === 'string' ? strToU8(ed ?? data) : data; };
     const bytes = async (blob) => new Uint8Array(await blob.arrayBuffer());
     put('01-tech-pack.html', techPackHTML(p, { image: viewer.snapshot(1000) }));
     put('02-bill-of-materials.csv', bomCSV(p));
@@ -920,7 +957,7 @@ async function manufacturingPack() {
     let n = 0;
     for (const e of p.embroidery || []) {
       if (e.kind === 'image') await loadArtwork(e.image);
-      const bmp = designBitmap(e); if (!bmp) continue; n++;
+      const bmp = designBitmap(e); if (!bmp || STITCH_TYPES[e.stitch]?.print) continue; n++;
       const { cmds, stats } = digitize(bmp, { type: e.stitch, underlay: e.underlay });
       const nm = `embroidery/${String(n).padStart(2, '0')}-${(e.text || e.motif || 'artwork').replace(/[^\w-]+/g, '_').slice(0, 20)}`;
       put(`${nm}.dst`, writeDST(cmds, (e.text || e.motif || 'ART').toUpperCase()));

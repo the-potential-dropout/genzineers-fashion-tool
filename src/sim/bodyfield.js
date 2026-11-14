@@ -49,19 +49,23 @@ export async function loadBodyMesh(which, baseUrl = './') {
   return meshes[which];
 }
 export const bodyMeshLoaded = (which) => Boolean(meshes[which]);
+/** Register a user-supplied body (already posed, scaled and standing on the floor). */
+export function setCustomBodyMesh(id, mesh) { meshes[`custom:${id}`] = { P: mesh.P, idx: mesh.idx, custom: true }; }
+export const customBodyMesh = (id) => meshes[`custom:${id}`] || null;
 
 /** Signed distance field of the graded, posed body. Returns null until the mesh is loaded. */
 export function bodyField(body, cell = 0.0125) {
-  const which = body?.mannequin || 'male';
-  const mesh = meshes[which];
+  const custom = body?.customMesh && meshes[`custom:${body.customMesh}`];
+  const which = custom ? `custom:${body.customMesh}` : body?.mannequin || 'male';
+  const mesh = custom || meshes[which];
   if (!mesh) return null;
-  const key = which + JSON.stringify(body._scales, (k, v) => (k === 'L' ? undefined : typeof v === 'number' ? Math.round(v * 1e4) / 1e4 : v)) + (body.armAngle ?? '') + cell;
+  const key = custom ? which + cell : which + JSON.stringify(body._scales, (k, v) => (k === 'L' ? undefined : typeof v === 'number' ? Math.round(v * 1e4) / 1e4 : v)) + (body.armAngle ?? '') + cell;
   if (fields.has(key)) return fields.get(key);
   const { P: ref, idx } = mesh;
   const P = new Float32Array(ref.length);
   let x0 = 1e9; let y0 = 1e9; let z0 = 1e9; let x1 = -1e9; let y1 = -1e9; let z1 = -1e9;
   for (let k = 0; k < ref.length; k += 3) {
-    const g = gradePoint(body, ref[k], ref[k + 1], ref[k + 2]);
+    const g = custom ? [ref[k], ref[k + 1], ref[k + 2]] : gradePoint(body, ref[k], ref[k + 1], ref[k + 2]);
     P[k] = g[0]; P[k + 1] = g[1]; P[k + 2] = g[2];
     if (g[0] < x0) x0 = g[0]; if (g[0] > x1) x1 = g[0]; if (g[1] < y0) y0 = g[1]; if (g[1] > y1) y1 = g[1]; if (g[2] < z0) z0 = g[2]; if (g[2] > z1) z1 = g[2];
   }

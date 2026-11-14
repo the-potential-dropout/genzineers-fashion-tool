@@ -23,12 +23,51 @@ import { legwearTop } from '../core/legwear.js';
 import { panelAnchor, layerRank } from '../sim/cloth.js';
 import { fabricTextures } from './textures.js';
 import { buildCollar } from './collars.js';
-import { designBitmap, previewCanvas, loadArtwork, STITCH_TYPES } from '../make/embroidery.js';
+import { designBitmap, previewCanvas, loadArtwork, artworkReady, STITCH_TYPES } from '../make/embroidery.js';
+import { customBodyMesh } from '../sim/bodyfield.js';
 import { buildJewelry, metalMaterial, gemMaterial } from './jewelry3d.js';
 import { loadModel, deformGeometry } from '../io/import.js';
 import { METALS } from '../core/jewelry.js';
 
 const OVERLAY_TINT = { lapel: 0.92, collar: 0.95, cuff: 0.9, band: 0.88, waistband: 0.9, pocket: 0.97, flap: 0.94, placket: 0.96, yoke: 0.98, hood: 0.93, belt: 0.85, fly: 0.97, vent: 0.7, pleat: 0.75, pinch: 0.8 };
+
+/**
+ * How each kind of material meets the light. Matte fibres scatter (high roughness, almost no
+ * specular); filament weaves like satin and silk show a soft directional lustre; pile (velvet,
+ * fleece, fur) glows at grazing angles (sheen) but has no highlight; leathers range from dry
+ * suede to waxy pull-up to mirror patent; coated shells and vinyl carry a clear top coat.
+ * First match wins.
+ */
+const SHADING = [
+  [/patent|vinyl|pvc|latex/, { roughness: 0.18, sheen: 0, clearcoat: 1, clearcoatRoughness: 0.06, specular: 1, env: 1.25, bump: 0.15 }],
+  [/suede|nubuck/, { roughness: 1, sheen: 0.9, sheenRoughness: 0.9, specular: 0.05, env: 0.5, bump: 0.9 }],
+  [/shearling|fur|sherpa|teddy/, { roughness: 1, sheen: 1, sheenRoughness: 0.85, specular: 0.02, env: 0.45, bump: 1.6 }],
+  [/leather-lambskin|nappa|calf|kid|goat/, { roughness: 0.48, sheen: 0.15, clearcoat: 0.25, clearcoatRoughness: 0.45, specular: 0.7, env: 0.95, bump: 0.5 }],
+  [/leather|croc|snake|ostrich|vegan|pu-|faux-leather/, { roughness: 0.56, sheen: 0.1, clearcoat: 0.18, clearcoatRoughness: 0.55, specular: 0.6, env: 0.9, bump: 0.75 }],
+  [/satin|charmeuse|silk-twill|acetate|cupro|lining/, { roughness: 0.32, sheen: 1, sheenRoughness: 0.25, specular: 0.8, anisotropy: 0.75, env: 1.1, bump: 0.2 }],
+  [/silk|taffeta|organza/, { roughness: 0.45, sheen: 0.8, sheenRoughness: 0.35, specular: 0.6, anisotropy: 0.4, env: 1, bump: 0.3 }],
+  [/chiffon|georgette|voile|tulle/, { roughness: 0.7, sheen: 0.4, sheenRoughness: 0.6, specular: 0.25, env: 0.8, bump: 0.25 }],
+  [/velvet|velour|corduroy|moleskin/, { roughness: 0.95, sheen: 1, sheenRoughness: 0.55, specular: 0.05, env: 0.5, bump: 1 }],
+  [/waterproof|membrane|tpu|3l|softshell|ripstop|nylon|shell|taffeta-poly/, { roughness: 0.5, sheen: 0.2, clearcoat: 0.3, clearcoatRoughness: 0.5, specular: 0.55, env: 0.95, bump: 0.35 }],
+  [/waxed|oilskin|coated/, { roughness: 0.42, sheen: 0.1, clearcoat: 0.35, clearcoatRoughness: 0.4, specular: 0.6, env: 0.9, bump: 0.6 }],
+  [/polyester|microfiber|spandex|lycra|swim|tricot/, { roughness: 0.6, sheen: 0.5, sheenRoughness: 0.45, specular: 0.4, env: 0.9, bump: 0.3 }],
+  [/mercerized|pima|supima|sateen|poplin|shirting|lawn|broadcloth/, { roughness: 0.78, sheen: 0.35, sheenRoughness: 0.5, specular: 0.25, env: 0.75, bump: 0.35 }],
+  [/fleece|terry|flannel|brushed|boiled|felt|tweed|melton/, { roughness: 1, sheen: 0.7, sheenRoughness: 0.85, specular: 0.03, env: 0.5, bump: 1.1 }],
+  [/wool|worsted|suiting|cashmere|mohair|alpaca/, { roughness: 0.9, sheen: 0.45, sheenRoughness: 0.7, specular: 0.1, env: 0.6, bump: 0.6 }],
+  [/denim|canvas|duck|twill|chino|linen|hemp/, { roughness: 0.95, sheen: 0.12, sheenRoughness: 0.9, specular: 0.06, env: 0.55, bump: 0.9 }],
+  [/jersey|rib|pique|interlock|knit|cotton/, { roughness: 0.96, sheen: 0.25, sheenRoughness: 0.9, specular: 0.05, env: 0.55, bump: 0.7 }],
+];
+function shadingFor(fab) {
+  const tag = `${fab.id} ${fab.family || ''} ${fab.name || ''}`.toLowerCase();
+  const hit = SHADING.find(([re]) => re.test(tag));
+  const base = { roughness: fab.look.roughness ?? 0.85, sheen: fab.look.sheen || 0, sheenRoughness: 0.6, clearcoat: 0, clearcoatRoughness: 0.3, specular: 0.2, anisotropy: 0, env: 0.7, bump: 0.6 };
+  const out = { ...base, ...(hit ? hit[1] : {}) };
+  // a variant's own finish nudges the family look (e.g. mercerized = glossier, washed = drier)
+  if (hit && fab.look.roughness != null) out.roughness = Math.max(0.05, Math.min(1, out.roughness * 0.6 + fab.look.roughness * 0.4));
+  if (/matte|washed|peached|sueded|brushed/.test(tag)) { out.roughness = Math.max(out.roughness, 0.92); out.specular *= 0.4; out.clearcoat = 0; }
+  if (/gloss|polished|wet-look|metallic|lame|lurex/.test(tag)) { out.roughness = Math.min(out.roughness, 0.3); out.specular = 1; out.env = 1.2; }
+  return out;
+}
 
 /** Shrink a polygon by d (cm): each vertex moves along its inward bisector. */
 function insetPoly(pts, d) {
@@ -178,6 +217,7 @@ export class Viewer {
     this.avatarGroup.clear();
     this.stand.clear();
     const mat = this._mannequinMat ||= new THREE.MeshStandardMaterial({ color: '#9aa1ab', roughness: 0.55, metalness: 0.02 }); // cool grey mannequin contrasts with fabrics
+    mat.color.set(project.look?.skin || '#9aa1ab'); mat.roughness = project.look?.skin ? 0.62 : 0.55;
     if (project.mode === 'jewelry') { this.floor.visible = false; return; }
     this.floor.visible = true;
     if (project.display?.avatar === false) {
@@ -188,6 +228,13 @@ export class Viewer {
       return;
     }
     const body = bodyFor(project);
+    const cm = body.customMesh && customBodyMesh(body.customMesh);
+    if (cm) { // your own mannequin
+      if (this._customKey !== body.customMesh) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(cm.P, 3)); g.setIndex(new THREE.BufferAttribute(cm.idx, 1)); g.computeVertexNormals(); this._customMesh = new THREE.Mesh(g, mat); this._customKey = body.customMesh; }
+      this._wantKey = `custom:${body.customMesh}`;
+      this.avatarGroup.add(this._customMesh);
+      return;
+    }
     const key = `${body.mannequin}:${JSON.stringify(body._scales, (k, v) => (k === 'L' ? undefined : v))}`;
     this._wantKey = key;
     if (this._mannequinKey === key && this._mannequinMesh) { this.avatarGroup.add(this._mannequinMesh); this.addShells(project, body); return; }
@@ -364,6 +411,7 @@ export class Viewer {
   /** Re-apply looks only (no physics rebuild). */
   refreshLooks(project) {
     this.project = project;
+    if (this._mannequinMat) { this._mannequinMat.color.set(project.look?.skin || '#9aa1ab'); }
     for (const m of this.panelMeshes) { const pan = project.panels.find((p) => p.id === m.userData.panelId); if (pan) { m.material.dispose(); m.material = this.materialFor(project, pan); } }
     if (this.sim) { for (const o of this.overlays) this.garment.remove(o.mesh); for (const t of this.trimObjs) this.garment.remove(t.obj); for (const s of this.stitchLines) this.garment.remove(s.line); this.overlays = []; this.trimObjs = []; this.stitchLines = []; this.buildOverlays(project, this.sim); this.buildTrims(project, this.sim); this.buildStitches(project, this.sim); this.updateGarment(); }
     this.dirty = true;
@@ -379,11 +427,14 @@ export class Viewer {
     map.repeat.set(rep, rep); bump.repeat.set(rep, rep);
     map.needsUpdate = true; bump.needsUpdate = true;
     const metallicPrint = finish.print?.method && ['foil', 'glitter', 'reflective'].includes(finish.print.method);
+    const sh = shadingFor(fab);
     return new THREE.MeshPhysicalMaterial({
-      map, bumpMap: bump, bumpScale: 0.6,
+      map, bumpMap: bump, bumpScale: sh.bump,
       color: new THREE.Color(tint, tint, tint),
-      roughness: fab.look.roughness, metalness: metallicPrint ? 0.6 : fab.look.metalness || 0,
-      sheen: fab.look.sheen || 0, sheenColor: new THREE.Color(fab.look.sheenColor || '#ffffff'), sheenRoughness: 0.6,
+      roughness: sh.roughness, metalness: metallicPrint ? 0.6 : fab.look.metalness || 0,
+      sheen: sh.sheen, sheenColor: new THREE.Color(fab.look.sheenColor || '#ffffff'), sheenRoughness: sh.sheenRoughness,
+      clearcoat: sh.clearcoat, clearcoatRoughness: sh.clearcoatRoughness,
+      specularIntensity: sh.specular, anisotropy: sh.anisotropy, envMapIntensity: sh.env,
       transparent: (fab.look.opacity ?? 1) < 1 || fab.look.pattern === 'lace' || fab.look.pattern === 'mesh',
       opacity: fab.look.opacity ?? 1, alphaTest: fab.look.pattern === 'lace' || fab.look.pattern === 'mesh' ? 0.3 : 0,
       side: THREE.DoubleSide,
@@ -441,12 +492,13 @@ export class Viewer {
   buildTrims(project, sim) {
     for (const t of project.trims || []) {
       const def = resolveTrim(t.type);
-      if (def.internal && t.type !== 'tie-knot' && t.type !== 'stitch-line') continue;
+      if (def.internal && !['tie-knot', 'stitch-line', 'cut-line'].includes(t.type)) continue;
       const panel = project.panels.find((p) => p.id === t.panel);
       if (!panel) continue;
       const color = t.color || (def.useFabric ? (panel.finish?.color || resolveFabric(project, panel.fabric).look.color) : def.color);
       const mat = new THREE.MeshPhysicalMaterial({ color, metalness: def.metalness, roughness: def.roughness, clearcoat: def.metalness > 0.5 ? 0.4 : 0.2, transmission: def.shape === 'crystal' ? 0.9 : 0, ior: 1.7, thickness: 0.003, iridescence: def.iridescent ? 0.8 : 0 });
       const s = (t.size || def.size) / 1000;
+      if (t.type === 'cut-line') { if (t.path?.length >= 2) this.addPathLine(sim, t.panel, t.path, 0.0046, new THREE.Color('#0b0b0b'), false); continue; } // the pocket opening
       if (t.type === 'stitch-line') { if (t.path?.length >= 2) this.addPathLine(sim, t.panel, t.path, 0.0042, t.color ? new THREE.Color(t.color) : this.threadColor(project, panel), true); continue; }
       if (t.type === 'edge-trim' && t.path?.length >= 2) { this.buildEdgeTrim(t, sim, color); continue; }
       if (t.type === 'lacing' && t.to) { this.buildLacing(t, sim); continue; }
@@ -681,12 +733,13 @@ export class Viewer {
       g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(anchors.length * 3), 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       g.setIndex(idx);
-      const tex = new THREE.CanvasTexture(previewCanvas(bmp, e.stitch)); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+      const printed = STITCH_TYPES[e.stitch]?.print;
+      const tex = new THREE.CanvasTexture(previewCanvas(bmp, e.stitch, printed && e.kind === 'image' ? artworkReady(e.image) : null)); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
       const puff = STITCH_TYPES[e.stitch]?.foam;
-      const mat = new THREE.MeshPhysicalMaterial({ map: tex, bumpMap: tex, bumpScale: puff ? 2.5 : 1.2, transparent: true, alphaTest: 0.5, roughness: 0.42, sheen: 0.8, sheenRoughness: 0.4, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
+      const mat = new THREE.MeshPhysicalMaterial({ map: tex, bumpMap: printed ? null : tex, bumpScale: puff ? 2.5 : 1.2, transparent: true, alphaTest: printed ? 0.2 : 0.5, roughness: printed ? 0.8 : 0.42, sheen: printed ? 0 : 0.8, sheenRoughness: 0.4, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6 });
       const mesh = new THREE.Mesh(g, mat); mesh.frustumCulled = false; mesh.userData.embroidery = e.id;
       this.garment.add(mesh);
-      this.overlays.push({ mesh, anchors, lift: puff ? 0.0045 : 0.0022 });
+      this.overlays.push({ mesh, anchors, lift: puff ? 0.0045 : printed ? 0.0012 : 0.0022 });
     }
   }
 

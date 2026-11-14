@@ -66,3 +66,37 @@ export function draftPocket(type, at, { width, height, angle = 0, closure, mirro
   const stitches = def.arcuate ? [place([[-w / 2 + 1, -h * 0.3], [-w * 0.2, -h * 0.5], [0, -h * 0.36], [w * 0.2, -h * 0.5], [w / 2 - 1, -h * 0.3]])] : [];
   return { overlays, trims, stitches, def, w, h };
 }
+
+const RR = (w, h) => [[-w / 2, 0], [w / 2, 0], [w / 2, h], [-w / 2, h]];
+/**
+ * What actually has to be cut and sewn to make a pocket of this type: the pocket piece itself,
+ * welts, flaps, facings, the bag that hangs inside, and (for set-in pockets) the slash in the
+ * garment piece. Returns { pieces: [{ name, points, fabric, cut, note }], slash: true|false }.
+ * fabric: 'self' (garment cloth), 'pocketing' (cotton/poly pocket lining), 'lining', 'interfacing'.
+ */
+export function pocketPieces(type, w, h) {
+  const d = POCKETS[type]; if (!d) return { pieces: [], slash: false };
+  const P = (name, points, fabric, cut, note) => ({ name, points, fabric, cut, note });
+  const has = (re) => re.test(type);
+  const flap = (fw, fh) => [P('Pocket flap (outer + facing)', RR(fw + 1, fh), 'self', 2, 'Stitch right sides together on three sides, turn, press, topstitch.'), P('Flap interfacing', RR(fw, fh - 0.6), 'interfacing', 1, 'Fuse to the outer flap.')];
+  if (has(/hammer-loop/)) return { slash: false, pieces: [P('Hammer loop', RR(w + 4, 7), 'self', 1, 'Fold in three, topstitch both edges, bar-tack each end.')] };
+  if (has(/^(patch|kangaroo|bellows|jeans-back|coin|tool-pocket|sleeve-utility|inside-patch|inside-phone|inside-pen|poacher|waistband-coin|media-port)/)) {
+    const bellows = has(/bellows/); const pieces = [P('Pocket', RR(w + (bellows ? 8 : 0), h + 3), d.where === 'inside' ? 'lining' : 'self', 1, `Top edge: double-turn a ${d.where === 'inside' ? 1 : 2.5} cm hem. ${bellows ? 'Fold a 2 cm gusset on the sides and base. ' : ''}Press the other edges under 1 cm, edge-stitch to the garment, bar-tack the top corners.`)];
+    if (has(/flap|bellows|pleated/)) pieces.push(...flap(w + 1, 6));
+    if (!/jeans-back|coin|inside|waistband/.test(type)) pieces.push(P('Pocket mouth stay', RR(w, 2.5), 'interfacing', 1, 'Fuse behind the top hem so the opening does not stretch.'));
+    return { slash: false, pieces };
+  }
+  if (has(/jeans-scoop/)) return { slash: true, pieces: [P('Pocket facing (shows in the opening)', RR(w + 3, h + 5), 'self', 1, 'Lay on the pocket bag, edge-stitch.'), P('Pocket bag', RR(w + 5, 28), 'pocketing', 2, 'One to the garment front along the scoop (turn and topstitch), one carries the facing; French-seam the bag.')] };
+  if (has(/side-seam/)) return { slash: false, pieces: [P('In-seam pocket bag', [[0, 0], [h * 0.75, 2], [h * 0.9, h * 0.55], [h * 0.6, h + 4], [0, h + 2]], 'pocketing', 2, 'Sew one to the front and one to the back side-seam allowance, then sew the side seam around the bag.'), P('Opening stay tape', RR(1.2, h + 2), 'interfacing', 2, 'Fuse along the front opening edge.')] };
+  // welt / jetted / zip pockets: the garment is slashed and a bag hangs behind the opening
+  const vertical = Boolean(d.vertical); const len = vertical ? h : w;
+  const pieces = [];
+  if (has(/double|flap|ticket|inside-breast|security/)) pieces.push(P('Jet / welt strip', RR(len + 4, 5), 'self', 2, 'Stitch one above and one below the marked line 0.5 cm away; slash between, clip to the corners, turn through and press.'));
+  else if (d.zip) pieces.push(P('Zip opening facing', RR(len + 4, 6), 'self', 1, 'Stitch a 1 cm-wide box, slash, turn the facing through, set the zip behind the window.'));
+  else pieces.push(P('Welt', RR(len + 3, has(/breast/) ? 6.5 : 6), 'self', 1, 'Fold in half lengthwise (interfaced), stitch to the lower edge of the opening; ends are slip- or top-stitched down.'));
+  pieces.push(P('Welt interfacing', RR(len + 3, 3), 'interfacing', 1, 'Fuse behind the slash line on the garment and inside the welt.'));
+  if (has(/flap|ticket/)) pieces.push(...flap(len, has(/ticket/) ? 4.5 : 5.5));
+  pieces.push(P('Pocket bag', RR(len + 4, has(/breast|ticket|pen/) ? 15 : 19), d.where === 'inside' ? 'lining' : 'pocketing', 2, 'Join one to each side of the opening, then stitch round the bag.'));
+  if (!d.zip) pieces.push(P('Pocket bag facing', RR(len + 4, 6), 'self', 1, 'Covers the top of the back bag so no pocketing shows through the opening.'));
+  return { slash: true, pieces };
+}

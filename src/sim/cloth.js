@@ -103,6 +103,7 @@ const perSub = (k, sub) => 1 - Math.pow(1 - Math.min(0.999, Math.max(0, k)), 1 /
 export function buildCloth(project) {
   const h = project.sim.gridSize; // cm
   const substeps = project.sim.iterations;
+  const scale = Math.max(0.05, project.scale || 1);
   const P = []; // world positions (flat)
   const UV = [];
   const local = []; // panel-local cm (flat)
@@ -150,7 +151,7 @@ export function buildCloth(project) {
       inv.push(1 / ((fab.weightGsm / 1000) * (Math.max(area[q], h * h * 0.2) / 1e4)));
       fric.push(Math.min(0.95, fab.mech ? fab.mech.mu * 1.1 : fab.friction * 0.6));
       // collision margin: skin clearance + half the cloth thickness (thick coatings and leathers stand further off)
-      thk.push(0.0045 + Math.min(0.012, (fab.thicknessMm || 0.5) / 2000 * 2) + rank * 0.009 + (panel.zBias ? 0.0035 : 0));
+      thk.push(0.0045 + Math.min(0.02, ((fab.thicknessMm || 0.5) / 1000) / scale) + rank * 0.009 + (panel.zBias ? 0.0035 : 0));
       gar.push(panel.garment);
     }
 
@@ -158,6 +159,8 @@ export function buildCloth(project) {
     // long panels sag like rubber; stretchy knits get a lower value.
     const { kS, kSh, lim } = fabricPhysics(fab);
     let { kB } = fabricPhysics(fab);
+    // miniature garments: the same cloth is relatively much stiffer and thicker on a small body
+    if (scale < 1) kB = Math.min(0.9, kB / Math.pow(scale, 1.5));
     if (panel.insulation) kB = Math.min(0.9, kB + 0.05 + (panel.insulation.weight || 120) / 3000);
     if (panel.lining) kB = Math.min(0.9, kB * 1.3 + 0.01);
     const cStart = R.length;

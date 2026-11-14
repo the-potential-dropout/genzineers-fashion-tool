@@ -27,6 +27,7 @@ export const STITCH_TYPES = {
   cross: { name: 'Cross-stitch', note: 'Crosses on a 2 mm grid; folk and sampler look.', density: 2, len: 2 },
   puff: { name: '3D puff (satin over foam)', note: 'Satin sewn over 2-3 mm foam for raised cap logos. Wide columns, no fine detail.', density: 0.3, len: 9, foam: true },
   applique: { name: 'Appliqué (fabric + satin edge)', note: 'A cut fabric shape tacked down and edged in satin; big shapes with few stitches.', density: 0.4, len: 6, applique: true },
+  print: { name: 'Printed (logo / artwork, not stitched)', note: 'A placed print in full colour: DTF or heat transfer for small runs, screen print or DTG for bulk. Any artwork, photo or logo, anywhere on the piece.', density: 0.4, len: 3.5, print: true },
   chenille: { name: 'Chenille / chain (loop pile)', note: 'Looped pile for varsity letters; needs a chenille machine. File gives the fill area.', density: 0.8, len: 3, chenille: true },
 };
 
@@ -301,9 +302,11 @@ export function designBitmap(e) {
 }
 
 /** Canvas that looks like the sewn design: thread colour with the sheen and direction of the stitch rows. */
-export function previewCanvas(bmp, type = 'fill') {
+export function previewCanvas(bmp, type = 'fill', image = null) {
   const cv = document.createElement('canvas'); cv.width = bmp.w; cv.height = bmp.h;
-  const g = cv.getContext('2d'); const im = g.createImageData(bmp.w, bmp.h);
+  const g = cv.getContext('2d');
+  if (type === 'print' && image) { g.drawImage(image, 0, 0, bmp.w, bmp.h); return cv; } // printed artwork keeps every colour
+  const im = g.createImageData(bmp.w, bmp.h);
   const rgb = bmp.colors.map(hexRgb);
   const satin = type === 'satin' || type === 'puff'; const cross = type === 'cross';
   const row = Math.max(1, Math.round((STITCH_TYPES[type]?.density || 0.4) * PX_PER_MM));
@@ -312,7 +315,8 @@ export function previewCanvas(bmp, type = 'fill') {
     const q = rgb[c] || rgb[0];
     // thread relief: rows for fill, sheen bands across satin columns, little crosses for cross-stitch
     let k;
-    if (cross) { const cx = x % 10; const cy = y % 10; k = Math.abs(cx - cy) < 2 || Math.abs(cx + cy - 9) < 2 ? 1.08 : 0.55; }
+    if (type === 'print') k = 1;
+    else if (cross) { const cx = x % 10; const cy = y % 10; k = Math.abs(cx - cy) < 2 || Math.abs(cx + cy - 9) < 2 ? 1.08 : 0.55; }
     else if (satin) k = 0.82 + 0.26 * Math.abs(Math.sin((x + y * 0.35) * 0.09)) + ((y % row) === 0 ? -0.1 : 0);
     else k = 0.86 + ((Math.floor(y / row) + Math.floor((x + (Math.floor(y / row) % 3) * 6) / 18)) % 2 ? 0.12 : 0) + ((y % row) === 0 ? -0.14 : 0);
     const o = (y * bmp.w + x) * 4;

@@ -65,7 +65,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
   const btn = (label, title, on, fn) => { const b = document.createElement('button'); b.className = `btn sm ${on ? 'primary' : ''}`; b.textContent = label; b.title = title; b.onclick = (e) => { e.stopPropagation(); fn(); renderBar(); draw(); }; return b; };
   function renderBar() {
     const p = store.get();
-    const n = p.mode === 'jewelry' ? 0 : p.panels.length;
+    const n = p.mode === 'jewelry' ? 0 : allPieces(p).length;
     bar.replaceChildren(
       btn('All pieces', 'Show every cut piece laid flat', opt.mode === 'all', () => { opt.mode = 'all'; setTimeout(fit, 0); }),
       btn('One piece', 'Step through the pieces one at a time', opt.mode === 'one', () => { opt.mode = 'one'; opt.index = Math.min(opt.index, Math.max(0, n - 1)); setTimeout(fit, 0); }),
@@ -92,7 +92,9 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
   }
   new ResizeObserver(resize).observe(canvas);
 
-  const shown = (p) => (opt.mode === 'one' ? p.panels.slice(opt.index, opt.index + 1) : p.panels);
+  /** Everything that is cut: the garment pieces, then pocket bags, welts, flaps and facings. */
+  const allPieces = (p) => [...p.panels, ...(p.pieces || []).map((k) => ({ ...k, role: 'piece', piece: true }))];
+  const shown = (p) => { const all = allPieces(p); return opt.mode === 'one' ? all.slice(opt.index, opt.index + 1) : all; };
   const GRADE_COLORS = ['#8a3ffc', '#2f6bff', '#00a3a3', '#1f8a4c', '#c79a00', '#ff5a1f', '#d6336c', '#6b4f2a', '#5f6caf'];
   /** Shelf layout: pieces in rows, wrapped to a comfortable sheet width. */
   function computeLayout(p) {
@@ -216,6 +218,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
         g.setLineDash([]);
         for (const t of p.trims) {
           if (t.panel !== pan.id) continue;
+          if (t.type === 'cut-line') { g.strokeStyle = '#d0202e'; g.lineWidth = 1.6; g.setLineDash([]); g.beginPath(); t.path.forEach((q, i) => { const [x, y] = toScreen(L, q); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); const [sx, sy] = toScreen(L, t.path[0]); g.fillStyle = '#d0202e'; g.font = '10px sans-serif'; g.fillText('✂ slash', sx, sy - 5); g.lineWidth = 1; continue; }
           if (t.path) { g.strokeStyle = 'rgba(200,145,47,.9)'; g.setLineDash([3, 2]); g.beginPath(); t.path.forEach((q, i) => { const [x, y] = toScreen(L, q); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); g.setLineDash([]); continue; }
           if (!t.at) continue;
           const [x, y] = toScreen(L, t.at);
@@ -240,7 +243,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
       g.fillText(pan.name, cx - (horiz ? 0 : 6), cy - 6);
       g.font = '10.5px sans-serif'; g.fillStyle = muted;
       const fabName = (p.customFabrics?.[pan.fabric]?.name) || pan.fabric;
-      g.fillText(`Cut 1 · ${fabName}${pan.lining ? ' + lining' : ''}`, cx - (horiz ? 0 : 6), cy + 8);
+      g.fillText(`Cut ${pan.cut || 1} · ${fabName}${pan.lining ? ' + lining' : ''}`, cx - (horiz ? 0 : 6), cy + 8);
       if (opt.mode === 'one') { let area = 0; for (let i = 0; i < n; i++) { const p0 = pan.points[i]; const p1 = pan.points[(i + 1) % n]; area += p0[0] * p1[1] - p1[0] * p0[1]; } g.fillText(`${(Math.max(...pan.points.map((q) => q[0])) - Math.min(...pan.points.map((q) => q[0]))).toFixed(1)} × ${(Math.max(...pan.points.map((q) => q[1])) - Math.min(...pan.points.map((q) => q[1]))).toFixed(1)} cm · ${(Math.abs(area) / 2 / 1e4).toFixed(3)} m²`, cx - (horiz ? 0 : 6), cy + 22); }
       g.textAlign = 'left';
     }
@@ -250,6 +253,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
       g.beginPath(); draft.forEach(([x, y], i) => { const sx = x * view.s + view.x; const sy = -y * view.s + view.y; i ? g.lineTo(sx, sy) : g.moveTo(sx, sy); }); g.stroke();
       for (const [x, y] of draft) { g.fillStyle = '#ff5a1f'; g.beginPath(); g.arc(x * view.s + view.x, -y * view.s + view.y, 3.5, 0, 7); g.fill(); }
     }
+    const pan0 = opt.mode === 'one' ? shown(p)[0] : null;
     // legend / status
     g.fillStyle = muted; g.font = '12px sans-serif';
     const tip = opt.tool === 'draw' ? `Drawing a piece: click to add points (${draft.length} so far), double-click or click the first point to close. Esc cancels.`
@@ -258,16 +262,19 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
       : !p.panels.length ? 'Blank canvas. Use "Draw piece" to draft your first pattern piece, then "Sew edges" to join pieces.'
       : `Solid = cut line · dashed = stitch line (${SA} cm seam allowance, ${HEM} cm hems) · same letter = sewn together · grid = 10 cm`;
     g.fillText(tip, 12, r.height - 10);
-    if (opt.mode === 'one' && p.panels.length) { g.textAlign = 'right'; g.fillText(`Piece ${opt.index + 1} of ${p.panels.length}`, r.width - 12, r.height - 10); g.textAlign = 'left'; }
+    if (opt.mode === 'one' && pan0) { g.fillStyle = muted; g.font = '12px sans-serif'; g.fillText(pan0.note || '', 12, r.height - 28); }
+    if (opt.mode === 'one' && p.panels.length) { g.textAlign = 'right'; g.fillText(`Piece ${opt.index + 1} of ${allPieces(p).length}`, r.width - 12, r.height - 10); g.textAlign = 'left'; }
   }
 
   function hit(sx, sy, pointsToo = true) {
     const p = store.get(); if (p.mode === 'jewelry') return null;
     if (pointsToo) for (const pan of shown(p)) {
+      if (pan.piece) continue;
       const L = layout.find((l) => l.id === pan.id); if (!L) continue;
       for (let i = 0; i < pan.points.length; i++) { const [x, y] = toScreen(L, pan.points[i]); if (Math.hypot(x - sx, y - sy) < 9) return { kind: 'point', pan, L, i }; }
     }
     for (const pan of shown(p)) {
+      if (pan.piece) continue;
       const L = layout.find((l) => l.id === pan.id); if (!L) continue; const n = pan.points.length;
       for (let i = 0; i < n; i++) {
         const [ax, ay] = toScreen(L, pan.points[i]); const [bx, by] = toScreen(L, pan.points[(i + 1) % n]);
@@ -374,7 +381,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
   canvas.addEventListener('wheel', (e) => { e.preventDefault(); const [sx, sy] = pos(e); zoomAt(sx, sy, e.deltaY < 0 ? 1.1 : 1 / 1.1); }, { passive: false });
 
   let lastCount = -1;
-  store.subscribe(() => { const p = store.get(); const n = p.mode === 'jewelry' ? 0 : p.panels.length; if (n !== lastCount) { lastCount = n; opt.index = Math.min(opt.index, Math.max(0, n - 1)); renderBar(); } draw(); });
+  store.subscribe(() => { const p = store.get(); const n = p.mode === 'jewelry' ? 0 : allPieces(p).length; if (n !== lastCount) { lastCount = n; opt.index = Math.min(opt.index, Math.max(0, n - 1)); renderBar(); } draw(); });
   renderBar();
   return { draw, fit, resize, options: opt };
 }

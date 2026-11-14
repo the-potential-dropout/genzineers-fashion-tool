@@ -70,7 +70,9 @@ const FIT = { slim: 8, regular: 14, relaxed: 20, oversized: 30 };
 // =====================================================================
 export const TOP_OPTIONS = {
   fit: { label: 'Fit', type: 'select', values: ['slim', 'regular', 'relaxed', 'oversized'], default: 'regular' },
-  length: { label: 'Body length (cm, shoulder to hem)', type: 'range', min: 40, max: 130, step: 1, default: 70 },
+  length: { label: 'Body length (cm, shoulder to hem)', type: 'range', min: 30, max: 160, step: 1, default: 70 },
+  slit: { label: 'Slit', type: 'select', values: ['none', 'side-left', 'side-right', 'both-sides', 'front', 'back'], default: 'none' },
+  slitHeight: { label: 'Slit height (cm from the hem)', type: 'range', min: 5, max: 90, step: 1, default: 35 },
   flare: { label: 'Hem flare (cm per side)', type: 'range', min: -4, max: 40, step: 1, default: 0 },
   neckline: { label: 'Neckline', type: 'select', values: ['crew', 'v-neck', 'deep-v', 'scoop', 'boat', 'mock', 'henley', 'collar-stand'], default: 'crew' },
   sleeve: { label: 'Sleeves', type: 'select', values: ['none', 'cap', 'short', 'elbow', 'three-quarter', 'long'], default: 'short' },
@@ -273,9 +275,14 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   // [panel id, poly] that carries the right / left front edges
   const FR = t.split ? [id('front-r'), t.fr] : [id('front'), t.front];
   const FL = t.split ? [id('front-l'), t.fl] : [id('front'), t.front];
+  // side slits: the side seam is simply left open from the hem up to the slit height
+  const sideLen = polyLen(pathOf(FR[1], 'side-r')) || 1;
+  const slitFrac = Math.min(0.85, (o.slitHeight || 35) / sideLen);
+  const slitR = ['side-left', 'both-sides'].includes(o.slit) ? { open: slitFrac, slit: true } : {}; // wearer's left is +x
+  const slitL = ['side-right', 'both-sides'].includes(o.slit) ? { open: slitFrac, slit: true } : {};
   const seams = [
-    seam(FR[0], FR[1], 'side-r', id('back'), t.back, 'side-l', sideStitch),
-    seam(FL[0], FL[1], 'side-l', id('back'), t.back, 'side-r', sideStitch),
+    { ...seam(FR[0], FR[1], 'side-r', id('back'), t.back, 'side-l', sideStitch), ...slitR },
+    { ...seam(FL[0], FL[1], 'side-l', id('back'), t.back, 'side-r', sideStitch), ...slitL },
     seam(FR[0], FR[1], 'sh-r', id('back'), t.back, 'sh-l', sideStitch),
     seam(FL[0], FL[1], 'sh-l', id('back'), t.back, 'sh-r', sideStitch),
   ];
@@ -404,7 +411,49 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   const tailored = t.split && t.lapel;
   if (tailored && o.lapel !== 'shawl') collars.push({ kind: 'collar', style: 'tailored', stand: 2.6, fall: 4.4, point: 5.2, spread: 0, paths: neckPaths(Math.hypot(t.neckW + t.ext, t.H - breakY) * 0.2) });
   else if (o.lapel === 'biker') collars.push({ kind: 'collar', style: 'biker', stand: 1.2, fall: 7.5, point: 10, spread: 6, flat: 1, paths: neckPaths() });
-  else if (COLLARS[o.collar]) collars.push({ kind: COLLARS[o.collar].hood ? 'hood' : 'collar', style: o.collar, ...COLLARS[o.collar], hoodStyle: o.hood || 'three-panel', up: wear.hood === 'up', paths: neckPaths() });
+  else if (o.collar === 'hood') {
+    // A real hood: two side pieces joined over the crown and down the back of the head, sewn
+    // round the neckline. It is cloth like the rest of the garment, so it drapes on the head
+    // when worn up and falls down the back when worn down.
+    const style = o.hood || 'three-panel';
+    const Lf = polyLen(pathOf(FR[1], 'neck-r')); const Lb = polyLen(pathOf(t.back, 'neck-r'));
+    const Ln = Lf + Lb + 1; // a little ease so the hood sets smoothly
+    // height from the neck seam over the crown, measured on this body, plus wearing ease
+    const crown = BODY.headY + (BODY.headR / 1.12) * 1.06; // top of the head
+    const Hh = (crown - BODY.shoulderY - 0.03) * 100 + 4 + ({ slim: -0.8, regular: 0, relaxed: 1.2, oversized: 2.5 }[o.fit] ?? 0) + (style === 'snorkel' ? 1.5 : 0);
+    const fwd = { crossover: 3.5, scuba: 5, snorkel: 7 }[style] || 0; // how far the front edge comes forward of the neck point
+    const chin = style === 'scuba' ? 6 : style === 'snorkel' ? 3 : 0; // extra height over the chin
+    const hp = new Poly();
+    hp.add(-fwd, chin ? chin * 0.2 : 0, 'neck-f');
+    hp.add(Lf * 0.5, -1.2, 'neck-f');
+    hp.add(Lf, -1.4, 'neck-b');
+    hp.add(Lf + Lb * 0.5, -0.4, 'neck-b');
+    // back of the head: fullest at about half height, then a round crown (no point), easing down to the forehead
+    const Bk = [Ln, 1]; const K1 = [Ln + 3.2, Hh * 0.78]; const K2 = [Ln * 0.32, Hh];
+    bez(hp, Bk, [Ln + 4.5, 6], [Ln + 6.5, Hh * 0.5], K1, 'cb', 8);
+    bez(hp, K1, [Ln + 0.5, Hh * 0.97], [Ln * 0.68, Hh + 0.6], K2, 'cb', 8);
+    bez(hp, K2, [7 - fwd, Hh - 0.2], [2.5 - fwd, Hh - 1.2], [0.4 - fwd, Hh - 3.6], 'cb', 6);
+    bez(hp, [0.4 - fwd, Hh - 3.6], [-1 - fwd, Hh * 0.62], [-1.3 - fwd, Hh * 0.3], [-fwd, chin ? chin * 0.2 : 0], 'face', 7);
+    const hl = mirror(hp);
+    const up = wear.hood === 'up';
+    // worn up, the pieces are arranged with their top just above the crown so the hood settles straight onto the head
+    const py = up ? crown + 0.012 - Hh / 100 : BODY.shoulderY + 0.025;
+    const mkHood = (pid, name, poly, sd) => panels.push({ id: id(pid), name, role: 'hood', points: poly.pts, placement: { position: [sd * (up ? 0.108 : 0.03), py, up ? 0.075 : -0.07], rotationY: sd * Math.PI / 2 }, fabric, edges: { face: pathOf(poly, 'face') }, ...(style === 'lined-double' ? { lining: fabric } : {}),
+      // worn up, the crown of the hood stays where it settles on top of the head (as friction and the wearer's hair do)
+      ...(up ? { tack: { y0: Hh - 3.5, y1: Hh + 3, x0: sd > 0 ? 1 - fwd : -11, x1: sd > 0 ? 11 : -1 + fwd } } : {}),
+      // the drawcord channel draws the face opening in a little
+      gatherX: [{ x0: sd > 0 ? -2 - fwd : -3 + fwd - 0, x1: sd > 0 ? 3 - fwd : 2 + fwd, ratio: 0.93 }] });
+    mkHood('hood-r', 'Hood (left side)', hp, 1);
+    mkHood('hood-l', 'Hood (right side)', hl, -1);
+    seams.push(seam(id('hood-r'), hp, 'cb', id('hood-l'), hl, 'cb', sideStitch));
+    seams.push(seam(id('hood-r'), hp, 'neck-f', FR[0], FR[1], 'neck-r', sideStitch), seam(id('hood-r'), hp, 'neck-b', id('back'), t.back, 'neck-l', sideStitch));
+    seams.push(seam(id('hood-l'), hl, 'neck-f', FL[0], FL[1], 'neck-l', sideStitch), seam(id('hood-l'), hl, 'neck-b', id('back'), t.back, 'neck-r', sideStitch));
+    // three-panel hoods have a centre strip: its two seams are shown as stitch lines either side of the crown seam
+    if (style === 'three-panel') for (const [pid, poly] of [['hood-r', hp], ['hood-l', hl]]) { const inner = insetPath(pathOf(poly, 'cb'), 4.5, poly.pts); if (inner.length > 2) trims.push({ type: 'stitch-line', panel: id(pid), path: inner }); }
+    if (style === 'detachable') for (const sd of [1, -1]) for (const x of [4, 12, 20]) trims.push({ type: 'snap', panel: id('back'), at: [sd * Math.min(x, t.neckW + 2), t.H - 3.2] });
+    void COLLARS.hood;
+  }
+  else if (COLLARS[o.collar]) collars.push({ kind: 'collar', style: o.collar, ...COLLARS[o.collar], paths: neckPaths() });
   else if (o.neckline === 'mock') collars.push({ kind: 'collar', style: 'mock', stand: 5, fabric: /knit|jersey|fleece|terry|rib/.test(fabric) ? 'rib-knit' : undefined, paths: neckPaths() });
   else if (!t.split && /knit|jersey|fleece|terry|rib|pique|interlock/.test(fabric) && o.shoulder !== 'strap') collars.push({ kind: 'neckband', style: 'rib-neckband', stand: o.neckline === 'henley' ? 1.6 : 2, fabric: 'rib-knit', paths: neckPaths() });
   // sleeveless knits (tanks, A-shirts, racerbacks): rib binding round each armhole
@@ -432,7 +481,6 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
     if (o.collar === 'band-snap') trims.push({ type: 'snap', panel: id('front'), at: [-1, t.H - t.frontDrop - 1.5] });
   }
   if (o.collar === 'hood') {
-    overlays.push({ kind: 'hood', hidden: true, panel: id('back'), points: [[-16, t.H - 1], [16, t.H - 1], [15, t.H - 24], [6, t.H - 33], [-6, t.H - 33], [-15, t.H - 24]] });
     trims.push({ type: 'grommet', panel: id('front'), at: [4, t.H - t.frontDrop - 3] }, { type: 'grommet', panel: id('front'), at: [-4, t.H - t.frontDrop - 3] });
   }
 
@@ -446,6 +494,8 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   if (pk === 'zip') for (const s of [1, -1]) trims.push({ type: 'zipper', panel: id('front'), at: [s * 8, bot + 2], to: [s * 16, bot + 16] });
 
   if (o.vent === 'center') overlays.push({ kind: 'vent', panel: id('back'), points: rect(-0.5, 0, 0.5, 22) });
+  if (o.slit === 'back') overlays.push({ kind: 'vent', panel: id('back'), points: [[-0.4, 0], [0.4, 0], [0, o.slitHeight || 35]] });
+  if (o.slit === 'front') overlays.push({ kind: 'vent', panel: id('front'), points: [[-0.4, 0], [0.4, 0], [0, o.slitHeight || 35]] });
   if (o.vent === 'side') for (const s of [1, -1]) overlays.push({ kind: 'vent', panel: id('back'), points: rect(s * t.hw - 0.5, 0, s * t.hw + 0.5, 20) });
   if (o.belt !== 'none') {
     for (const pid of ['front', 'back']) overlays.push({ kind: 'belt', panel: id(pid), points: rect(-t.hw - o.flare * 0.3, t.sideH - 24, t.hw + o.flare * 0.3, t.sideH - 19) });
@@ -611,6 +661,9 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
     overlays.push({ kind: 'waistband', style: o.waistband, panel: id(pid), points: s > 0 ? band : band.reverse() });
     const legHalfC = legHalf; const cxs = (s > 0 ? 1 : -1) * src.cx;
     if (o.hem === 'turn-up') overlays.push({ kind: 'cuff', style: 'turn-up', panel: id(pid), points: rect(cxs - legHalfC, 0, cxs + legHalfC, 4.5) });
+    // a finished hem: the fold shows as a band (narrow double-turned on jeans, deeper blind hem on tailored trousers)
+    if ((o.hem === 'plain' || o.hem === 'split') && !shortLeg) overlays.push({ kind: 'hem', style: /denim/.test(fabric) ? 'double-turned' : 'blind', panel: id(pid), points: rect(cxs - legHalfC, 0, cxs + legHalfC, /denim/.test(fabric) ? 1.3 : /wool|suiting/.test(fabric) ? 4 : 2.5) });
+    if ((o.hem === 'plain' || o.hem === 'split') && shortLeg) { const hx = src.pts.filter((q) => q[1] < 0.6).map((q) => q[0] * (s > 0 ? 1 : -1)); if (hx.length >= 2) overlays.push({ kind: 'hem', style: 'turned', panel: id(pid), points: rect(Math.min(...hx), 0, Math.max(...hx), 2) }); }
     if (o.hem === 'rib-cuff') overlays.push({ kind: 'cuff', style: 'rib', panel: id(pid), points: rect(cxs - legHalfC, 0, cxs + legHalfC, 7) });
     if (o.beltLoops === 'yes' && o.waistband !== 'elastic') trims.push({ type: 'belt-loop', panel: id(pid), at: [s * 4, top - 2 + (isBack ? 5 : 0)] });
   }

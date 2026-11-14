@@ -76,7 +76,10 @@ export function bodyFor(project) {
   const chart = SIZE_CHARTS[project.sizeChart || 'unisex'] || SIZE_CHARTS.unisex;
   const m = project.customBody || chart.sizes[project.size || 'M'] || chart.sizes.M;
   const mannequin = project.mannequin || (project.sizeChart === 'womens' ? 'female' : 'male');
-  return bodyFromMeasurements(project.armAngle != null ? { ...m, armAngle: project.armAngle } : m, mannequin);
+  const body = bodyFromMeasurements(project.armAngle != null ? { ...m, armAngle: project.armAngle } : m, mannequin);
+  if (project.customMannequin?.id) body.customMesh = project.customMannequin.id; // your own body mesh for display and collision
+  body.scale = project.scale || 1; // miniature / doll scale: 1 = life size
+  return body;
 }
 
 export const DEFAULT_BODY = bodyFromMeasurements(SIZE_CHARTS.unisex.sizes.M, 'male');

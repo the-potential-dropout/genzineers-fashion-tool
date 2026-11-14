@@ -18,12 +18,14 @@ for (const id of Object.keys(TEMPLATES)) {
     const p = createProject(id);
     const missing = [...new Set([...p.panels.map((x) => !FABRICS[x.fabric] && !p.customFabrics?.[x.fabric] && `fabric:${x.fabric}`), ...p.seams.map((s) => !ASSEMBLY[s.stitch] && `stitch:${s.stitch}`), ...p.trims.map((t) => !TRIMS[t.type] && `trim:${t.type}`)].filter(Boolean))];
     const sim = buildCloth(p);
-    let maxY0 = -1e9; for (let i = 1; i < sim.pos.length; i += 3) maxY0 = Math.max(maxY0, sim.pos[i]);
+    // a hood worn down is meant to drop behind the neck: judge "fell off" on the rest of the garment
+    const body = new Uint8Array(sim.pos.length / 3).fill(1); for (const pn of sim.panels) if (pn.panel?.role === 'hood') body.fill(0, pn.offset, pn.offset + pn.count);
+    let maxY0 = -1e9; for (let i = 1; i < sim.pos.length; i += 3) if (body[(i - 1) / 3]) maxY0 = Math.max(maxY0, sim.pos[i]);
     const t0 = performance.now();
     let mv = 0; for (let f = 0; f < 300; f++) mv = sim.step(1 / 60);
     const ms = (performance.now() - t0) / 300;
     let minY = 1e9, maxY = -1e9, nan = 0;
-    for (let i = 1; i < sim.pos.length; i += 3) { const y = sim.pos[i]; if (!Number.isFinite(y)) nan++; minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+    for (let i = 1; i < sim.pos.length; i += 3) { const y = sim.pos[i]; if (!Number.isFinite(y)) nan++; minY = Math.min(minY, y); if (body[(i - 1) / 3]) maxY = Math.max(maxY, y); }
     const gaps = []; for (let e = 0; e < sim.srest.length; e++) { const a = sim.si[e*2]*3, b = sim.si[e*2+1]*3; gaps.push(Math.hypot(sim.pos[a]-sim.pos[b], sim.pos[a+1]-sim.pos[b+1], sim.pos[a+2]-sim.pos[b+2])); }
     gaps.sort((x, y) => x - y);
     const p95 = gaps.length ? gaps[Math.floor(gaps.length * 0.95)] * 100 : 0;
