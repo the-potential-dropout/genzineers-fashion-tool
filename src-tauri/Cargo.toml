@@ -1,0 +1,28 @@
+[package]
+name = "genzineers-fashion-tool"
+version = "0.1.0"
+description = "Genzineers Fashion Tool desktop app"
+authors = ["Genzineers <https://genzineers.com>"]
+license-file = "../LICENSE"
+edition = "2021"
+publish = false
+
+[lib]
+name = "gft_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Small, fast binary: size-optimised, LTO, stripped, no unwinding tables.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

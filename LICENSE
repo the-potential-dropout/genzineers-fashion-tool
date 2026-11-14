@@ -1,0 +1,111 @@
+Genzineers Source-Available License (GSAL) v1.0
+
+Copyright (c) 2026 Genzineers (https://genzineers.com). All rights reserved.
+
+This software, including its source code, compiled binaries, WebAssembly
+modules, documentation, templates, catalogs, data and all modified or
+derivative versions of any of them (together, the "Software"), is
+proprietary to Genzineers ("Licensor"). The source code is made publicly
+available for transparency, learning and non-commercial use only. The
+Software is NOT open source under the Open Source Definition.
+
+1. DEFINITIONS
+
+"Non-Commercial Purpose" means personal, hobby, educational, academic
+research, or evaluation use, or use by a registered non-profit for its
+non-revenue activities, in each case where neither you nor any third party
+receives payment, revenue or other commercial advantage from the use.
+
+"Commercial Purpose" means any use that is not a Non-Commercial Purpose,
+including without limitation: (a) using the Software, or any modified or
+derivative version of it, in or for a business, company, brand, agency,
+studio, factory or freelance practice; (b) using the Software to design,
+develop, sample, grade or prepare for manufacture any product that is sold,
+licensed, or offered for sale or hire; (c) offering the Software or any
+part of it as a hosted service, SaaS, API, plugin, app or integration;
+(d) selling, sublicensing, renting, bundling or distributing the Software
+or any modified or derivative version for a fee or any other commercial
+advantage; (e) using the Software for paid training, consulting or
+services; and (f) incorporating any part of the Software into another
+product.
+
+"Derivative" means any work that is based on, modified from, translated
+from, or incorporates any part of the Software, including ports to other
+languages and works produced by automated tools (including AI systems)
+from the Software's source code.
+
+2. LICENSE FOR NON-COMMERCIAL PURPOSES
+
+Subject to the terms of this License, Licensor grants you a worldwide,
+royalty-free, non-exclusive, non-transferable, revocable license to use,
+copy, modify, and run the Software, and to make Derivatives of it, solely
+for Non-Commercial Purposes.
+
+You may redistribute unmodified copies or Derivatives of the Software,
+solely for Non-Commercial Purposes and free of charge, provided that you:
+(a) include this License in full and unmodified; (b) keep all copyright
+notices, attribution and links to genzineers.com, thepotentialdropout.com
+and potentialdropout.com that appear in the Software's user interface and
+documentation; (c) clearly mark any modified files and state that your
+version is modified and not an official Genzineers release; and (d) apply
+this same License to your Derivative.
+
+3. COMMERCIAL USE REQUIRES A SEPARATE LICENSE
+
+Any use for a Commercial Purpose, by you or on your behalf, of the Software
+or of any modified or Derivative version of it, requires a separate written
+commercial license from Genzineers. To obtain one, contact Genzineers via
+https://genzineers.com. Without such a license, no rights for any
+Commercial Purpose are granted, whether by implication, estoppel or
+otherwise.
+
+4. YOUR DESIGNS
+
+As between you and Licensor, you own the designs, patterns, images and
+other content you create with the Software ("Your Content"), subject to
+any third-party rights. This License does not grant you the right to use
+the Software itself for a Commercial Purpose, including to create Your
+Content for a Commercial Purpose, without a commercial license under
+Section 3.
+
+5. TRADEMARKS
+
+This License grants no rights to use the names, logos or trademarks
+"Genzineers", "Genzineers Fashion Tool", "The Potential Dropout" or
+"Potential Dropout", except as needed to retain the attribution required
+by Section 2.
+
+6. CONTRIBUTIONS
+
+Contributions are accepted only under the Contributor License Agreement in
+CONTRIBUTING.md, which allows Licensor to license contributions under any
+terms, including commercial terms.
+
+7. THIRD-PARTY COMPONENTS
+
+Third-party components included with or loaded by the Software remain under
+their own licenses (see THIRD_PARTY_NOTICES.md). Nothing in this License
+restricts your rights under those licenses for those components.
+
+8. TERMINATION
+
+This License terminates automatically if you breach any of its terms. Upon
+termination you must stop using and distributing the Software and destroy
+all copies in your possession. Sections 3, 4, 5, 8, 9 and 10 survive
+termination.
+
+9. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, ACCURACY OF SIMULATIONS, MEASUREMENTS,
+MATERIAL OR COST ESTIMATES, AND NON-INFRINGEMENT. Simulation results,
+guidance, estimates and generated production files are aids only and must
+be verified by qualified professionals before manufacturing.
+
+10. LIMITATION OF LIABILITY
+
+IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.

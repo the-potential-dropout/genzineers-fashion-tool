@@ -1,0 +1,15 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+const c = new Client({ name: 'test', version: '1' });
+await c.connect(new StdioClientTransport({ command: 'node', args: ['mcp-server/index.js'], env: { ...process.env, GFT_PROJECT: 'scripts/.mcp-test.json', GFT_PORT: '7831' } }));
+const tools = await c.listTools();
+console.log('tools:', tools.tools.map((t) => t.name).join(', '));
+const r1 = await c.callTool({ name: 'new_design', arguments: { template: 'baseball-cap' } });
+console.log('new_design:', r1.content[0].text.slice(0, 80).replace(/\s+/g, ' '));
+const r2 = await c.callTool({ name: 'apply_actions', arguments: { actions: [{ type: 'set_option', key: 'stiffener', value: 'cardboard' }, { type: 'set_finish', panel: 'all', color: '#1d2a44' }] } });
+console.log('apply:', r2.content[0].text.replace(/\s+/g, ' ').slice(0, 160));
+const r3 = await c.callTool({ name: 'recommend', arguments: { fabric: 'denim-japanese-selvedge' } });
+console.log('recommend:', JSON.parse(r3.content[0].text).reasons[0]);
+const r4 = await c.callTool({ name: 'status', arguments: {} });
+console.log('status:', r4.content[0].text.replace(/\s+/g, ' '));
+await c.close();

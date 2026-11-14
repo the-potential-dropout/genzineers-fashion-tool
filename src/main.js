@@ -1,0 +1,665 @@
+// Copyright (c) 2026 Genzineers (genzineers.com). All rights reserved.
+// Licensed under the Genzineers Source-Available License. See LICENSE.
+import { createStore, settings } from './app/store.js';
+import { createPatternEditor } from './app/pattern.js';
+import { Viewer } from './render/viewer.js';
+import { initSolver, buildCloth, solverKind } from './sim/cloth.js';
+import { TEMPLATES, TEMPLATE_GROUPS } from './core/templates.js';
+import { GENERATORS } from './core/blocks.js';
+import { FABRICS, FABRIC_FAMILIES, FABRIC_CATEGORIES, resolveFabric } from './core/fabrics.js';
+import { ASSEMBLY, ASSEMBLY_GROUPS, THREADS } from './core/assembly.js';
+import { TRIMS, TRIM_GROUPS } from './core/trims.js';
+import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS, compatible } from './core/color.js';
+import { BLENDS, FIBERS, INSULATION, QUILTING, WATERPROOF } from './core/materials.js';
+import { SIZE_CHARTS } from './core/sizes.js';
+import { recommendFor, checkProject, fabricTip } from './core/guidance.js';
+import { JEWELRY_TEMPLATES, JEWELRY_GROUPS, METALS, GEMS, CUTS, SETTINGS, LINKS, CLASPS, BAILS, EARRING_BACKS, RING_PROFILES, PLATINGS, estimateMetal, caratEstimate, ringSize, goldAlloy } from './core/jewelry.js';
+import { PROVIDERS, IMAGE_PROVIDERS, chat, generateImage } from './ai/providers.js';
+import { SCOPES, systemPrompt, parseActions, filterActions } from './ai/assistant.js';
+import { connectBridge } from './ai/bridge.js';
+import { techPackHTML, patternSVG, patternDXF, tiledPrintHTML, bomCSV, GUIDE, rfqTemplates } from './make/production.js';
+import { parseDXF, parseSVG, piecesToActions, MODEL_EXT, readAs } from './io/import.js';
+
+const LINKS_OUT = {
+  genzineers: 'https://genzineers.com/?utm_source=fashion-tool&utm_medium=app&utm_campaign=gft',
+  tpd: 'https://thepotentialdropout.com/?utm_source=fashion-tool&utm_medium=app&utm_campaign=gft',
+  pd: 'https://potentialdropout.com/?utm_source=fashion-tool&utm_medium=app&utm_campaign=gft',
+  licence: 'https://genzineers.com/?utm_source=fashion-tool&utm_medium=app&utm_campaign=commercial-licence',
+  repo: 'https://github.com/the-potential-dropout/genzineers-fashion-tool',
+};
+
+// ---------- tiny DOM helper ----------
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'class') el.className = v;
+    else if (k === 'html') el.innerHTML = v;
+    else if (k === 'value') el.value = v;
+    else if (k === 'checked' || k === 'selected' || k === 'disabled') el[k] = Boolean(v);
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) el.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return el;
+}
+const sel = (value, options, onchange, attrs = {}) => h('select', { ...attrs, onchange: (e) => onchange(e.target.value) }, options.map((o) => (o.group ? h('optgroup', { label: o.group }, o.items.map((i) => h('option', { value: i.value, selected: i.value === value }, i.label))) : h('option', { value: o.value, selected: o.value === value }, o.label))));
+const field = (label, input, right) => h('label', { class: 'field' }, h('span', {}, label, right || ''), input);
+const pretty = (s) => String(s).replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+const toast = (msg, ms = 2600) => { const t = h('div', { class: 'toast', role: 'status' }, msg); document.body.append(t); setTimeout(() => t.remove(), ms); };
+function download(name, data, type = 'text/plain') {
+  const blob = data instanceof Blob ? data : new Blob([data], { type });
+  const a = h('a', { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function openDoc(html, name) {
+  const w = window.open('', '_blank');
+  if (w) { w.document.open(); w.document.write(html); w.document.close(); } else download(name, html, 'text/html');
+}
+
+// ---------- app ----------
+const store = createStore();
+const ui = { step: 'style', group: 'All', query: '', target: 'all', garment: 'g0', fabCat: 'All', trimGroup: 'Buttons', placing: null, ai: false, aiTab: 'chat', history: [], pattern: 'off', jGroup: 'All' };
+
+const root = document.getElementById('app');
+const top = h('header', { class: 'top' });
+const panel = h('aside', { class: 'panel', 'aria-label': 'Design steps' });
+const stage = h('section', { class: 'stage', 'aria-label': '3D view' });
+const viewEl = h('div', { class: 'view' });
+const patternCanvas = h('canvas', { class: 'pattern', 'aria-label': 'Pattern editor' });
+const hud = h('div', { class: 'hud' });
+const placeHint = h('div', { class: 'pill place-hint hide' });
+const drawer = h('aside', { class: 'drawer', 'aria-label': 'AI assistant' });
+stage.append(viewEl, patternCanvas, hud, placeHint);
+root.append(top, h('div', { class: 'layout' }, panel, stage, drawer));
+
+const viewer = new Viewer(viewEl);
+viewer.onError = (m) => toast(m, 5000);
+const pattern = createPatternEditor(patternCanvas, store);
+let sim = null;
+let simStatus = { text: 'Loading…', live: true };
+let lastMs = 0;
+
+// theme
+const theme = settings.get('theme', 'system');
+if (theme !== 'system') document.documentElement.dataset.theme = theme;
+viewer.setAutoOrbit(settings.get('orbit', true) && !viewer.reducedMotion);
+
+// ---------- rebuild on change ----------
+let rebuildTimer;
+function rebuild(info = {}) {
+  const p = store.get();
+  if (p.mode === 'jewelry') { sim?.dispose?.(); sim = null; viewer.setProject(p, null); simStatus = { text: 'Jewelry preview', live: false }; renderHud(); return; }
+  if (info.lookOnly && sim) { viewer.refreshLooks(p); return; }
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(() => {
+    sim?.dispose?.();
+    const t0 = performance.now();
+    sim = buildCloth(p);
+    lastMs = performance.now() - t0;
+    viewer.setProject(p, sim);
+    if (!info.keepCamera) viewer.frameGarment();
+    simStatus = { text: 'Sewing & draping…', live: true };
+    renderHud();
+  }, 40);
+}
+let stepMs = 0;
+viewer.onStep = (mv) => { stepMs = stepMs * 0.9 + 0.1 * (performance.now() - (viewer._t || performance.now())); viewer._t = performance.now(); void mv; };
+viewer.onSleep = () => { simStatus = { text: `Settled · ${sim?.stats.particles.toLocaleString()} pts · ${solverKind()}`, live: false }; renderHud(); };
+
+store.subscribe((p, info) => {
+  rebuild({ lookOnly: info.lookOnly, keepCamera: info.lookOnly || info.source === 'ui' });
+  renderAll();
+});
+
+// ---------- top bar ----------
+function renderTop() {
+  const p = store.get();
+  top.replaceChildren(
+    h('a', { class: 'brand', href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener', title: 'By Genzineers' }, h('span', { class: 'mark', 'aria-hidden': 'true' }, '✂'), h('span', { class: 'full' }, 'Genzineers ', h('small', {}, 'Fashion Tool'))),
+    h('div', { class: 'seg', role: 'tablist', 'aria-label': 'Design mode' },
+      h('button', { class: p.mode !== 'jewelry' ? 'on' : '', role: 'tab', onclick: () => p.mode === 'jewelry' && store.dispatch({ type: 'new_garment', template: p.template || 'crew-tee' }) }, 'Clothing'),
+      h('button', { class: p.mode === 'jewelry' ? 'on' : '', role: 'tab', onclick: () => p.mode !== 'jewelry' && store.dispatch({ type: 'new_jewelry', template: 'solitaire-ring' }) }, 'Jewelry')),
+    h('div', { class: 'spacer' }),
+    h('button', { class: 'btn ghost icon', title: 'Undo (Ctrl+Z)', 'aria-label': 'Undo', disabled: !store.canUndo(), onclick: () => store.undo() }, '↶'),
+    h('button', { class: 'btn ghost icon', title: 'Redo (Ctrl+Shift+Z)', 'aria-label': 'Redo', disabled: !store.canRedo(), onclick: () => store.redo() }, '↷'),
+    h('button', { class: `btn desk-only ${ui.pattern !== 'off' ? 'primary' : ''}`, onclick: () => { ui.pattern = ui.pattern === 'off' ? 'split' : ui.pattern === 'split' ? 'only' : 'off'; applyPatternMode(); renderTop(); }, title: 'Show the 2D pattern editor' }, ui.pattern === 'off' ? 'Pattern' : ui.pattern === 'split' ? 'Pattern: split' : 'Pattern: full'),
+    h('button', { class: 'btn', onclick: () => toggleAI(true), title: 'AI assistant & image tools' }, '✦ AI'),
+    h('button', { class: 'btn primary', onclick: () => { ui.step = 'make'; renderPanel(); } }, 'Make it →'),
+    h('button', { class: 'btn ghost icon', 'aria-label': 'Menu', onclick: (e) => { e.stopPropagation(); openMenu(); } }, '⋯'),
+  );
+}
+function applyPatternMode() {
+  stage.classList.toggle('split', ui.pattern === 'split');
+  stage.classList.toggle('pattern-only', ui.pattern === 'only');
+  if (ui.pattern !== 'off') setTimeout(() => { pattern.resize(); pattern.fit(); }, 30);
+  setTimeout(() => viewer.resize(), 30);
+}
+if (matchMedia('(max-width: 760px)').matches) ui.pattern = 'off';
+
+// ---------- menu ----------
+let menuEl;
+function openMenu() {
+  menuEl?.remove();
+  const p = store.get();
+  const item = (label, fn) => h('button', { onclick: () => { menuEl.remove(); fn(); } }, label);
+  menuEl = h('div', { class: 'menu', role: 'menu' },
+    item('Open / import file… (project, DXF, SVG, STL, OBJ, GLB, STEP…)', () => fileInput.click()),
+    item('Save project (.json)', () => download(`${p.name}.gft.json`, JSON.stringify(p, null, 1), 'application/json')),
+    item('Export 3D model (GLB)', async () => download(`${p.name}.glb`, await viewer.exportModel('glb'))),
+    item('Export 3D model (OBJ)', async () => download(`${p.name}.obj`, await viewer.exportModel('obj'))),
+    item('Export 3D model (STL, for 3D printing / casting)', async () => download(`${p.name}.stl`, await viewer.exportModel('stl'))),
+    item('Snapshot (PNG)', () => download(`${p.name}.png`, dataUrlToBlob(viewer.snapshot(1600)))),
+    h('hr'),
+    item(`Auto-orbit: ${viewer.autoOrbit ? 'on' : 'off'}`, () => { viewer.setAutoOrbit(!viewer.autoOrbit); settings.set('orbit', viewer.autoOrbit); }),
+    item(`Theme: ${settings.get('theme', 'system')}`, () => { const order = ['system', 'light', 'dark']; const nt = order[(order.indexOf(settings.get('theme', 'system')) + 1) % 3]; settings.set('theme', nt); if (nt === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = nt; viewer.setBackground(getComputedStyle(document.documentElement).getPropertyValue('--stage').trim() || '#eceae6'); }),
+    item('Connect AI & tools…', () => { ui.aiTab = 'connect'; toggleAI(true); }),
+    h('hr'),
+    h('a', { href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener' }, 'Genzineers: more tools ↗'),
+    h('a', { href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'The Potential Dropout: learn to build & launch ↗'),
+    h('a', { href: LINKS_OUT.pd, target: '_blank', rel: 'noopener' }, 'Potential Dropout ↗'),
+    h('a', { href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Get a commercial licence ↗'),
+    item('About & licence', () => showAbout()),
+  );
+  document.body.append(menuEl);
+  setTimeout(() => document.addEventListener('click', () => menuEl?.remove(), { once: true }), 0);
+}
+const dataUrlToBlob = (u) => { const [m, b] = u.split(','); const bin = atob(b); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: m.split(':')[1].split(';')[0] }); };
+
+// ---------- import ----------
+const fileInput = h('input', { type: 'file', class: 'hide', accept: ['.json', '.dxf', '.svg', ...MODEL_EXT.map((e) => `.${e}`)].join(','), onchange: async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) await importFile(f); } });
+document.body.append(fileInput);
+async function importFile(f) {
+  const ext = f.name.toLowerCase().split('.').pop();
+  try {
+    if (ext === 'json') { store.replace(JSON.parse(await readAs(f, 'readAsText'))); toast('Project opened'); return; }
+    if (ext === 'dxf' || ext === 'svg') {
+      const pieces = ext === 'dxf' ? parseDXF(await readAs(f, 'readAsText')) : parseSVG(await readAs(f, 'readAsText'));
+      if (!pieces.length) throw new Error('No closed pattern pieces found');
+      if (store.get().mode === 'jewelry') { store.dispatch({ type: 'set_custom_shape', target: 'pendant', points: pieces[0].points.map(([x, y]) => [x * 10, y * 10]) }); toast('Shape used as a custom pendant'); return; }
+      store.dispatch(piecesToActions(pieces));
+      toast(`Imported ${pieces.length} pattern piece(s). Add seams in Details or ask the AI to sew them.`, 4500);
+      return;
+    }
+    if (MODEL_EXT.includes(ext)) {
+      if (store.get().mode !== 'jewelry') store.dispatch({ type: 'new_jewelry', template: 'pendant-necklace' });
+      const data = await readAs(f, 'readAsDataURL');
+      store.dispatch({ type: 'add_part', name: f.name, data, material: store.get().jewelry.metal });
+      ui.step = 'details'; renderPanel();
+      toast('CAD part imported. Adjust material, size and shape under Details.', 4000);
+      return;
+    }
+    throw new Error(`Unsupported file .${ext}`);
+  } catch (err) { toast(`Import failed: ${err.message}`, 6000); }
+}
+stage.addEventListener('dragover', (e) => e.preventDefault());
+stage.addEventListener('drop', (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) importFile(f); });
+
+// ---------- HUD ----------
+function renderHud() {
+  const p = store.get();
+  hud.replaceChildren(...[
+    h('span', { class: 'pill' }, h('span', { class: `dot ${simStatus.live ? 'live' : 'ok'}` }), simStatus.text),
+    p.mode !== 'jewelry' ? h('button', { class: 'pill', onclick: () => rebuild({ keepCamera: true }) }, '↻ Re-drape') : null,
+    h('button', { class: 'pill', onclick: () => (p.mode === 'jewelry' ? viewer.setProject(p) : viewer.frameGarment()) }, '⤢ Fit'),
+    h('button', { class: 'pill', onclick: () => { viewer.setAutoOrbit(!viewer.autoOrbit); settings.set('orbit', viewer.autoOrbit); renderHud(); } }, viewer.autoOrbit ? '⟳ Orbit on' : '⟳ Orbit off'),
+    p.mode !== 'jewelry' ? h('span', { class: 'pill' }, `Size ${p.customBody ? 'custom' : p.size} · ${SIZE_CHARTS[p.sizeChart || 'unisex'].label}`) : null,
+    h('button', { class: 'pill', onclick: () => { ui.aiTab = 'images'; ui.useRef = true; toggleAI(true); } }, '✦ AI render'),
+  ].filter(Boolean));
+}
+
+// ---------- placing trims by clicking the garment ----------
+viewEl.addEventListener('click', (e) => {
+  if (!ui.placing) return;
+  const hit = viewer.pick(e.clientX, e.clientY);
+  if (!hit) return toast('Click on the garment');
+  const def = TRIMS[ui.placing];
+  const a = { type: 'add_trim', trim: ui.placing, panel: hit.panelId, at: hit.local.map((v) => Math.round(v * 10) / 10) };
+  if (def.line) a.to = [a.at[0] + 10, a.at[1]];
+  store.dispatch(a);
+});
+addEventListener('keydown', (e) => {
+  const mod = e.ctrlKey || e.metaKey;
+  if (e.key === 'Escape' && ui.placing) { ui.placing = null; renderPanel(); renderPlaceHint(); }
+  if (mod && e.key.toLowerCase() === 'z' && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) { e.preventDefault(); e.shiftKey ? store.redo() : store.undo(); }
+  if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); store.redo(); }
+});
+function renderPlaceHint() {
+  placeHint.classList.toggle('hide', !ui.placing);
+  if (ui.placing) placeHint.replaceChildren(`Click the garment to place ${TRIMS[ui.placing].name} · `, h('button', { class: 'btn sm', onclick: () => { ui.placing = null; renderPanel(); renderPlaceHint(); } }, 'Done'));
+}
+
+// ---------- panel ----------
+const STEPS = [['style', 'Style'], ['materials', 'Materials'], ['details', 'Details'], ['make', 'Make it']];
+function renderPanel() {
+  const p = store.get();
+  const scrollTop = panel.querySelector('.scroll')?.scrollTop || 0;
+  const body = h('div', { class: 'scroll' });
+  const isJ = p.mode === 'jewelry';
+  const fns = isJ ? { style: jStyle, materials: jMaterials, details: jDetails, make: jMake } : { style: cStyle, materials: cMaterials, details: cDetails, make: cMake };
+  fns[ui.step](body, p);
+  panel.replaceChildren(
+    h('nav', { class: 'steps', role: 'tablist' }, STEPS.map(([k, l], i) => h('button', { class: ui.step === k ? 'on' : '', role: 'tab', 'aria-selected': ui.step === k, onclick: () => { ui.step = k; renderPanel(); } }, h('span', { class: 'n' }, i + 1), isJ && k === 'details' ? 'Stones & parts' : l))),
+    body,
+    h('div', { class: 'foot' }, 'Free for personal use · ', h('a', { href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Commercial licence'), ' · by ', h('a', { href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener' }, 'Genzineers'), ' · ', h('a', { href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'Learn to launch')),
+  );
+  panel.querySelector('.scroll').scrollTop = scrollTop;
+}
+const next = (label, step) => h('div', { style: 'margin-top:14px;display:flex;justify-content:flex-end' }, h('button', { class: 'btn primary', onclick: () => { ui.step = step; renderPanel(); } }, label));
+
+// ===== Clothing: Style =====
+const KEY_OPTS = { top: ['fit', 'length', 'sleeve', 'cuff', 'neckline', 'collar', 'lapel', 'closure', 'insulation'], bottom: ['fit', 'inseam', 'rise', 'leg', 'waistband', 'hem', 'pockets'], skirt: ['length', 'flare', 'waistband', 'slit'], hat: ['style', 'height', 'brim', 'stiffener', 'billShape', 'closure'], bag: ['type', 'width', 'height', 'depth', 'handles', 'closure', 'hardware'], scarf: ['length', 'width', 'ends'], tie: ['width', 'length', 'tip', 'knot'] };
+function cStyle(el, p) {
+  const t = TEMPLATES[p.template];
+  if (t?.why) el.append(h('div', { class: 'tip' }, h('b', {}, 'Industry default: '), t.why));
+  const groups = ['All', ...TEMPLATE_GROUPS];
+  const list = Object.entries(TEMPLATES).filter(([id, v]) => (ui.group === 'All' || v.group === ui.group) && (!ui.query || `${v.name} ${v.group} ${v.audience || ''}`.toLowerCase().includes(ui.query.toLowerCase())));
+  el.append(h('div', { class: 'sec' },
+    h('h3', {}, 'Start from a template'),
+    h('input', { class: 'inp', type: 'search', placeholder: 'Search: hoodie, peak lapel, 5 inch shorts, fedora, tote…', value: ui.query, oninput: (e) => { ui.query = e.target.value; const pos = e.target.selectionStart; renderPanel(); const i = panel.querySelector('input[type=search]'); i.focus(); i.setSelectionRange(pos, pos); }, 'aria-label': 'Search templates' }),
+    h('div', { class: 'chips scrollx', style: 'margin:8px 0' }, groups.map((g) => h('button', { class: `chip ${ui.group === g ? 'on' : ''}`, onclick: () => { ui.group = g; renderPanel(); } }, g))),
+    h('div', { class: 'grid2' }, list.slice(0, ui.query || ui.group !== 'All' ? 200 : 12).map(([id, v]) => h('button', { class: `tile ${p.template === id ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'new_garment', template: id }) }, h('div', { class: 't' }, v.name), h('div', { class: 's' }, v.group, v.audience ? ` · ${v.audience}` : '')))),
+    !ui.query && ui.group === 'All' ? h('div', { class: 's', style: 'margin-top:6px;color:var(--muted);font-size:12px' }, `${Object.keys(TEMPLATES).length} templates. Pick a category to see all.`) : null,
+  ));
+  // garment options
+  const gs = p.garments || [];
+  if (gs.length) {
+    if (!gs.some((g) => g.id === ui.garment)) ui.garment = gs[0].id;
+    const g = gs.find((x) => x.id === ui.garment);
+    const schema = GENERATORS[g.generator].options;
+    const opt = (k) => {
+      const s = schema[k]; if (!s) return null;
+      const val = g.options[k];
+      const input = s.type === 'select'
+        ? sel(val, s.values.map((v) => ({ value: v, label: pretty(v) + (v === s.default ? ' (default)' : '') })), (v) => store.dispatch({ type: 'set_option', garment: g.id, key: k, value: v }))
+        : h('input', { type: 'range', min: s.min, max: s.max, step: s.step, value: val, onchange: (e) => store.dispatch({ type: 'set_option', garment: g.id, key: k, value: Number(e.target.value) }), oninput: (e) => (e.target.closest('label').querySelector('b').textContent = e.target.value) });
+      return field(s.label, input, s.type === 'range' ? h('b', {}, val) : null);
+    };
+    const keys = KEY_OPTS[g.generator] || Object.keys(schema);
+    el.append(h('div', { class: 'sec' },
+      h('h3', {}, 'Customise'),
+      gs.length > 1 ? h('div', { class: 'chips', style: 'margin-bottom:8px' }, gs.map((x) => h('button', { class: `chip ${x.id === ui.garment ? 'on' : ''}`, onclick: () => { ui.garment = x.id; renderPanel(); } }, GENERATORS[x.generator].label.split(' /')[0]))) : null,
+      keys.map(opt),
+      h('details', {}, h('summary', {}, 'All options'), h('div', {}, Object.keys(schema).filter((k) => !keys.includes(k)).map(opt))),
+    ));
+  }
+  // size
+  const chart = SIZE_CHARTS[p.sizeChart || 'unisex'];
+  el.append(h('div', { class: 'sec' },
+    h('h3', {}, 'Size (re-drafts the pattern and the avatar)'),
+    h('div', { class: 'seg', style: 'margin-bottom:8px' }, Object.entries(SIZE_CHARTS).map(([k, c]) => h('button', { class: (p.sizeChart || 'unisex') === k ? 'on' : '', onclick: () => store.dispatch({ type: 'set_size', chart: k, size: c.sizes[p.size] ? p.size : 'M' }) }, c.label))),
+    h('div', { class: 'chips' }, Object.keys(chart.sizes).map((s) => h('button', { class: `chip ${!p.customBody && p.size === s ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'set_size', size: s }) }, s))),
+    h('details', { style: 'margin-top:8px' }, h('summary', {}, 'Custom measurements (cm)'), h('div', { class: 'grid2' }, ['chest', 'waist', 'hip', 'height', 'inseam', 'head', 'neck'].map((k) => field(pretty(k), h('input', { type: 'number', value: (p.customBody || chart.sizes[p.size] || chart.sizes.M)[k], onchange: (e) => store.dispatch({ type: 'set_size', custom: { [k]: Number(e.target.value) } }) }))))),
+  ));
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Outfit'), field('Add another garment (e.g. trousers to make a suit)', sel('', [{ value: '', label: 'Choose…' }, ...TEMPLATE_GROUPS.map((gr) => ({ group: gr, items: Object.entries(TEMPLATES).filter(([, v]) => v.group === gr).map(([id, v]) => ({ value: id, label: v.name })) }))], (v) => v && store.dispatch({ type: 'add_garment', template: v }))),
+    gs.length > 1 ? h('div', { class: 'list' }, gs.map((x) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${x.id}: ${GENERATORS[x.generator].label}`)), h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_garment', garment: x.id }) }, 'Remove')))) : null));
+  el.append(next('Next: materials →', 'materials'));
+}
+
+// ---- target chooser (all / garment / panel) ----
+function targetChips(p) {
+  const opts = [['all', 'Whole outfit'], ...((p.garments || []).length > 1 ? p.garments.map((g) => [`g:${g.id}`, GENERATORS[g.generator].label.split(' /')[0]]) : []), ...p.panels.map((x) => [`p:${x.id}`, x.name])];
+  if (!opts.some(([k]) => k === ui.target)) ui.target = 'all';
+  return h('div', { class: 'sec' }, h('h3', {}, 'Apply to'), h('div', { class: 'chips scrollx' }, opts.map(([k, l]) => h('button', { class: `chip ${ui.target === k ? 'on' : ''}`, onclick: () => { ui.target = k; renderPanel(); } }, l))));
+}
+const tgt = () => (ui.target.startsWith('p:') ? { panel: ui.target.slice(2) } : ui.target.startsWith('g:') ? { panel: 'all', garment: ui.target.slice(2) } : { panel: 'all' });
+const tgtPanel = (p) => (ui.target.startsWith('p:') ? p.panels.find((x) => x.id === ui.target.slice(2)) : ui.target.startsWith('g:') ? p.panels.find((x) => x.garment === ui.target.slice(2)) : p.panels[0]);
+
+// ===== Clothing: Materials =====
+function cMaterials(el, p) {
+  el.append(targetChips(p));
+  const cur = tgtPanel(p); if (!cur) return;
+  const fab = resolveFabric(p, cur.fabric, cur.fabricOverrides);
+  const rec = recommendFor(cur.fabric, p);
+  el.append(h('div', { class: 'tip' }, h('b', {}, fab.name), ` · ${fab.fiber} · ${fab.weightGsm} gsm. `, fabricTip(fab.id) || fab.note || '', h('br'), h('b', {}, 'Recommended: '), `${ASSEMBLY[rec.stitch]?.name}, ${THREADS[rec.thread]?.name}, needle ${rec.needle}, ${rec.spi} SPI.`));
+  // fabric picker
+  const cats = ['All', ...FABRIC_CATEGORIES];
+  const q = (ui.fabQ || '').toLowerCase();
+  const fams = Object.values(FABRIC_FAMILIES).filter((f) => (ui.fabCat === 'All' || f.category === ui.fabCat) && (!q || f.variants.some((v) => `${FABRICS[v].name} ${FABRICS[v].fiber}`.toLowerCase().includes(q))));
+  el.append(h('div', { class: 'sec' },
+    h('h3', {}, 'Fabric'),
+    h('input', { class: 'inp', type: 'search', placeholder: 'Search fabrics: selvedge, virgin wool, pre-shrunk, ripstop, waterproof…', value: ui.fabQ || '', oninput: (e) => { ui.fabQ = e.target.value; const pos = e.target.selectionStart; renderPanel(); const i = panel.querySelectorAll('input[type=search]')[0]; i.focus(); i.setSelectionRange(pos, pos); } }),
+    h('div', { class: 'chips scrollx', style: 'margin:8px 0' }, cats.map((c) => h('button', { class: `chip ${ui.fabCat === c ? 'on' : ''}`, onclick: () => { ui.fabCat = c; renderPanel(); } }, c))),
+    h('div', { class: 'list' }, fams.map((f) => {
+      const inFam = f.variants.includes(cur.fabric);
+      return h('div', { class: 'row', style: inFam ? 'border-color:var(--accent)' : '' },
+        h('span', { class: 'sw', style: `background:${FABRICS[f.id].look.color}` }),
+        h('div', { class: 'grow' }, h('div', { class: 't' }, f.name), h('div', { class: 's' }, `${f.category} · ${f.fiber}`)),
+        sel(inFam ? cur.fabric : '', [{ value: '', label: f.variants.length > 1 ? `${f.variants.length} qualities…` : 'Use' }, ...f.variants.map((v) => ({ value: v, label: FABRICS[v].name.replace(f.name, '').trim() || 'Standard' }))], (v) => v && store.dispatch({ type: 'set_fabric', ...tgt(), fabric: v }), { class: 'inp', style: 'width:auto;max-width:46%', 'aria-label': `${f.name} quality` }));
+    })),
+  ));
+  // blends
+  el.append(h('details', {}, h('summary', {}, 'Fibre blends (e.g. 65/35 poly-cotton, 95/5 cotton-spandex)'), h('div', {},
+    h('div', { class: 'list' }, Object.entries(BLENDS).map(([id, b]) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${b.name}`), h('div', { class: 's' }, `${Object.entries(b.composition).map(([k, v]) => `${v}% ${k}`).join(' / ')} · ${b.uses}`), h('div', { class: 's' }, h('span', { class: 'okc' }, '+ '), b.pros), h('div', { class: 's' }, h('span', { class: 'warn' }, '− '), b.cons)), h('button', { class: 'btn sm', onclick: () => { store.dispatch([{ type: 'create_blend', id: `blend-${id}`, blend: id }, { type: 'set_fabric', ...tgt(), fabric: `blend-${id}` }]); } }, 'Use')))),
+    h('h3', { style: 'margin-top:12px' }, 'Custom blend'),
+    customBlend(),
+  )));
+  // colour & finish
+  const fin = cur.finish || {};
+  const dyeOk = (id) => compatible(DYES[id], fab).ok;
+  const recDye = rec.dye;
+  el.append(h('div', { class: 'sec' },
+    h('h3', {}, 'Colour & dyeing'),
+    h('div', { class: 'grid2' },
+      field('Colour', h('input', { type: 'color', value: fin.color || fab.look.color, onchange: (e) => store.dispatch({ type: 'set_finish', ...tgt(), color: e.target.value }) })),
+      field('Dye method', sel(fin.dye || '', [{ value: '', label: 'As supplied' }, ...Object.entries(DYES).map(([id, d]) => ({ value: id, label: `${d.name}${id === recDye ? ' ★ recommended' : ''}${dyeOk(id) ? '' : ' (not for this fibre)'}` }))], (v) => store.dispatch({ type: 'set_finish', ...tgt(), dye: v || null })))),
+    fin.dye ? h('div', { class: 's', style: 'font-size:12px;color:var(--muted)' }, DYES[fin.dye].use, DYES[fin.dye].note ? ` ${DYES[fin.dye].note}` : '') : null,
+    h('h3', { style: 'margin-top:12px' }, 'Print'),
+    h('div', { class: 'grid2' },
+      field('Method', sel(fin.print?.method || '', [{ value: '', label: 'No print' }, ...Object.entries(PRINT_METHODS).map(([id, m]) => ({ value: id, label: `${m.name}${id === rec.print ? ' ★' : ''}${compatible(m, fab).ok ? '' : ' (not for this fibre)'}` }))], (v) => store.dispatch({ type: 'set_finish', ...tgt(), print: v ? { ...(fin.print || { design: 'stripes', colors: ['#111111', '#ffffff', '#c0392b'] }), method: v } : null }))),
+      field('Design', sel(fin.print?.design || 'stripes', PRINT_DESIGNS.map((d) => ({ value: d, label: pretty(d) })), (v) => store.dispatch({ type: 'set_finish', ...tgt(), print: { method: fin.print?.method || rec.print, colors: fin.print?.colors || ['#111111', '#ffffff', '#c0392b'], ...(fin.print || {}), design: v } })))),
+    fin.print ? h('div', { class: 'grid2' }, [0, 1, 2].map((i) => field(`Print colour ${i + 1}`, h('input', { type: 'color', value: fin.print.colors?.[i] || '#111111', onchange: (e) => { const c = [...(fin.print.colors || ['#111111', '#ffffff', '#c0392b'])]; c[i] = e.target.value; store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, colors: c } }); } }))), field('Artwork image', h('input', { type: 'file', accept: 'image/*', onchange: async (e) => { const f = e.target.files[0]; if (f) store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, design: 'image', image: await readAs(f, 'readAsDataURL') } }); } }))) : null,
+    h('h3', { style: 'margin-top:12px' }, 'Paint'),
+    h('div', { class: 'grid2' },
+      field('Paint', sel(fin.paint?.method || '', [{ value: '', label: 'No paint' }, ...Object.entries(PAINTS).map(([id, m]) => ({ value: id, label: m.name }))], (v) => store.dispatch({ type: 'set_finish', ...tgt(), paint: v ? { design: 'floral', colors: ['#ffffff', '#ffd400', '#ff2d87'], ...(fin.paint || {}), method: v } : null }))),
+      fin.paint ? field('Motif', sel(fin.paint.design, PRINT_DESIGNS.filter((d) => d !== 'image').map((d) => ({ value: d, label: pretty(d) })), (v) => store.dispatch({ type: 'set_finish', ...tgt(), paint: { ...fin.paint, design: v } }))) : h('span')),
+  ));
+  // insulation
+  if ((p.garments || []).some((g) => g.generator === 'top')) {
+    const ins = cur.insulation || {};
+    el.append(h('details', { open: Boolean(cur.insulation) }, h('summary', {}, 'Insulation / fill (down, synthetic, wool…)'), h('div', {},
+      field('Fill', sel(ins.fill || '', [{ value: '', label: 'None' }, ...Object.entries(INSULATION).map(([id, f]) => ({ value: id, label: f.name }))], (v) => store.dispatch({ type: 'set_insulation', ...tgt(), fill: v || null, weight: ins.weight || 120, quilting: ins.quilting || 'channel' }))),
+      ins.fill ? h('div', { class: 'tip' }, INSULATION[ins.fill].use, '. ', h('span', { class: 'okc' }, '+ '), INSULATION[ins.fill].pros, '. ', h('span', { class: 'warn' }, '− '), INSULATION[ins.fill].cons, INSULATION[ins.fill].cert ? ` · Ask for ${INSULATION[ins.fill].cert}.` : '') : null,
+      ins.fill ? h('div', { class: 'grid2' }, field('Fill weight g/m²', h('input', { type: 'number', min: 20, max: 600, value: ins.weight || 120, onchange: (e) => store.dispatch({ type: 'set_insulation', ...tgt(), fill: ins.fill, weight: Number(e.target.value) }) })), field('Quilting', sel(ins.quilting || 'channel', Object.entries(QUILTING).map(([k, v]) => ({ value: k, label: v })), (v) => store.dispatch({ type: 'set_insulation', ...tgt(), fill: ins.fill, quilting: v })))) : null,
+    )));
+  }
+  el.append(h('details', {}, h('summary', {}, 'Waterproof & weatherproof tech (generic, non-trademarked)'), h('div', { class: 'list' }, Object.entries(WATERPROOF).map(([, w]) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, w.name), h('div', { class: 's' }, `${w.layers} · ${w.hydro ? `${w.hydro.toLocaleString()} mm` : '-'} / ${w.mvtr ? `${w.mvtr.toLocaleString()} g/m²/24h` : '-'}${w.air ? ' · air-permeable' : ''} · ${w.use}`), h('div', { class: 's' }, h('span', { class: 'okc' }, '+ '), w.pros, ' ', h('span', { class: 'warn' }, '− '), w.cons))))), h('div', { class: 's', style: 'font-size:12px;color:var(--muted);padding:6px 0' }, 'Pick a membrane fabric under Fabric → Technical. Stitched seams on waterproof shells must be taped or welded (set in Details).')));
+  el.append(next('Next: details →', 'details'));
+}
+function customBlend() {
+  const rows = ui.blendRows || (ui.blendRows = [['cotton', 60], ['polyester', 40], ['', 0]]);
+  const fibers = Object.keys(FIBERS);
+  return h('div', {},
+    rows.map((r, i) => h('div', { class: 'grid2' }, sel(r[0], [{ value: '', label: '—' }, ...fibers.map((f) => ({ value: f, label: FIBERS[f].name }))], (v) => { rows[i][0] = v; renderPanel(); }), h('input', { class: 'inp', type: 'number', min: 0, max: 100, value: r[1], onchange: (e) => { rows[i][1] = Number(e.target.value); renderPanel(); } }))),
+    h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin:4px 0' }, rows.filter((r) => r[0]).map((r) => `${FIBERS[r[0]].name}: ${FIBERS[r[0]].note}`).join(' · ')),
+    h('button', { class: 'btn sm', onclick: () => { const comp = Object.fromEntries(rows.filter((r) => r[0] && r[1] > 0)); const p = store.get(); const id = `blend-custom-${Date.now().toString(36)}`; store.dispatch([{ type: 'create_blend', id, base: tgtPanel(p).fabric, composition: comp }, { type: 'set_fabric', ...tgt(), fabric: id }]); } }, 'Create & apply blend'),
+  );
+}
+
+// ===== Clothing: Details =====
+function cDetails(el, p) {
+  const cur = p.panels[0];
+  const rec = recommendFor(cur?.fabric || 'cotton-jersey', p);
+  const groups = Object.entries(ASSEMBLY_GROUPS).map(([m, label]) => ({ group: label, items: Object.entries(ASSEMBLY).filter(([, v]) => v.method === m).map(([id, v]) => ({ value: id, label: `${v.name}${id === rec.stitch ? ' ★' : ''}` })) }));
+  const s0 = p.seams[0] || {};
+  el.append(h('div', { class: 'sec' },
+    h('h3', {}, 'Stitching & assembly'),
+    h('div', { class: 'tip' }, h('b', {}, 'Recommended for this fabric: '), `${ASSEMBLY[rec.stitch]?.name} (${ASSEMBLY[rec.stitch]?.use}) with ${THREADS[rec.thread]?.name}.`, ' ', h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'apply_recommendations' }) }, 'Apply recommended')),
+    field('Method for all seams', sel(s0.stitch, groups, (v) => store.dispatch({ type: 'set_stitch', seam: 'all', stitch: v }))),
+    s0.stitch ? h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin:-4px 0 8px' }, `${ASSEMBLY[s0.stitch].use} · Machine: ${ASSEMBLY[s0.stitch].machine}`) : null,
+    h('div', { class: 'grid2' },
+      field('Thread material', sel(s0.thread || 'poly-corespun', Object.entries(THREADS).map(([id, t]) => ({ value: id, label: `${t.name}${t.recommended ? ' ★' : ''}` })), (v) => store.dispatch({ type: 'set_stitch', seam: 'all', thread: v }))),
+      field('Thread colour', h('input', { type: 'color', value: s0.threadColor || '#d8d2c4', onchange: (e) => store.dispatch({ type: 'set_stitch', seam: 'all', threadColor: e.target.value }) }))),
+    s0.thread ? h('div', { class: 's', style: 'font-size:12px;color:var(--muted)' }, THREADS[s0.thread]?.use) : null,
+    h('details', { style: 'margin-top:8px' }, h('summary', {}, `Each seam (${p.seams.length})`), h('div', { class: 'list' }, p.seams.map((s) => { const a = p.panels.find((x) => x.id === s.a.panel); const b = p.panels.find((x) => x.id === s.b.panel); return h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${a?.name} ↔ ${b?.name}`), sel(s.stitch, groups, (v) => store.dispatch({ type: 'set_stitch', seam: s.id, stitch: v }), { class: 'inp' })), h('button', { class: 'btn sm', title: 'Remove seam', onclick: () => store.dispatch({ type: 'remove_seam', id: s.id }) }, '✕')); }))),
+  ));
+  // trims
+  el.append(h('div', { class: 'sec' },
+    h('h3', {}, 'Buttons, trims & decorations'),
+    h('div', { class: 'chips scrollx', style: 'margin-bottom:8px' }, TRIM_GROUPS.map((g) => h('button', { class: `chip ${ui.trimGroup === g ? 'on' : ''}`, onclick: () => { ui.trimGroup = g; renderPanel(); } }, g))),
+    h('div', { class: 'grid2' }, Object.entries(TRIMS).filter(([, t]) => t.group === ui.trimGroup).map(([id, t]) => h('button', { class: `tile ${ui.placing === id ? 'on' : ''}`, onclick: () => { ui.placing = ui.placing === id ? null : id; renderPanel(); renderPlaceHint(); } }, h('div', { class: 't' }, h('span', { class: 'sw', style: `background:${t.color};margin-right:6px` }), t.name, t.recommended ? h('span', { class: 'rec' }, ' ★') : ''), h('div', { class: 's' }, t.use)))),
+    h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:6px' }, 'Pick one, then click on the 3D garment to place it.'),
+  ));
+  if (p.trims.length) {
+    const types = [...new Set(p.trims.map((t) => t.type))];
+    el.append(h('details', {}, h('summary', {}, `Placed (${p.trims.length})`), h('div', {},
+      types.map((ty) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${TRIMS[ty]?.name} × ${p.trims.filter((t) => t.type === ty).length}`)), sel(ty, Object.entries(TRIMS).filter(([, t]) => t.group === TRIMS[ty]?.group).map(([id, t]) => ({ value: id, label: t.name })), (v) => store.dispatch({ type: 'set_trim', id: 'all', match: ty, trim: v }), { class: 'inp', style: 'width:150px', 'aria-label': 'Swap' }), h('input', { type: 'color', value: p.trims.find((t) => t.type === ty).color || TRIMS[ty]?.color || '#888888', onchange: (e) => store.dispatch({ type: 'set_trim', id: 'all', match: ty, color: e.target.value }), style: 'width:36px;height:32px;border:0;background:none' }))),
+      h('div', { class: 'list', style: 'margin-top:8px' }, p.trims.slice(-12).map((t) => h('div', { class: 'row' }, h('div', { class: 'grow s' }, `${TRIMS[t.type]?.name} on ${p.panels.find((x) => x.id === t.panel)?.name}`), h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_trim', id: t.id }) }, '✕')))),
+    )));
+  }
+  el.append(next('Next: make it →', 'make'));
+}
+
+// ===== Clothing: Make it =====
+function makeCommon(el, p) {
+  const warns = p.mode === 'jewelry' ? [] : checkProject(p);
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Checks'), warns.length ? warns.map((w) => h('div', { class: 'check' }, h('span', { class: w.level === 'error' ? 'err' : w.level === 'warn' ? 'warn' : '' }, w.level === 'error' ? '✕' : w.level === 'warn' ? '!' : 'i'), h('div', {}, w.msg, w.fix ? h('div', { class: 's', style: 'color:var(--muted)' }, w.fix) : null))) : h('div', { class: 'check' }, h('span', { class: 'okc' }, '✓'), 'No issues found.')));
+  const pr = p.production;
+  const chart = SIZE_CHARTS[p.sizeChart || 'unisex'];
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Production'),
+    h('div', { class: 'grid2' }, field('Quantity', h('input', { type: 'number', min: 1, value: pr.quantity, onchange: (e) => store.dispatch({ type: 'set_production', quantity: Number(e.target.value) }) })), field('Target cost per unit ($)', h('input', { type: 'number', min: 0, value: pr.targetCost ?? '', onchange: (e) => store.dispatch({ type: 'set_production', targetCost: e.target.value ? Number(e.target.value) : null }) }))),
+    p.mode !== 'jewelry' ? field('Sizes to produce', h('div', { class: 'chips' }, Object.keys(chart.sizes).map((s) => h('button', { class: `chip ${pr.sizes.includes(s) ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'set_production', sizes: pr.sizes.includes(s) ? pr.sizes.filter((x) => x !== s) : Object.keys(chart.sizes).filter((x) => pr.sizes.includes(x) || x === s) }) }, s)))) : null));
+}
+function cMake(el, p) {
+  makeCommon(el, p);
+  const name = p.name.replace(/[^\w-]+/g, '_');
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Files for manufacturers'),
+    h('div', { class: 'grid2' },
+      h('button', { class: 'btn primary', onclick: () => openDoc(techPackHTML(p, { image: viewer.snapshot(1000) }), `${name}-techpack.html`) }, 'Tech pack (PDF)'),
+      h('button', { class: 'btn', onclick: () => download(`${name}.dxf`, patternDXF(p), 'application/dxf') }, 'Pattern DXF (CAD)'),
+      h('button', { class: 'btn', onclick: () => download(`${name}.svg`, patternSVG(p), 'image/svg+xml') }, 'Pattern SVG'),
+      h('button', { class: 'btn', onclick: () => openDoc(tiledPrintHTML(p, 'A4'), `${name}-A4.html`) }, 'Print at home (A4)'),
+      h('button', { class: 'btn', onclick: () => openDoc(tiledPrintHTML(p, 'Letter'), `${name}-letter.html`) }, 'Print at home (Letter)'),
+      h('button', { class: 'btn', onclick: () => download(`${name}-BOM.csv`, bomCSV(p), 'text/csv') }, 'Bill of materials (CSV)'),
+      h('button', { class: 'btn', onclick: async () => download(`${name}.glb`, await viewer.exportModel('glb')) }, '3D model (GLB)'),
+      h('button', { class: 'btn', onclick: () => download(`${name}.gft.json`, JSON.stringify(p, null, 1), 'application/json') }, 'Project file'),
+    )));
+  guideSection(el, p);
+}
+function guideSection(el, p) {
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'How to get it made'), GUIDE.map((g, i) => h('details', { open: i === 0 }, h('summary', {}, g.title), h('div', {}, g.body)))));
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Ready-to-send RFQ emails'), rfqTemplates(p).map((r) => h('details', {}, h('summary', {}, r.to), h('div', {}, h('div', { class: 's', style: 'font-weight:600' }, `Subject: ${r.subject}`), h('pre', {}, r.body), h('div', { class: 'chips' }, h('button', { class: 'btn sm', onclick: () => navigator.clipboard?.writeText(`Subject: ${r.subject}\n\n${r.body}`).then(() => toast('Copied')) }, 'Copy'), h('a', { class: 'btn sm', href: `mailto:?subject=${encodeURIComponent(r.subject)}&body=${encodeURIComponent(r.body)}` }, 'Open in email')))))));
+  el.append(h('div', { class: 'tip' }, h('b', {}, 'Turning this into a brand? '), 'Learn how to build, launch and market products at ', h('a', { href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'thepotentialdropout.com'), '. Using this software commercially (selling, in a business, or modified versions)? ', h('a', { href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Get a licence from Genzineers'), '.'));
+}
+
+// ===== Jewelry =====
+function jStyle(el, p) {
+  const j = p.jewelry;
+  const t = JEWELRY_TEMPLATES[j.template];
+  if (t?.why) el.append(h('div', { class: 'tip' }, h('b', {}, 'Industry default: '), t.why));
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Start from a piece'),
+    h('div', { class: 'chips scrollx', style: 'margin-bottom:8px' }, ['All', ...JEWELRY_GROUPS].map((g) => h('button', { class: `chip ${ui.jGroup === g ? 'on' : ''}`, onclick: () => { ui.jGroup = g; renderPanel(); } }, g))),
+    h('div', { class: 'grid2' }, Object.entries(JEWELRY_TEMPLATES).filter(([, v]) => ui.jGroup === 'All' || v.group === ui.jGroup).map(([id, v]) => h('button', { class: `tile ${j.template === id ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'new_jewelry', template: id }) }, h('div', { class: 't' }, v.name), h('div', { class: 's' }, v.group))))));
+  const set = (patch) => store.dispatch({ type: 'set_jewelry', patch });
+  const num = (label, key, min, max, step, obj) => field(label, h('input', { type: 'range', min, max, step, value: obj ? j[obj]?.[key] : j[key], onchange: (e) => set(obj ? { [obj]: { [key]: Number(e.target.value) } } : { [key]: Number(e.target.value) }), oninput: (e) => (e.target.closest('label').querySelector('b').textContent = e.target.value) }), h('b', {}, obj ? j[obj]?.[key] : j[key]));
+  const opts = [];
+  if (j.piece === 'ring') {
+    const rs = ringSize(j.size || 7);
+    opts.push(num('Ring size (US)', 'size', 3, 15, 0.25), h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin:-6px 0 8px' }, `UK ${rs.uk} · EU ${rs.eu} · inner Ø ${rs.diameterMm} mm`),
+      field('Band profile', sel(j.profile, Object.entries(RING_PROFILES).map(([k, v]) => ({ value: k, label: v })), (v) => set({ profile: v }))), num('Band width (mm)', 'bandWidth', 1.2, 12, 0.1), num('Band thickness (mm)', 'bandThickness', 1.0, 3.5, 0.1));
+  }
+  if (['chain', 'necklace', 'bracelet'].includes(j.piece)) {
+    opts.push(field('Link type', sel(j.link, Object.entries(LINKS).map(([k, v]) => ({ value: k, label: v.name })), (v) => set({ link: v }))), h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin:-6px 0 8px' }, LINKS[j.link]?.note), num('Wire gauge (mm)', 'gauge', 0.4, 6, 0.1), num('Length (cm)', 'length', 14, 100, 0.5), field('Clasp / lock', sel(j.clasp, Object.entries(CLASPS).map(([k, v]) => ({ value: k, label: `${v.name}${v.recommended ? ' ★' : ''}` })), (v) => set({ clasp: v }))));
+    if (j.pendant) opts.push(field('Pendant shape', sel(j.pendant.shape, ['none', 'circle', 'heart', 'bar', 'star', 'custom'].map((s) => ({ value: s, label: pretty(s) })), (v) => set({ pendant: { shape: v } }))), num('Pendant width (mm)', 'w', 4, 60, 0.5, 'pendant'), num('Pendant height (mm)', 'h', 4, 80, 0.5, 'pendant'), field('Bail', sel(j.pendant.bail, Object.entries(BAILS).map(([k, v]) => ({ value: k, label: v })), (v) => set({ pendant: { bail: v } }))));
+  }
+  if (j.piece === 'bangle' || j.piece === 'cuff') opts.push(num('Inner diameter (mm)', 'diameter', 45, 80, 0.5), num('Width (mm)', 'width', 2, 40, 0.5), num('Thickness (mm)', 'thickness', 1, 5, 0.1), field('Profile', sel(j.profile, Object.entries(RING_PROFILES).map(([k, v]) => ({ value: k, label: v })), (v) => set({ profile: v }))));
+  if (j.piece === 'earring') opts.push(field('Style', sel(j.style, ['stud', 'hoop', 'drop'].map((s) => ({ value: s, label: pretty(s) })), (v) => set({ style: v }))), field('Back / closure', sel(j.back, Object.entries(EARRING_BACKS).map(([k, v]) => ({ value: k, label: v })), (v) => set({ back: v }))), j.style === 'hoop' ? num('Hoop diameter (mm)', 'diameter', 8, 80, 0.5) : null);
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Customise'), opts));
+  el.append(h('details', {}, h('summary', {}, 'Custom shape (pendant, stone, link, signet)'), h('div', {}, shapeDrawer())));
+  el.append(next('Next: metal →', 'materials'));
+}
+function shapeDrawer() {
+  const pts = ui.shapePts || (ui.shapePts = []);
+  const cv = h('canvas', { width: 300, height: 220, style: 'width:100%;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);touch-action:none' });
+  const draw = () => { const g = cv.getContext('2d'); g.clearRect(0, 0, 300, 220); g.strokeStyle = '#ff5a1f'; g.lineWidth = 2; g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); if (pts.length > 2) g.closePath(); g.stroke(); for (const [x, y] of pts) { g.fillStyle = '#111'; g.beginPath(); g.arc(x, y, 3, 0, 7); g.fill(); } g.fillStyle = '#888'; g.font = '11px sans-serif'; g.fillText('Tap to add points (1 square = 1 mm)', 6, 214); };
+  cv.addEventListener('pointerdown', (e) => { const r = cv.getBoundingClientRect(); pts.push([((e.clientX - r.left) / r.width) * 300, ((e.clientY - r.top) / r.height) * 220]); draw(); });
+  setTimeout(draw);
+  const use = (target) => { if (pts.length < 3) return toast('Add at least 3 points'); store.dispatch({ type: 'set_custom_shape', target, points: pts.map(([x, y]) => [(x - 150) / 5, (y - 110) / 5]) }); };
+  return h('div', {}, cv, h('div', { class: 'chips', style: 'margin-top:6px' }, ['pendant', 'stone', 'link', 'signet'].map((t) => h('button', { class: 'btn sm', onclick: () => use(t) }, `Use as ${t}`)), h('button', { class: 'btn sm', onclick: () => { pts.length = 0; draw(); } }, 'Clear')), h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:4px' }, 'Or import an SVG / DXF outline from the menu.'));
+}
+function jMaterials(el, p) {
+  const j = p.jewelry;
+  const m = j.alloy || METALS[j.metal];
+  el.append(h('div', { class: 'tip' }, h('b', {}, m.name), ` · ${m.density} g/cm³ · hallmark ${m.hallmark}. `, m.note || ''));
+  const fams = [...new Set(Object.values(METALS).map((x) => x.family))];
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Metal'), h('div', { class: 'list' }, fams.map((f) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, pretty(f))), sel(j.alloy ? '' : Object.keys(METALS).find((k) => k === j.metal && METALS[k].family === f) || '', [{ value: '', label: 'Choose…' }, ...Object.entries(METALS).filter(([, x]) => x.family === f).map(([k, x]) => ({ value: k, label: `${x.name}${x.recommended ? ' ★' : ''}` }))], (v) => v && store.dispatch({ type: 'set_jewelry', patch: { metal: v } }), { class: 'inp', style: 'width:200px' }))))));
+  const k = j.alloy?.karat || 18; const col = j.alloy?.colour || 'yellow';
+  const preview = goldAlloy(k, col);
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Karat control (custom gold alloy)'),
+    field('Karat', h('input', { type: 'range', min: 8, max: 24, step: 1, value: k, onchange: (e) => store.dispatch({ type: 'set_karat', karat: Number(e.target.value), colour: col }), oninput: (e) => (e.target.closest('label').querySelector('b').textContent = `${e.target.value}k · ${goldAlloy(Number(e.target.value), col).purity}%`) }), h('b', {}, `${k}k · ${preview.purity}%`)),
+    h('div', { class: 'seg' }, ['yellow', 'white', 'rose', 'green'].map((c) => h('button', { class: col === c && j.alloy ? 'on' : '', onclick: () => store.dispatch({ type: 'set_karat', karat: k, colour: c }) }, pretty(c)))),
+    h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:6px' }, `Density ≈ ${preview.density} g/cm³ · stamp ${preview.hallmark} · `, h('span', { class: 'sw', style: `background:${preview.color}` }))));
+  el.append(h('div', { class: 'sec grid2' }, field('Plating', sel(j.plating || 'none', Object.entries(PLATINGS).map(([k2, v]) => ({ value: k2, label: v })), (v) => store.dispatch({ type: 'set_jewelry', patch: { plating: v } }))), field('Surface finish', sel(j.finish || 'polish', ['polish', 'brushed', 'matte'].map((f) => ({ value: f, label: pretty(f) })), (v) => store.dispatch({ type: 'set_jewelry', patch: { finish: v } })))));
+  el.append(next('Next: stones & parts →', 'details'));
+}
+function jDetails(el, p) {
+  const j = p.jewelry;
+  const stones = j.stones || [];
+  const gemOpts = Object.entries(GEMS).map(([k, g]) => ({ value: k, label: `${g.name} (Mohs ${g.mohs})` }));
+  const cutOpts = Object.entries(CUTS).map(([k, c]) => ({ value: k, label: c.name }));
+  const setOpts = Object.entries(SETTINGS).map(([k, s]) => ({ value: k, label: `${s.name}${s.recommended ? ' ★' : ''}` }));
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Stones'),
+    stones.map((s, i) => h('details', { open: i === 0 }, h('summary', {}, `${GEMS[s.gem]?.name} · ${CUTS[s.cut]?.name} · ~${caratEstimate(s.cut, s.size, s.width || s.size, s.gem)} ct`), h('div', {},
+      h('div', { class: 'grid2' }, field('Gem', sel(s.gem, gemOpts, (v) => store.dispatch({ type: 'update_stone', index: i, gem: v }))), field('Cut / shape', sel(s.cut, cutOpts, (v) => store.dispatch({ type: 'update_stone', index: i, cut: v }))), field('Length (mm)', h('input', { type: 'number', step: 0.1, value: s.size, onchange: (e) => store.dispatch({ type: 'update_stone', index: i, size: Number(e.target.value) }) })), field('Width (mm)', h('input', { type: 'number', step: 0.1, value: s.width || s.size, onchange: (e) => store.dispatch({ type: 'update_stone', index: i, width: Number(e.target.value) }) }))),
+      field('Setting', sel(s.setting, setOpts, (v) => store.dispatch({ type: 'update_stone', index: i, setting: v }))),
+      h('div', { class: 's', style: 'font-size:12px;color:var(--muted)' }, GEMS[s.gem]?.note, ' · ', CUTS[s.cut]?.note, ' · ', SETTINGS[s.setting]?.note),
+      h('button', { class: 'btn sm', style: 'margin-top:6px', onclick: () => store.dispatch({ type: 'remove_stone', index: i }) }, 'Remove stone')))),
+    h('button', { class: 'btn', onclick: () => store.dispatch({ type: 'add_stone', gem: 'diamond', cut: 'round-brilliant', size: 2, setting: 'prong-4', position: 'side' }) }, '+ Add stone')));
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Imported CAD parts'),
+    h('button', { class: 'btn', onclick: () => fileInput.click() }, 'Import part (STL, OBJ, GLB, 3MF, PLY, FBX, DAE, STEP, IGES, .blend)'),
+    (j.parts || []).map((pt, i) => {
+      const upd = (patch) => store.dispatch({ type: 'update_part', index: i, ...patch });
+      const vec = (label, key, idx, min, max, step) => field(`${label}`, h('input', { type: 'range', min, max, step, value: pt[key]?.[idx] ?? 0, onchange: (e) => { const v = [...(pt[key] || [0, 0, 0])]; v[idx] = Number(e.target.value); upd({ [key]: v }); } }));
+      return h('details', { open: true }, h('summary', {}, pt.name), h('div', {},
+        field('Material', sel(pt.material, [{ group: 'Metals', items: Object.entries(METALS).map(([k, v]) => ({ value: k, label: v.name })) }, { group: 'Gems', items: gemOpts }], (v) => upd({ material: v }))),
+        field('Size (longest side, mm)', h('input', { type: 'range', min: 1, max: 80, step: 0.5, value: pt.size, onchange: (e) => upd({ size: Number(e.target.value) }) })),
+        h('div', { class: 'grid2' }, vec('Stretch X', 'scale', 0, 0.2, 3, 0.05), vec('Stretch Y', 'scale', 1, 0.2, 3, 0.05), vec('Stretch Z', 'scale', 2, 0.2, 3, 0.05), vec('Move X (mm)', 'position', 0, -40, 40, 0.5), vec('Move Y (mm)', 'position', 1, -40, 40, 0.5), vec('Move Z (mm)', 'position', 2, -40, 40, 0.5), vec('Rotate X°', 'rotation', 0, -180, 180, 1), vec('Rotate Y°', 'rotation', 1, -180, 180, 1)),
+        h('div', { class: 'grid2' }, ['taper', 'twist', 'bend'].map((k2) => field(`Distort: ${k2}`, h('input', { type: 'range', min: k2 === 'taper' ? -1.5 : -180, max: k2 === 'taper' ? 1.5 : 180, step: k2 === 'taper' ? 0.05 : 1, value: pt.distort?.[k2] || 0, onchange: (e) => upd({ distort: { [k2]: Number(e.target.value) } }) })))),
+        h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_part', index: i }) }, 'Remove part')));
+    })));
+  el.append(next('Next: make it →', 'make'));
+}
+function jMake(el, p) {
+  makeCommon(el, p);
+  const j = p.jewelry; const w = estimateMetal(j);
+  const name = p.name.replace(/[^\w-]+/g, '_');
+  el.append(h('div', { class: 'tip' }, h('b', {}, `≈ ${w.grams} g of ${w.metal}`), ` (${w.volumeMm3} mm³). Stones: ${(j.stones || []).map((s) => `~${caratEstimate(s.cut, s.size, s.width || s.size, s.gem)} ct ${GEMS[s.gem]?.name}`).join(', ') || 'none'}.`));
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Files for casting & setting'), h('div', { class: 'grid2' },
+    h('button', { class: 'btn primary', onclick: () => openDoc(techPackHTML(p, { image: viewer.snapshot(900) }), `${name}-spec.html`) }, 'Spec sheet (PDF)'),
+    h('button', { class: 'btn', onclick: async () => download(`${name}.stl`, await viewer.exportModel('stl')) }, 'STL (3D print / cast)'),
+    h('button', { class: 'btn', onclick: async () => download(`${name}.obj`, await viewer.exportModel('obj')) }, 'OBJ'),
+    h('button', { class: 'btn', onclick: async () => download(`${name}.glb`, await viewer.exportModel('glb')) }, 'GLB'))));
+  guideSection(el, p);
+}
+
+// ---------- AI drawer ----------
+function toggleAI(open) { ui.ai = open; drawer.classList.toggle('open', open); if (open) renderDrawer(); }
+function aiCfg() { const prov = settings.get('ai.provider', 'anthropic'); return { provider: prov, model: settings.get(`ai.${prov}.model`, PROVIDERS[prov].models[0]), key: settings.get(`ai.${prov}.key`, ''), base: settings.get(`ai.${prov}.base`, '') }; }
+function renderDrawer() {
+  const tabs = h('div', { class: 'seg' }, [['chat', 'Chat'], ['images', 'Images'], ['connect', 'Connect']].map(([k, l]) => h('button', { class: ui.aiTab === k ? 'on' : '', onclick: () => { ui.aiTab = k; renderDrawer(); } }, l)));
+  const head = h('header', {}, tabs, h('div', { class: 'spacer' }), h('button', { class: 'btn ghost icon', 'aria-label': 'Close', onclick: () => toggleAI(false) }, '✕'));
+  const body = h('div', { style: 'flex:1;display:flex;flex-direction:column;min-height:0' });
+  ({ chat: aiChat, images: aiImages, connect: aiConnect })[ui.aiTab](body);
+  drawer.replaceChildren(head, body);
+}
+function aiChat(body) {
+  const cfg = aiCfg();
+  const scope = settings.get('ai.scope', { shape: true, construction: true, materials: true, color: true, prints: false, trims: true, jewelry: true, production: false });
+  const msgs = h('div', { class: 'msgs', 'aria-live': 'polite' });
+  if (!ui.history.length) msgs.append(h('div', { class: 'msg sys' }, 'Describe what you want: "a cropped boxy hoodie in heavyweight french terry, garment-dyed sage, with a puff-print chest logo", or "14k rose gold cuban bracelet, 3 mm". Tick what the AI is allowed to design below. The app works fully without AI too.'));
+  for (const m of ui.history) msgs.append(h('div', { class: `msg ${m.role === 'user' ? 'user' : m.role === 'sys' ? 'sys' : 'ai'}` }, m.content));
+  const ta = h('textarea', { class: 'inp', placeholder: 'Ask or describe a design…', 'aria-label': 'Message' });
+  const send = async () => {
+    const text = ta.value.trim(); if (!text) return;
+    const c = aiCfg();
+    if (PROVIDERS[c.provider].needsKey && !c.key) { ui.aiTab = 'connect'; renderDrawer(); return toast(`Add your ${PROVIDERS[c.provider].name} key first`); }
+    ui.history.push({ role: 'user', content: text }); renderDrawer();
+    try {
+      const sys = systemPrompt(store.get(), scope);
+      const reply = await chat(c, sys, ui.history.filter((m) => m.role !== 'sys').slice(-12).map((m) => ({ role: m.role, content: m.content })));
+      const { kept, dropped } = filterActions(parseActions(reply), scope);
+      ui.history.push({ role: 'assistant', content: reply.replace(/```(?:json)?[\s\S]*?```/g, '').trim() || 'Done.' });
+      if (kept.length) { const res = store.dispatch(kept, { source: 'ai' }); ui.history.push({ role: 'sys', content: `Applied ${res.filter((r) => r.ok).length}/${res.length} change(s)${res.some((r) => !r.ok) ? `; skipped: ${res.filter((r) => !r.ok).map((r) => r.error).join('; ')}` : ''}. Undo with ↶.` }); }
+      if (dropped.length) ui.history.push({ role: 'sys', content: `Not applied (outside what you allowed): ${[...new Set(dropped)].join(', ')}` });
+    } catch (e) { ui.history.push({ role: 'sys', content: `Error: ${e.message}${/Failed to fetch|NetworkError/i.test(e.message) && PROVIDERS[c.provider].local ? ' (local servers must allow this origin, e.g. OLLAMA_ORIGINS=*)' : ''}` }); }
+    renderDrawer();
+  };
+  ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+  const provSel = sel(cfg.provider, Object.entries(PROVIDERS).map(([k, v]) => ({ value: k, label: v.name })), (v) => { settings.set('ai.provider', v); renderDrawer(); }, { class: 'inp' });
+  const modelIn = h('input', { class: 'inp', list: 'models', value: cfg.model, onchange: (e) => settings.set(`ai.${cfg.provider}.model`, e.target.value), 'aria-label': 'Model' });
+  body.append(
+    h('div', { style: 'padding:10px 12px 0;display:grid;grid-template-columns:1fr 1fr;gap:6px' }, provSel, modelIn, h('datalist', { id: 'models' }, PROVIDERS[cfg.provider].models.map((m) => h('option', { value: m })))),
+    msgs,
+    h('div', { class: 'composer' },
+      h('div', { class: 's', style: 'font-size:12px;color:var(--muted)' }, 'The AI may design:'),
+      h('div', { class: 'scope' }, Object.entries(SCOPES).map(([k, s]) => h('label', {}, h('input', { type: 'checkbox', checked: scope[k], onchange: (e) => { scope[k] = e.target.checked; settings.set('ai.scope', scope); } }), s.label))),
+      ta,
+      h('div', { style: 'display:flex;gap:6px;justify-content:space-between' }, h('button', { class: 'btn sm', onclick: () => { ui.history = []; renderDrawer(); } }, 'Clear'), h('button', { class: 'btn primary', onclick: send }, 'Send')),
+    ),
+  );
+  setTimeout(() => { msgs.scrollTop = msgs.scrollHeight; });
+}
+function aiImages(body) {
+  const prov = settings.get('img.provider', 'nano-banana');
+  const P = IMAGE_PROVIDERS[prov];
+  const out = h('div', { style: 'display:grid;gap:8px' });
+  const ta = h('textarea', { class: 'inp', placeholder: 'e.g. "Editorial studio photo of this garment on a model, soft daylight" or "Moodboard: 90s skate denim, faded indigo"', value: ui.imgPrompt || '' });
+  const useRef = h('input', { type: 'checkbox', checked: ui.useRef ?? true });
+  const go = async () => {
+    const key = P.keyFrom ? settings.get(`ai.${P.keyFrom}.key`, '') : settings.get(`img.${prov}.key`, '');
+    if (P.keyFrom && !key) { ui.aiTab = 'connect'; renderDrawer(); return toast(`Add your ${PROVIDERS[P.keyFrom].name} key in Connect`); }
+    ui.imgPrompt = ta.value;
+    out.replaceChildren(h('div', { class: 'msg sys' }, 'Generating…'));
+    try {
+      const ref = useRef.checked ? viewer.snapshot(1024) : null;
+      const img = await generateImage({ provider: prov, key, endpoint: settings.get(`img.${prov}.endpoint`, '') }, ta.value || 'Photorealistic product photo of this design, studio lighting, high detail', ref);
+      ui.lastImage = img;
+      renderDrawer();
+    } catch (e) { out.replaceChildren(h('div', { class: 'msg sys' }, `Error: ${e.message}`)); }
+  };
+  if (ui.lastImage) out.append(h('img', { src: ui.lastImage, alt: 'Generated image', style: 'width:100%;border-radius:10px' }), h('div', { class: 'chips' }, h('button', { class: 'btn sm', onclick: () => download('render.png', dataUrlToBlob(ui.lastImage)) }, 'Download'), store.get().mode !== 'jewelry' ? h('button', { class: 'btn sm', onclick: () => { store.dispatch({ type: 'set_finish', ...tgt(), print: { method: 'digital-textile', design: 'image', image: ui.lastImage } }); toast('Applied as a print'); } }, 'Use as fabric print') : null));
+  body.append(h('div', { class: 'msgs' },
+    field('Image tool', sel(prov, Object.entries(IMAGE_PROVIDERS).map(([k, v]) => ({ value: k, label: v.name })), (v) => { settings.set('img.provider', v); renderDrawer(); }, { class: 'inp' })),
+    h('div', { class: 'tip' }, P.note),
+    ta,
+    h('label', { class: 'scope' }, h('label', {}, useRef, 'Use the current 3D view as reference')),
+    h('button', { class: 'btn primary', onclick: go }, 'Generate'),
+    out));
+}
+function aiConnect(body) {
+  const box = h('div', { class: 'msgs' });
+  const prov = settings.get('ai.provider', 'anthropic');
+  const P = PROVIDERS[prov];
+  box.append(
+    h('h3', {}, '1 · Chat model (any provider)'),
+    field('Provider', sel(prov, Object.entries(PROVIDERS).map(([k, v]) => ({ value: k, label: v.name })), (v) => { settings.set('ai.provider', v); renderDrawer(); }, { class: 'inp' })),
+    P.needsKey ? field('API key (stored only on this device)', h('input', { class: 'inp', type: 'password', autocomplete: 'off', value: settings.get(`ai.${prov}.key`, ''), onchange: (e) => settings.set(`ai.${prov}.key`, e.target.value.trim()) }), P.keyUrl ? h('a', { href: P.keyUrl, target: '_blank', rel: 'noopener' }, 'Get a key ↗') : null) : null,
+    field('Model', h('input', { class: 'inp', list: 'models2', value: settings.get(`ai.${prov}.model`, P.models[0]), onchange: (e) => settings.set(`ai.${prov}.model`, e.target.value) }), h('datalist', { id: 'models2' }, P.models.map((m) => h('option', { value: m })))),
+    field('Base URL (change for proxies, edge devices or self-hosted servers)', h('input', { class: 'inp', value: settings.get(`ai.${prov}.base`, '') || P.base, onchange: (e) => settings.set(`ai.${prov}.base`, e.target.value.trim()) })),
+    P.local ? h('div', { class: 'tip' }, 'Local / edge: run the server on this computer or a device on your network (e.g. ', h('code', {}, 'ollama serve'), '). Allow this app\'s origin, e.g. ', h('code', {}, 'OLLAMA_ORIGINS=*'), ', and pick a model you have pulled (', h('code', {}, 'ollama pull qwen2.5'), ').') : null,
+    h('button', { class: 'btn', onclick: async () => { try { const r = await chat(aiCfg(), 'Reply with OK.', [{ role: 'user', content: 'ping' }]); toast(`Connected: ${r.slice(0, 40)}`); } catch (e) { toast(`Failed: ${e.message}`, 6000); } } }, 'Test connection'),
+    h('h3', { style: 'margin-top:16px' }, '2 · Image tools'),
+    h('div', { class: 'tip' }, 'Nano Banana / Nano Banana Pro use your Google Gemini key above (select Google Gemini, paste key). OpenAI images use your OpenAI key. Higgsfield: connect its MCP server to your agent alongside this app (see 3), or paste an HTTP endpoint below.'),
+    ['higgsfield', 'custom'].map((k) => h('div', {}, field(`${IMAGE_PROVIDERS[k].name}: endpoint URL`, h('input', { class: 'inp', value: settings.get(`img.${k}.endpoint`, ''), onchange: (e) => settings.set(`img.${k}.endpoint`, e.target.value.trim()) })), field('Key / token (optional)', h('input', { class: 'inp', type: 'password', value: settings.get(`img.${k}.key`, ''), onchange: (e) => settings.set(`img.${k}.key`, e.target.value.trim()) })))),
+    h('h3', { style: 'margin-top:16px' }, '3 · MCP: let any AI agent drive the app'),
+    h('ol', { class: 'steps-list' },
+      h('li', {}, 'Install Node.js 18+ and clone the repo, or use the desktop app, which includes the server.'),
+      h('li', {}, 'Run the MCP server: ', h('code', {}, 'npx genzineers-fashion-mcp'), ' or ', h('code', {}, 'node mcp-server/index.js')),
+      h('li', {}, 'Add it to your AI client (examples below), then turn on Live link here so the AI edits what you see.')),
+    h('pre', {}, `Claude Desktop / Claude Code (.mcp.json or claude_desktop_config.json):\n{ "mcpServers": { "genzineers-fashion": { "command": "node", "args": ["<repo>/mcp-server/index.js"] } } }\n\nClaude Code CLI:\nclaude mcp add genzineers-fashion -- node <repo>/mcp-server/index.js\n\nOpenAI Codex CLI (~/.codex/config.toml):\n[mcp_servers.genzineers-fashion]\ncommand = "node"\nargs = ["<repo>/mcp-server/index.js"]\n\nGemini CLI (~/.gemini/settings.json):\n{ "mcpServers": { "genzineers-fashion": { "command": "node", "args": ["<repo>/mcp-server/index.js"] } } }\n\nCursor / Windsurf / VS Code: same command in their MCP settings.`),
+    h('label', { class: 'scope' }, h('label', {}, h('input', { type: 'checkbox', checked: settings.get('bridge', false), onchange: (e) => { settings.set('bridge', e.target.checked); setupBridge(); renderDrawer(); } }), `Live link (ws://127.0.0.1:7821): ${bridgeStatus}`)),
+    h('h3', { style: 'margin-top:16px' }, '4 · Command line'),
+    h('pre', {}, 'node cli/gft.mjs "make a waxed field jacket in olive, size L"   # prompt with your AI key\nnode cli/gft.mjs do set_option \'{"key":"cuff","value":"rib"}\'          # direct action\nnode cli/gft.mjs export techpack out.html'),
+  );
+  body.append(box);
+}
+
+// ---------- MCP live link ----------
+let bridge = null; let bridgeStatus = 'off';
+function setupBridge() {
+  bridge?.close(); bridge = null; bridgeStatus = 'off';
+  if (!settings.get('bridge', false)) return;
+  bridge = connectBridge({ store, viewer, exportFn: async (what) => (what === 'techpack' ? techPackHTML(store.get(), { image: viewer.snapshot(900) }) : what === 'dxf' ? patternDXF(store.get()) : what === 'svg' ? patternSVG(store.get()) : what === 'bom' ? bomCSV(store.get()) : JSON.stringify(store.get())), onStatus: (s) => { bridgeStatus = s; if (ui.ai && ui.aiTab === 'connect') renderDrawer(); } });
+}
+
+// ---------- about / welcome ----------
+function modal(content) { const back = h('div', { class: 'modal-back', onclick: (e) => e.target === back && back.remove() }, h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true' }, content, h('div', { style: 'margin-top:14px;text-align:right' }, h('button', { class: 'btn primary', onclick: () => back.remove() }, 'Start designing')))); document.body.append(back); }
+function showAbout() {
+  modal(h('div', {}, h('h2', {}, 'Genzineers Fashion Tool'),
+    h('p', {}, 'Design, simulate, assemble and produce clothing, hats, bags and jewelry. Real cloth physics (Rust/WebAssembly), real construction methods, and factory-ready files.'),
+    h('ol', { class: 'steps-list' }, h('li', {}, h('b', {}, 'Style: '), 'pick a template, customise it, choose a size.'), h('li', {}, h('b', {}, 'Materials: '), 'fabric quality, blends, colour, dye, print, fill.'), h('li', {}, h('b', {}, 'Details: '), 'stitching, threads, buttons, trims, decorations.'), h('li', {}, h('b', {}, 'Make it: '), 'tech pack, patterns, BOM, supplier guide and RFQ emails.')),
+    h('p', { class: 's', style: 'color:var(--muted)' }, 'Free for personal, educational and non-commercial use. Commercial use, including modified versions, requires a licence from Genzineers. © 2026 Genzineers. All rights reserved.'),
+    h('div', { class: 'chips' }, h('a', { class: 'btn sm', href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener' }, 'genzineers.com'), h('a', { class: 'btn sm', href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'thepotentialdropout.com'), h('a', { class: 'btn sm', href: LINKS_OUT.pd, target: '_blank', rel: 'noopener' }, 'potentialdropout.com'), h('a', { class: 'btn sm', href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Commercial licence'), h('a', { class: 'btn sm', href: LINKS_OUT.repo, target: '_blank', rel: 'noopener' }, 'Source code'))));
+}
+
+// ---------- boot ----------
+function renderAll() { renderTop(); renderPanel(); renderHud(); if (ui.ai) renderDrawer(); }
+(async () => {
+  const kind = await initSolver(`${import.meta.env.BASE_URL}atelier_sim.wasm`);
+  simStatus = { text: `Solver: ${kind === 'wasm' ? 'Rust/WASM' : 'JS'}`, live: true };
+  renderAll();
+  rebuild({});
+  setupBridge();
+  if (!settings.get('welcomed', false)) { settings.set('welcomed', true); showAbout(); }
+})();
