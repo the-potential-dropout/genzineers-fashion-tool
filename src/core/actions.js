@@ -16,6 +16,7 @@ import { recommendFor } from './guidance.js';
 import { BLENDS, FIBERS, INSULATION, QUILTING, WATERPROOF, blendFabric } from './materials.js';
 import { createProject, mergeGarment, regradeProject, syncForms, uid, validateProject, summarizeProject } from './project.js';
 import { SIZE_CHARTS } from './sizes.js';
+import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitDefaults } from './knit.js';
 import { JEWELRY_TEMPLATES, METALS, GEMS, CUTS, SETTINGS, LINKS, CLASPS, BAILS, EARRING_BACKS, RING_PROFILES, PLATINGS, goldAlloy, estimateMetal, caratEstimate, ringSize } from './jewelry.js';
 
 export const ACTION_DOCS = {
@@ -27,6 +28,7 @@ export const ACTION_DOCS = {
   set_fabric: '{ panel: "<panel id>"|"all", garment?: "g0", fabric: "<fabric id>", overrides?: { stretch?, bend?, weightGsm?, look?: { color?, roughness?, sheen?, pattern?, fx? } } }',
   create_fabric: '{ id, name, base?: "<fabric id>", fiber?, weightGsm?, stretch?, bend?, look?: {...} }',
   create_blend: '{ id, name?, base: "<fabric id>", composition: { cotton: 60, polyester: 40 } } or { id, blend: "<blend id>" } custom fibre blend (props computed)',
+  set_knit: '{ garment?: "g0", method?, gauge?: "7gg", yarn?, structure?, motif?, colors?: ["#main","#2nd","#3rd"] } make a garment knitted (see catalog knitMethods/gauges/yarns/knitStructures/motifs)',
   set_insulation: '{ panel|"all", garment?, fill: "<insulation id>"|null, weight?: g/m², quilting? }',
   set_finish: '{ panel|"all", garment?, color?: "#rrggbb", dye?: "<dye id>", print?: { method, design, colors?: [..], scale?, image? } | null, paint?: { method, design, colors? } | null }',
   set_stitch: '{ seam: "<seam id>"|"all", garment?, stitch?: "<assembly id>", thread?: "<thread id>", threadColor? }',
@@ -83,6 +85,11 @@ export function catalog() {
     bails: BAILS, earringBacks: EARRING_BACKS, ringProfiles: RING_PROFILES,
     blends: o(BLENDS, (v) => `${v.name} ${JSON.stringify(v.composition)} - ${v.uses}`),
     fibers: o(FIBERS, (v) => v.note),
+    knitMethods: o(KNIT_METHODS, (v) => `${v.name} - ${v.note}`),
+    gauges: o(GAUGES, (v) => `${v.name} - ${v.use}`),
+    yarns: o(YARNS, (v) => `${v.name} (${v.fiber}, ${v.weight}) - ${v.note}`),
+    knitStructures: o(KNIT_STRUCTURES, (v) => `${v.name} - ${v.note}`),
+    motifs: o(MOTIFS, (v) => v.name),
     insulation: o(INSULATION, (v) => `${v.name} - ${v.use}`),
     quilting: QUILTING,
     waterproof: o(WATERPROOF, (v) => `${v.name} (${v.hydro} mm / ${v.mvtr} g) - ${v.use}`),
@@ -128,7 +135,7 @@ export function applyAction(project, action) {
       if (!TEMPLATES[a.template]) throw new Error(`unknown template "${a.template}"`);
       const np = createProject(a.template);
       np.mode = 'clothing';
-      np.customFabrics = p.customFabrics || {};
+      np.customFabrics = { ...(p.customFabrics || {}), ...(np.customFabrics || {}) };
       return { project: np, result: `created ${np.name}` };
     }
     case 'add_garment': {
@@ -207,6 +214,16 @@ export function applyAction(project, action) {
       p.customFabrics = p.customFabrics || {};
       p.customFabrics[a.id] = { ...fab, id: a.id, category: base.category, name: a.name || preset?.name || `${base.name} (${fab.fiber})`, quality: fab.fiber, note: preset ? `${preset.uses}. Pros: ${preset.pros}. Cons: ${preset.cons}.` : '' };
       result = `blend ${a.id} = ${fab.fiber}`;
+      break;
+    }
+    case 'set_knit': {
+      const g = garmentOf(p, a.garment);
+      const { type, garment, ...spec } = a;
+      for (const [k, cat] of [['method', KNIT_METHODS], ['gauge', GAUGES], ['yarn', YARNS], ['structure', KNIT_STRUCTURES], ['motif', MOTIFS]]) if (spec[k] && !cat[spec[k]]) throw new Error(`unknown ${k} "${spec[k]}" (have: ${Object.keys(cat).join(', ')})`);
+      g.knit = knitDefaults({ ...(g.knit || {}), ...spec });
+      if (!g.stitch || !['linking', 'whole-garment', 'cut-and-sew-knit', 'hand-running'].includes(g.stitch)) g.stitch = KNIT_METHODS[g.knit.method].seams;
+      mergeGarment(p, g);
+      result = `knitted: ${KNIT_STRUCTURES[g.knit.structure].name}, ${g.knit.gauge}, ${YARNS[g.knit.yarn].name}`;
       break;
     }
     case 'set_insulation': {

@@ -39,10 +39,44 @@ fn convert_blend(data: Vec<u8>) -> Result<Vec<u8>, String> {
     Err("Blender was not found. Install Blender (blender.org) or export your model as .glb from Blender and import that.".into())
 }
 
+fn blender_candidates() -> Vec<String> {
+    let mut v = vec!["blender".to_string()];
+    if cfg!(target_os = "windows") {
+        if let Ok(pf) = std::env::var("ProgramFiles") {
+            if let Ok(entries) = std::fs::read_dir(std::path::Path::new(&pf).join("Blender Foundation")) {
+                let mut found: Vec<String> = entries.flatten().map(|e| e.path().join("blender.exe").to_string_lossy().to_string()).collect();
+                found.sort();
+                found.reverse(); // newest version first
+                v.splice(0..0, found);
+            }
+        }
+    } else if cfg!(target_os = "macos") {
+        v.insert(0, "/Applications/Blender.app/Contents/MacOS/Blender".into());
+    }
+    v
+}
+
+/// Open the current design in the user's installed Blender (glTF import).
+#[tauri::command]
+fn open_in_blender(data: Vec<u8>, name: String) -> Result<(), String> {
+    let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+    let path = std::env::temp_dir().join(format!("{}-{}.glb", if safe.is_empty() { "design".into() } else { safe }, std::process::id()));
+    std::fs::write(&path, data).map_err(|e| e.to_string())?;
+    let script = format!("import bpy; bpy.ops.import_scene.gltf(filepath=r'{}')", path.to_string_lossy());
+    for exe in blender_candidates() {
+        if std::path::Path::new(&exe).exists() || exe == "blender" {
+            if Command::new(&exe).args(["--python-expr", &script]).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+    }
+    Err("Blender was not found. Install it from blender.org, or use Export 3D model (GLB) and import it in Blender.".into())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![convert_blend])
+        .invoke_handler(tauri::generate_handler![convert_blend, open_in_blender])
         .run(tauri::generate_context!())
         .expect("error while running Genzineers Fashion Tool");
 }

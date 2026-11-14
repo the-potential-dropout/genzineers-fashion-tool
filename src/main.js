@@ -19,6 +19,8 @@ import { SCOPES, systemPrompt, parseActions, filterActions } from './ai/assistan
 import { connectBridge } from './ai/bridge.js';
 import { techPackHTML, patternSVG, patternDXF, tiledPrintHTML, bomCSV, GUIDE, rfqTemplates } from './make/production.js';
 import { parseDXF, parseSVG, piecesToActions, MODEL_EXT, readAs } from './io/import.js';
+import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitChartSVG } from './core/knit.js';
+import { invoke } from './io/tauri.js';
 
 const LINKS_OUT = {
   genzineers: 'https://genzineers.com/?utm_source=fashion-tool&utm_medium=app&utm_campaign=gft',
@@ -75,6 +77,7 @@ stage.append(viewEl, patternCanvas, hud, placeHint);
 root.append(top, h('div', { class: 'layout' }, panel, stage, drawer));
 
 const viewer = new Viewer(viewEl);
+window.__gft = { viewer, store }; // handy for debugging from the console
 viewer.onError = (m) => toast(m, 5000);
 const pattern = createPatternEditor(patternCanvas, store);
 let sim = null;
@@ -150,6 +153,7 @@ function openMenu() {
     item('Export 3D model (GLB)', async () => download(`${p.name}.glb`, await viewer.exportModel('glb'))),
     item('Export 3D model (OBJ)', async () => download(`${p.name}.obj`, await viewer.exportModel('obj'))),
     item('Export 3D model (STL, for 3D printing / casting)', async () => download(`${p.name}.stl`, await viewer.exportModel('stl'))),
+    item('Open in Blender', () => openInBlender()),
     item('Snapshot (PNG)', () => download(`${p.name}.png`, dataUrlToBlob(viewer.snapshot(1600)))),
     h('hr'),
     item(`Auto-orbit: ${viewer.autoOrbit ? 'on' : 'off'}`, () => { viewer.setAutoOrbit(!viewer.autoOrbit); settings.set('orbit', viewer.autoOrbit); }),
@@ -166,6 +170,17 @@ function openMenu() {
   setTimeout(() => document.addEventListener('click', () => menuEl?.remove(), { once: true }), 0);
 }
 const dataUrlToBlob = (u) => { const [m, b] = u.split(','); const bin = atob(b); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: m.split(':')[1].split(';')[0] }); };
+
+// ---------- Blender ----------
+async function openInBlender() {
+  const p = store.get();
+  const blob = await viewer.exportModel('glb');
+  if (window.__TAURI_INTERNALS__) {
+    try { await invoke('open_in_blender', { data: Array.from(new Uint8Array(await blob.arrayBuffer())), name: p.name.replace(/[^\w-]+/g, '_') }); toast('Opening in Blender…'); return; } catch (e) { toast(`${e}`, 6000); }
+  }
+  download(`${p.name.replace(/[^\w-]+/g, '_')}.glb`, blob);
+  toast('Saved .glb. In Blender: File → Import → glTF 2.0. (The desktop app opens Blender for you.)', 6000);
+}
 
 // ---------- import ----------
 const fileInput = h('input', { type: 'file', class: 'hide', accept: ['.json', '.dxf', '.svg', ...MODEL_EXT.map((e) => `.${e}`)].join(','), onchange: async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) await importFile(f); } });
@@ -330,6 +345,25 @@ function cMaterials(el, p) {
         sel(inFam ? cur.fabric : '', [{ value: '', label: f.variants.length > 1 ? `${f.variants.length} qualities…` : 'Use' }, ...f.variants.map((v) => ({ value: v, label: FABRICS[v].name.replace(f.name, '').trim() || 'Standard' }))], (v) => v && store.dispatch({ type: 'set_fabric', ...tgt(), fabric: v }), { class: 'inp', style: 'width:auto;max-width:46%', 'aria-label': `${f.name} quality` }));
     })),
   ));
+  // knitwear
+  const kg = (p.garments || []).find((x) => x.id === (ui.target.startsWith('g:') ? ui.target.slice(2) : cur.garment)) || (p.garments || [])[0];
+  if (kg && kg.generator !== 'bag') {
+    const k = kg.knit;
+    const setK = (patch) => store.dispatch({ type: 'set_knit', garment: kg.id, ...patch });
+    el.append(h('details', { open: Boolean(k) }, h('summary', {}, k ? `Knitwear: ${KNIT_STRUCTURES[k.structure].name}, ${k.gauge}` : 'Make it knitted (sweaters, cardigans, knit polos…)'), h('div', {},
+      !k ? h('button', { class: 'btn', onclick: () => setK({}) }, 'Knit this garment (12gg merino jersey)') : [
+        h('div', { class: 'tip' }, KNIT_METHODS[k.method].note),
+        h('div', { class: 'grid2' },
+          field('Method', sel(k.method, Object.entries(KNIT_METHODS).map(([id, m]) => ({ value: id, label: `${m.name}${m.recommended ? ' ★' : ''}` })), (v) => setK({ method: v }))),
+          field('Gauge', sel(k.gauge, Object.entries(GAUGES).map(([id, g2]) => ({ value: id, label: `${g2.name}` })), (v) => setK({ gauge: v }))),
+          field('Yarn', sel(k.yarn, Object.entries(YARNS).map(([id, y]) => ({ value: id, label: y.name })), (v) => setK({ yarn: v }))),
+          field('Stitch / structure', sel(k.structure, Object.entries(KNIT_STRUCTURES).map(([id, x]) => ({ value: id, label: x.name })), (v) => setK({ structure: v }))),
+          field('Colourwork motif', sel(k.motif || 'none', Object.entries(MOTIFS).map(([id, m]) => ({ value: id, label: m.name })), (v) => setK({ motif: v }))),
+          h('span')),
+        h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-bottom:8px' }, `${GAUGES[k.gauge].use} · Yarn: ${YARNS[k.yarn].note} · ${KNIT_STRUCTURES[k.structure].note}`),
+        h('div', { class: 'grid2' }, [0, 1, 2].map((i) => field(i ? `Colour ${i + 1}` : 'Main colour', h('input', { type: 'color', value: k.colors[i] || '#888888', onchange: (e) => { const c = [...k.colors]; c[i] = e.target.value; setK({ colors: c }); } })))),
+      ])));
+  }
   // blends
   el.append(h('details', {}, h('summary', {}, 'Fibre blends (e.g. 65/35 poly-cotton, 95/5 cotton-spandex)'), h('div', {},
     h('div', { class: 'list' }, Object.entries(BLENDS).map(([id, b]) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${b.name}`), h('div', { class: 's' }, `${Object.entries(b.composition).map(([k, v]) => `${v}% ${k}`).join(' / ')} · ${b.uses}`), h('div', { class: 's' }, h('span', { class: 'okc' }, '+ '), b.pros), h('div', { class: 's' }, h('span', { class: 'warn' }, '− '), b.cons)), h('button', { class: 'btn sm', onclick: () => { store.dispatch([{ type: 'create_blend', id: `blend-${id}`, blend: id }, { type: 'set_fabric', ...tgt(), fabric: `blend-${id}` }]); } }, 'Use')))),
@@ -435,6 +469,8 @@ function cMake(el, p) {
       h('button', { class: 'btn', onclick: () => download(`${name}-BOM.csv`, bomCSV(p), 'text/csv') }, 'Bill of materials (CSV)'),
       h('button', { class: 'btn', onclick: async () => download(`${name}.glb`, await viewer.exportModel('glb')) }, '3D model (GLB)'),
       h('button', { class: 'btn', onclick: () => download(`${name}.gft.json`, JSON.stringify(p, null, 1), 'application/json') }, 'Project file'),
+      ...(p.garments || []).filter((g) => g.knit?.motif && g.knit.motif !== 'none').map((g) => h('button', { class: 'btn', onclick: () => download(`${name}-knitting-chart.svg`, knitChartSVG(g.knit), 'image/svg+xml') }, 'Knitting chart (SVG)')),
+      h('button', { class: 'btn', onclick: () => openInBlender() }, 'Open in Blender'),
     )));
   guideSection(el, p);
 }
@@ -530,7 +566,8 @@ function jMake(el, p) {
     h('button', { class: 'btn primary', onclick: () => openDoc(techPackHTML(p, { image: viewer.snapshot(900) }), `${name}-spec.html`) }, 'Spec sheet (PDF)'),
     h('button', { class: 'btn', onclick: async () => download(`${name}.stl`, await viewer.exportModel('stl')) }, 'STL (3D print / cast)'),
     h('button', { class: 'btn', onclick: async () => download(`${name}.obj`, await viewer.exportModel('obj')) }, 'OBJ'),
-    h('button', { class: 'btn', onclick: async () => download(`${name}.glb`, await viewer.exportModel('glb')) }, 'GLB'))));
+    h('button', { class: 'btn', onclick: async () => download(`${name}.glb`, await viewer.exportModel('glb')) }, 'GLB'),
+    h('button', { class: 'btn', onclick: () => openInBlender() }, 'Open in Blender'))));
   guideSection(el, p);
 }
 

@@ -10,7 +10,7 @@ import { ACTION_DOCS, catalog, summarizeProject } from '../core/actions.js';
 export const SCOPES = {
   shape: { label: 'Shape & pattern', actions: ['new_garment', 'add_garment', 'remove_garment', 'set_option', 'set_size', 'add_panel', 'update_panel', 'move_point', 'insert_point', 'delete_point', 'remove_panel'] },
   construction: { label: 'Stitching & assembly', actions: ['set_stitch', 'apply_recommendations', 'add_seam', 'remove_seam'] },
-  materials: { label: 'Fabrics, blends & fill', actions: ['set_fabric', 'create_fabric', 'create_blend', 'set_insulation'] },
+  materials: { label: 'Fabrics, knits, blends & fill', actions: ['set_fabric', 'create_fabric', 'create_blend', 'set_insulation', 'set_knit'] },
   color: { label: 'Colour & dyeing', actions: ['set_finish:color', 'set_finish:dye'] },
   prints: { label: 'Prints & paint', actions: ['set_finish:print', 'set_finish:paint'] },
   trims: { label: 'Buttons, trims & decorations', actions: ['add_trim', 'set_trim', 'remove_trim', 'add_overlay', 'remove_overlay'] },
@@ -39,7 +39,7 @@ export function systemPrompt(project, scope) {
     'Catalog ids:',
     ok.has('new_garment') || ok.has('add_garment') ? `templates: ${ids(cat.templates)}` : '',
     ok.has('set_option') ? `template options by generator: ${JSON.stringify(cat.generators)}` : '',
-    ok.has('set_fabric') ? `fabrics: ${ids(cat.fabrics)}\nblends: ${ids(cat.blends)}\ninsulation: ${ids(cat.insulation)}` : '',
+    ok.has('set_fabric') ? `fabrics: ${ids(cat.fabrics)}\nblends: ${ids(cat.blends)}\ninsulation: ${ids(cat.insulation)}\nknit methods: ${ids(cat.knitMethods)}\ngauges: ${ids(cat.gauges)}\nyarns: ${ids(cat.yarns)}\nknit structures: ${ids(cat.knitStructures)}\nmotifs: ${ids(cat.motifs)}` : '',
     ok.has('set_stitch') ? `assembly methods: ${ids(cat.assembly)}\nthreads: ${ids(cat.threads)}` : '',
     ok.has('set_finish:dye') ? `dyes: ${ids(cat.dyes)}` : '',
     ok.has('set_finish:print') ? `print methods: ${ids(cat.printMethods)}; designs: ${cat.printDesigns.join(', ')}; paints: ${ids(cat.paints)}` : '',

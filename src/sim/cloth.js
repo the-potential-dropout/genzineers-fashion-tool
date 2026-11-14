@@ -619,6 +619,9 @@ export function panelAnchor(sim, panelId, x, y) {
     for (let q = pan.offset; q < pan.offset + pan.count; q++) { const d = (sim.local[q * 2] - x) ** 2 + (sim.local[q * 2 + 1] - y) ** 2; if (d < bd) { bd = d; best = q; } }
     return { ids: [best], w: [1] };
   }
-  const tw = w.reduce((s2, wi, k) => s2 + (ok[k] ? wi : 0), 0) || 1;
-  return { ids: ids.filter((_, k) => ok[k]), w: w.filter((_, k) => ok[k]).map((wi) => wi / tw) };
+  const tw = w.reduce((s2, wi, k) => s2 + (ok[k] ? wi : 0), 0);
+  const kept = ids.filter((_, k) => ok[k]);
+  // all remaining weight sits on missing corners: share equally among existing ones
+  if (tw < 1e-6) return { ids: kept, w: kept.map(() => 1 / kept.length) };
+  return { ids: kept, w: w.filter((_, k) => ok[k]).map((wi) => wi / tw) };
 }

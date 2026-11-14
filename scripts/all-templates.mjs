@@ -15,7 +15,7 @@ for (const id of Object.keys(TEMPLATES)) {
   let line = id.padEnd(20);
   try {
     const p = createProject(id);
-    const missing = [...new Set([...p.panels.map((x) => !FABRICS[x.fabric] && `fabric:${x.fabric}`), ...p.seams.map((s) => !ASSEMBLY[s.stitch] && `stitch:${s.stitch}`), ...p.trims.map((t) => !TRIMS[t.type] && `trim:${t.type}`)].filter(Boolean))];
+    const missing = [...new Set([...p.panels.map((x) => !FABRICS[x.fabric] && !p.customFabrics?.[x.fabric] && `fabric:${x.fabric}`), ...p.seams.map((s) => !ASSEMBLY[s.stitch] && `stitch:${s.stitch}`), ...p.trims.map((t) => !TRIMS[t.type] && `trim:${t.type}`)].filter(Boolean))];
     const sim = buildCloth(p);
     let maxY0 = -1e9; for (let i = 1; i < sim.pos.length; i += 3) maxY0 = Math.max(maxY0, sim.pos[i]);
     const t0 = performance.now();

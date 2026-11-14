@@ -6,6 +6,7 @@
  * once into small canvases and cached. 256 px tiles keep GPU memory tiny.
  */
 import * as THREE from 'three';
+import { MOTIFS } from '../core/knit.js';
 
 const SIZE = 256;
 const cache = new Map();
@@ -36,8 +37,8 @@ function weave(g, pattern, base, look) {
       break;
     case 'knit': case 'rib':
       g.strokeStyle = dark; g.lineWidth = pattern === 'rib' ? 5 : 2;
-      for (let x = 0; x < SIZE; x += pattern === 'rib' ? 12 : 8) {
-        if (pattern === 'rib') { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, SIZE); g.stroke(); continue; }
+      for (let x = 0; x < SIZE; x += pattern === 'rib' ? 12 * (look.ribW || 1) : 8) {
+        if (pattern === 'rib') { g.lineWidth = 5 * (look.ribW || 1); g.beginPath(); g.moveTo(x, 0); g.lineTo(x, SIZE); g.stroke(); continue; }
         for (let y = 0; y < SIZE; y += 8) { g.beginPath(); g.moveTo(x, y); g.lineTo(x + 4, y + 6); g.lineTo(x + 8, y); g.stroke(); }
       }
       break;
@@ -88,8 +89,69 @@ function weave(g, pattern, base, look) {
     case 'sequin':
       for (let y = 0; y < SIZE; y += 12) for (let x = (y / 12) % 2 ? 6 : 0; x < SIZE; x += 12) { const gr = g.createRadialGradient(x + 4, y + 4, 1, x + 6, y + 6, 7); gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, base); g.fillStyle = gr; g.beginPath(); g.arc(x + 6, y + 6, 6, 0, Math.PI * 2); g.fill(); }
       break;
+    case 'purl': case 'garter':
+      for (let y = 0; y < SIZE; y += 8) {
+        g.fillStyle = (pattern === 'garter' && (y / 8) % 2) ? light : dark;
+        for (let x = (y / 8) % 2 ? 4 : 0; x < SIZE; x += 8) { g.beginPath(); g.ellipse(x + 4, y + 4, 4, 2.6, 0, 0, 7); g.fill(); }
+      }
+      break;
+    case 'seed':
+      for (let y = 0; y < SIZE; y += 8) for (let x = 0; x < SIZE; x += 8) { g.fillStyle = ((x + y) / 8) % 2 ? dark : light; g.beginPath(); g.ellipse(x + 4, y + 4, 3.2, 2.4, 0, 0, 7); g.fill(); }
+      break;
+    case 'milano':
+      knitV(g, dark, 8, 10);
+      g.fillStyle = css(shade(base, 0.78), 0.6);
+      for (let y = 0; y < SIZE; y += 20) g.fillRect(0, y, SIZE, 4);
+      break;
+    case 'cable': {
+      knitV(g, css(shade(base, 0.85), 0.5), 8, 8);
+      const cw = 48;
+      for (let x0 = 16; x0 < SIZE; x0 += cw + 24) {
+        g.fillStyle = css(shade(base, 0.7), 0.7); g.fillRect(x0 - 6, 0, 4, SIZE); g.fillRect(x0 + cw + 2, 0, 4, SIZE);
+        for (let y = 0; y < SIZE; y += 32) for (const dir of [1, -1]) {
+          const gr = g.createLinearGradient(x0, y, x0 + cw, y + 32); gr.addColorStop(0, css(shade(base, 1.18))); gr.addColorStop(1, css(shade(base, 0.72)));
+          g.strokeStyle = gr; g.lineWidth = 13; g.beginPath();
+          g.moveTo(x0 + (dir > 0 ? 10 : cw - 10), y); g.bezierCurveTo(x0 + (dir > 0 ? 10 : cw - 10), y + 16, x0 + (dir > 0 ? cw - 10 : 10), y + 16, x0 + (dir > 0 ? cw - 10 : 10), y + 32); g.stroke();
+        }
+      }
+      break;
+    }
+    case 'honeycomb':
+      knitV(g, css(shade(base, 0.85), 0.4), 8, 8);
+      g.strokeStyle = css(shade(base, 0.7), 0.8); g.lineWidth = 5;
+      for (let y = 0; y < SIZE; y += 24) for (let x = (y / 24) % 2 ? 16 : 0; x < SIZE; x += 32) { g.beginPath(); g.moveTo(x, y); g.lineTo(x + 16, y + 12); g.lineTo(x + 32, y); g.stroke(); }
+      break;
+    case 'pointelle':
+      knitV(g, dark, 8, 8);
+      g.globalCompositeOperation = 'destination-out';
+      for (let y = 6; y < SIZE; y += 24) for (let x = (y / 24) % 2 ? 12 : 0; x < SIZE; x += 24) { g.beginPath(); g.arc(x + 6, y, 2.6, 0, 7); g.fill(); }
+      g.globalCompositeOperation = 'source-over';
+      break;
+    case 'popcorn':
+      knitV(g, css(shade(base, 0.85), 0.5), 8, 8);
+      for (let y = 12; y < SIZE; y += 32) for (let x = (y / 32) % 2 ? 16 : 0; x < SIZE; x += 32) { const gr = g.createRadialGradient(x + 7, y - 2, 1, x + 8, y, 8); gr.addColorStop(0, css(shade(base, 1.25))); gr.addColorStop(1, css(shade(base, 0.7))); g.fillStyle = gr; g.beginPath(); g.arc(x + 8, y, 7, 0, 7); g.fill(); }
+      break;
+    case 'knitchart': {
+      const m = MOTIFS[look.motif] || MOTIFS.birdseye;
+      const cols = look.patternColors || [base, '#ffffff', '#c0392b'];
+      const grid = m.grid || ['0'];
+      const st = SIZE / Math.max(grid[0].length * 2, 16); // stitch width
+      const sh = st * 0.8;
+      for (let yy = 0, r = 0; yy < SIZE; yy += sh, r++) for (let xx = 0, c = 0; xx < SIZE; xx += st, c++) {
+        const row = grid[r % grid.length]; const ch = row[c % row.length];
+        g.fillStyle = cols[Number(ch)] || base;
+        g.beginPath(); g.moveTo(xx, yy); g.lineTo(xx + st / 2, yy + sh * 1.1); g.lineTo(xx + st, yy); g.lineTo(xx + st / 2, yy + sh * 0.35); g.closePath(); g.fill();
+      }
+      break;
+    }
     default: break;
   }
+}
+
+/** V-shaped knit stitches (stockinette) */
+function knitV(g, color, w, h) {
+  g.strokeStyle = color; g.lineWidth = 2;
+  for (let x = 0; x < SIZE; x += w) for (let y = 0; y < SIZE; y += h) { g.beginPath(); g.moveTo(x, y); g.lineTo(x + w / 2, y + h * 0.75); g.lineTo(x + w, y); g.stroke(); }
 }
 
 function applyFx(g, fx, base) {
@@ -161,7 +223,7 @@ function loadImage(src, onload) {
 export function fabricTextures(fab, finish = {}, dyeEffectKey, onUpdate) {
   const look = fab.look;
   const color = finish.color || look.color;
-  const key = JSON.stringify([look.pattern, look.fx, color, look.patternColors, dyeEffectKey, finish.print?.design, finish.print?.colors, finish.print?.image?.slice(0, 64), finish.paint?.design, finish.paint?.colors]);
+  const key = JSON.stringify([look.pattern, look.motif, look.ribW, look.fx, color, look.patternColors, dyeEffectKey, finish.print?.design, finish.print?.colors, finish.print?.image?.slice(0, 64), finish.paint?.design, finish.paint?.colors]);
   if (cache.has(key)) return cache.get(key);
   const cv = document.createElement('canvas');
   cv.width = cv.height = SIZE;

@@ -66,7 +66,27 @@ args = ["/path/to/genzineers-fashion-tool/mcp-server/index.js"]
 
 **See it live:** in the app open AI → Connect → tick **Live link**. The agent's changes now appear instantly, and `snapshot` returns the 3D view. Without the app, the server edits `gft-project.json` (set `GFT_PROJECT` to change the file, `GFT_PORT` to change the port 7821).
 
-## 4. Command line
+## 4. Blender and Higgsfield together with this app
+
+**Blender**
+- In the app: menu → *Open in Blender* (or Make it → Open in Blender). The desktop app launches your installed Blender with the design imported. On the web it downloads a `.glb`; in Blender use *File → Import → glTF 2.0*.
+- Importing from Blender: export your model as `.glb` (or drop a `.blend` into the desktop app with Blender installed for automatic conversion).
+- Agent workflows: add a Blender MCP server (for example the community "blender-mcp" add-on + server) to the same agent as `genzineers-fashion`. The agent can design here, `export` a GLB, and then light, render or animate it in Blender.
+
+**Higgsfield**
+- Best: add Higgsfield's MCP server to your agent alongside `genzineers-fashion`. Then ask, for example: "Take a snapshot of my design and generate a lookbook image and a 5-second runway video with Higgsfield". The agent calls `snapshot` here and passes the image to Higgsfield.
+- In-app: AI → Images → *Higgsfield*: paste an HTTP endpoint (and token) that accepts `{prompt, image}` and returns `{url}` / `{b64}`.
+
+```jsonc
+// one agent, three servers
+{ "mcpServers": {
+  "genzineers-fashion": { "command": "node", "args": ["/path/to/genzineers-fashion-tool/mcp-server/index.js"] },
+  "blender": { "command": "uvx", "args": ["blender-mcp"] },
+  "higgsfield": { "url": "<your Higgsfield MCP URL>" }
+} }
+```
+
+## 5. Command line
 
 ```bash
 export ANTHROPIC_API_KEY=...   # or OPENAI_API_KEY / GEMINI_API_KEY / OPENROUTER_API_KEY / GROQ_API_KEY ...

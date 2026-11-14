@@ -11,7 +11,7 @@ import { GENERATORS, defaultOptions } from './blocks.js';
 
 const g = (generator, options = {}, extra = {}) => ({ generator, options, ...extra });
 
-export const TEMPLATE_GROUPS = ['T-shirts & tanks', 'Shirts & polos', 'Sweats & hoodies', 'Jackets', 'Tailoring & suits', 'Coats', 'Dresses', 'Trousers & jeans', 'Shorts', 'Skirts', 'Accessories', 'Hats', 'Bags'];
+export const TEMPLATE_GROUPS = ['T-shirts & tanks', 'Shirts & polos', 'Sweats & hoodies', 'Jackets', 'Tailoring & suits', 'Coats', 'Dresses', 'Trousers & jeans', 'Shorts', 'Knitwear', 'Skirts', 'Accessories', 'Hats', 'Bags'];
 
 export const TEMPLATES = {
   // ---------- T-shirts & tanks ----------
@@ -97,6 +97,21 @@ export const TEMPLATES = {
   'running-shorts': { name: 'Running shorts', group: 'Shorts', garments: [g('bottom', { fit: 'relaxed', inseam: 9, leg: 'wide', waistband: 'drawstring', fly: 'none', hem: 'split', pockets: 'none', beltLoops: 'no' }, { fabric: 'polyester-woven-stretch', stitch: 'flatlock-607' })] },
   'sweat-shorts': { name: 'Sweat shorts', group: 'Shorts', garments: [g('bottom', { fit: 'relaxed', inseam: 18, leg: 'straight', waistband: 'drawstring', fly: 'none', pockets: 'side-seam', beltLoops: 'no' }, { fabric: 'french-terry', stitch: 'overlock-514' })] },
 
+  // ---------- Knitwear ----------
+  'knit-crew': { name: 'Crew-neck sweater (fine merino)', group: 'Knitwear', garments: [g('top', { fit: 'regular', length: 68, neckline: 'crew', sleeve: 'long', cuff: 'rib', hem: 'rib', collar: 'rib' }, { stitch: 'linking', knit: { method: 'fully-fashioned', gauge: '12gg', yarn: 'merino-extrafine', structure: 'jersey', colors: ['#2f3a4a', '#e8e0cc', '#9b1c1c'] } })], why: '12gg extra-fine merino, fully-fashioned panels linked together, 1x1 rib trims: the classic fine-knit sweater.' },
+  'knit-vneck': { name: 'V-neck sweater (lambswool)', group: 'Knitwear', garments: [g('top', { length: 68, neckline: 'v-neck', sleeve: 'long', cuff: 'rib', hem: 'rib', collar: 'rib' }, { stitch: 'linking', knit: { method: 'fully-fashioned', gauge: '7gg', yarn: 'lambswool', structure: 'jersey', colors: ['#7a2b2b', '#e8e0cc', '#222'] } })] },
+  'knit-cardigan': { name: 'Cardigan', group: 'Knitwear', garments: [g('top', { length: 66, neckline: 'v-neck', sleeve: 'long', cuff: 'rib', hem: 'rib', closure: 'single-breasted', buttons: 5, pockets: 'patch' }, { stitch: 'linking', button: 'button-horn', knit: { method: 'fully-fashioned', gauge: '7gg', yarn: 'lambswool', structure: 'jersey', colors: ['#6b6a3f', '#e8e0cc', '#222'] } })], why: '7gg lambswool, button band knitted in 1x1 rib with buttonholes, horn buttons.' },
+  'knit-turtleneck': { name: 'Turtleneck', group: 'Knitwear', garments: [g('top', { fit: 'slim', length: 66, neckline: 'mock', sleeve: 'long', cuff: 'rib', hem: 'rib', collar: 'funnel' }, { stitch: 'linking', knit: { method: 'whole-garment', gauge: '14gg', yarn: 'cashmere-merino', structure: 'jersey', colors: ['#1d1d1f', '#e8e0cc', '#9b1c1c'] } })] },
+  'knit-aran': { name: 'Aran fisherman sweater', group: 'Knitwear', garments: [g('top', { fit: 'relaxed', length: 70, neckline: 'crew', sleeve: 'long', cuff: 'rib', hem: 'rib', collar: 'rib' }, { stitch: 'linking', knit: { method: 'hand-knit', gauge: '5gg', yarn: 'aran-wool', structure: 'aran', colors: ['#e8e0cc', '#e8e0cc', '#e8e0cc'] } })], why: 'Lanolin-rich Aran wool, panels of cables, honeycomb and moss stitch; traditionally hand-knit at 5gg.' },
+  'knit-fairisle': { name: 'Fair Isle sweater', group: 'Knitwear', garments: [g('top', { length: 66, neckline: 'crew', sleeve: 'long', cuff: 'rib', hem: 'rib', collar: 'rib' }, { stitch: 'linking', knit: { method: 'fully-fashioned', gauge: '7gg', yarn: 'shetland', structure: 'fair-isle', motif: 'fair-isle-band', colors: ['#2a3a4f', '#e9dfc7', '#a0412d'] } })] },
+  'knit-argyle-vest': { name: 'Argyle sweater vest', group: 'Knitwear', garments: [g('top', { fit: 'regular', length: 62, neckline: 'v-neck', sleeve: 'none', shoulder: 'full', hem: 'rib' }, { stitch: 'linking', knit: { method: 'fully-fashioned', gauge: '12gg', yarn: 'merino-extrafine', structure: 'intarsia', motif: 'argyle', colors: ['#2f3a4a', '#c9a54a', '#8a1f2b'] } })] },
+  'knit-cable-cardigan': { name: 'Chunky cable cardigan', group: 'Knitwear', garments: [g('top', { fit: 'oversized', length: 70, neckline: 'v-neck', sleeve: 'long', cuff: 'rib', hem: 'rib', closure: 'single-breasted', buttons: 4 }, { stitch: 'linking', button: 'button-leather-knot', knit: { method: 'fully-fashioned', gauge: '3gg', yarn: 'alpaca-yarn', structure: 'cable', colors: ['#bfae95', '#e8e0cc', '#222'] } })] },
+  'knit-polo': { name: 'Knit polo (fine cotton)', group: 'Knitwear', garments: [g('top', { length: 68, neckline: 'henley', sleeve: 'short', cuff: 'rib', hem: 'rib', collar: 'polo' }, { stitch: 'linking', knit: { method: 'fully-fashioned', gauge: '14gg', yarn: 'cotton-combed-yarn', structure: 'jersey', colors: ['#f1ece2', '#2f3a4a', '#9b1c1c'] } })] },
+  'knit-pointelle': { name: 'Pointelle knit top', group: 'Knitwear', garments: [g('top', { fit: 'slim', length: 60, neckline: 'scoop', sleeve: 'short', cuff: 'rib', hem: 'rib' }, { stitch: 'linking', knit: { method: 'fully-fashioned', gauge: '14gg', yarn: 'organic-cotton-yarn', structure: 'pointelle', colors: ['#f6efe3', '#2f3a4a', '#9b1c1c'] } })] },
+  'knit-mohair': { name: 'Brushed mohair sweater', group: 'Knitwear', garments: [g('top', { fit: 'oversized', length: 66, neckline: 'crew', sleeve: 'long', cuff: 'rib', hem: 'rib' }, { stitch: 'linking', knit: { method: 'fully-fashioned', gauge: '5gg', yarn: 'mohair-silk', structure: 'brushed-mohair', colors: ['#d8c8e0', '#e8e0cc', '#222'] } })] },
+  'knit-dress': { name: 'Rib-knit dress', group: 'Knitwear', garments: [g('top', { fit: 'slim', length: 105, flare: 2, neckline: 'mock', sleeve: 'long', cuff: 'rib' }, { stitch: 'linking', knit: { method: 'whole-garment', gauge: '12gg', yarn: 'merino-extrafine', structure: 'rib-2x2', colors: ['#5a4632', '#e8e0cc', '#222'] } })] },
+  'knit-snowflake': { name: 'Nordic snowflake sweater', group: 'Knitwear', garments: [g('top', { fit: 'relaxed', length: 68, neckline: 'crew', sleeve: 'long', cuff: 'rib', hem: 'rib', collar: 'rib' }, { stitch: 'linking', knit: { method: 'fully-fashioned', gauge: '5gg', yarn: 'lambswool', structure: 'jacquard', motif: 'snowflake', colors: ['#8a1f2b', '#f2ede2', '#1d2a44'] } })] },
+
   // ---------- Skirts ----------
   'skirt-aline': { name: 'A-line skirt', group: 'Skirts', garments: [g('skirt', { length: 58, flare: 14, waistband: 'button' }, { fabric: 'denim', stitch: 'safety-516' })] },
   'skirt-pencil': { name: 'Pencil skirt', group: 'Skirts', garments: [g('skirt', { length: 62, flare: -3, waistband: 'facing', slit: 'back' }, { fabric: 'wool-worsted-suiting', stitch: 'lockstitch-301' })] },
@@ -155,6 +170,7 @@ export function templateGarments(templateId) {
     sleeveFabric: gm.sleeveFabric,
     stitch: gm.stitch,
     button: gm.button,
+    knit: gm.knit,
     prefix: gm.prefix || (t.garments.length > 1 ? `g${i}-` : ''),
   }));
 }

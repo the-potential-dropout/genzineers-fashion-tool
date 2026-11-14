@@ -3,6 +3,7 @@
 
 import { TEMPLATES, templateGarments, buildGarment } from './templates.js';
 import { bodyFor } from './sizes.js';
+import { knitFabric } from './knit.js';
 
 export const PROJECT_VERSION = 2;
 
@@ -52,12 +53,18 @@ export function mergeGarment(p, g) {
   p.trims = p.trims.filter((t) => !ids.has(t.panel) || t.custom);
   p.overlays = p.overlays.filter((o) => !ids.has(o.panel) || o.custom);
   const out = buildGarment(g, bodyFor(p));
+  if (g.knit) {
+    const fid = `knit-${g.id}`;
+    p.customFabrics = { ...(p.customFabrics || {}), [fid]: { ...knitFabric(g.knit), id: fid } };
+    g.fabric = fid;
+    for (const pan of out.panels) pan.fabric = fid;
+  }
   for (const pan of out.panels) {
     const old = keep[pan.id];
     p.panels.push({
       fabricOverrides: {},
       ...pan,
-      ...(old ? { fabric: old.fabric, fabricOverrides: old.fabricOverrides, finish: old.finish } : {}),
+      ...(old ? { fabric: g.knit ? pan.fabric : old.fabric, fabricOverrides: old.fabricOverrides, finish: old.finish } : {}),
     });
   }
   for (const s of out.seams) p.seams.push({ id: uid('seam'), threadColor: '#d8d2c4', thread: 'poly-corespun', ...s });
