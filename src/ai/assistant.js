@@ -13,7 +13,7 @@ export const SCOPES = {
   materials: { label: 'Fabrics, knits, blends & fill', actions: ['set_fabric', 'create_fabric', 'create_blend', 'set_insulation', 'set_knit'] },
   color: { label: 'Colour & dyeing', actions: ['set_finish:color', 'set_finish:dye'] },
   prints: { label: 'Prints & paint', actions: ['set_finish:print', 'set_finish:paint'] },
-  trims: { label: 'Buttons, trims & decorations', actions: ['add_trim', 'set_trim', 'remove_trim', 'add_overlay', 'remove_overlay'] },
+  trims: { label: 'Buttons, zips, edges, lacing & trims', actions: ['add_trim', 'set_trim', 'remove_trim', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing'] },
   jewelry: { label: 'Jewelry', actions: ['new_jewelry', 'set_jewelry', 'set_karat', 'add_stone', 'update_stone', 'remove_stone', 'set_custom_shape'] },
   production: { label: 'Production settings', actions: ['set_production'] },
 };
@@ -43,7 +43,7 @@ export function systemPrompt(project, scope) {
     ok.has('set_stitch') ? `assembly methods: ${ids(cat.assembly)}\nthreads: ${ids(cat.threads)}` : '',
     ok.has('set_finish:dye') ? `dyes: ${ids(cat.dyes)}` : '',
     ok.has('set_finish:print') ? `print methods: ${ids(cat.printMethods)}; designs: ${cat.printDesigns.join(', ')}; paints: ${ids(cat.paints)}` : '',
-    ok.has('add_trim') ? `trims: ${ids(cat.trims)}` : '',
+    ok.has('add_trim') ? `trims: ${ids(cat.trims)}\nzipper types: ${ids(cat.zipperTypes)}; sizes ${cat.zipperSizes.join(', ')}; ends ${ids(cat.zipperEnds)}; sliders ${ids(cat.zipperSliders)}; pullers ${ids(cat.zipperPullers)}\nedge treatments: ${ids(cat.edgeTreatments)}\nlacing styles: ${ids(cat.lacingStyles)}` : '',
     ok.has('new_jewelry') ? `jewelry templates: ${ids(cat.jewelryTemplates)}\nmetals: ${ids(cat.metals)}\ngems: ${ids(cat.gems)}\ncuts: ${ids(cat.cuts)}\nsettings: ${ids(cat.settings)}\nlinks: ${ids(cat.links)}\nclasps: ${ids(cat.clasps)}` : '',
     ok.has('set_size') ? `size charts: ${JSON.stringify(cat.sizeCharts)}` : '',
     'Current project:',

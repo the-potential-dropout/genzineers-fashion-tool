@@ -8,10 +8,11 @@ import { TEMPLATES, TEMPLATE_GROUPS } from './core/templates.js';
 import { GENERATORS } from './core/blocks.js';
 import { FABRICS, FABRIC_FAMILIES, FABRIC_CATEGORIES, resolveFabric } from './core/fabrics.js';
 import { ASSEMBLY, ASSEMBLY_GROUPS, THREADS } from './core/assembly.js';
-import { TRIMS, TRIM_GROUPS } from './core/trims.js';
+import { TRIMS, TRIM_GROUPS, ZIPPER_TYPES, ZIPPER_SIZES, ZIPPER_ENDS, ZIPPER_SLIDERS, ZIPPER_PULLERS, EDGE_TREATMENTS, LACING_STYLES, zipperSpec } from './core/trims.js';
 import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS, compatible } from './core/color.js';
 import { BLENDS, FIBERS, INSULATION, QUILTING, WATERPROOF } from './core/materials.js';
-import { SIZE_CHARTS } from './core/sizes.js';
+import { SIZE_CHARTS, REF_BODY } from './core/sizes.js';
+import { BODY_SHAPES } from './sim/avatar.js';
 import { recommendFor, checkProject, fabricTip } from './core/guidance.js';
 import { JEWELRY_TEMPLATES, JEWELRY_GROUPS, METALS, GEMS, CUTS, SETTINGS, LINKS, CLASPS, BAILS, EARRING_BACKS, RING_PROFILES, PLATINGS, estimateMetal, caratEstimate, ringSize, goldAlloy } from './core/jewelry.js';
 import { PROVIDERS, IMAGE_PROVIDERS, chat, generateImage } from './ai/providers.js';
@@ -219,6 +220,7 @@ function renderHud() {
     p.mode !== 'jewelry' ? h('button', { class: 'pill', onclick: () => rebuild({ keepCamera: true }) }, '↻ Re-drape') : null,
     h('button', { class: 'pill', onclick: () => (p.mode === 'jewelry' ? viewer.setProject(p) : viewer.frameGarment()) }, '⤢ Fit'),
     h('button', { class: 'pill', onclick: () => { viewer.setAutoOrbit(!viewer.autoOrbit); settings.set('orbit', viewer.autoOrbit); renderHud(); } }, viewer.autoOrbit ? '⟳ Orbit on' : '⟳ Orbit off'),
+    p.mode !== 'jewelry' ? h('button', { class: `pill ${viewer.fitMap ? 'on' : ''}`, title: 'Colour the cloth by tension: red = tight, blue = loose', onclick: () => { viewer.setFitMap(!viewer.fitMap); renderHud(); } }, viewer.fitMap ? '◐ Fit map on' : '◐ Fit map') : null,
     p.mode !== 'jewelry' ? h('span', { class: 'pill' }, `Size ${p.customBody ? 'custom' : p.size} · ${SIZE_CHARTS[p.sizeChart || 'unisex'].label}`) : null,
     h('button', { class: 'pill', onclick: () => { ui.aiTab = 'images'; ui.useRef = true; toggleAI(true); } }, '✦ AI render'),
   ].filter(Boolean));
@@ -264,7 +266,7 @@ function renderPanel() {
 const next = (label, step) => h('div', { style: 'margin-top:14px;display:flex;justify-content:flex-end' }, h('button', { class: 'btn primary', onclick: () => { ui.step = step; renderPanel(); } }, label));
 
 // ===== Clothing: Style =====
-const KEY_OPTS = { top: ['fit', 'length', 'sleeve', 'cuff', 'neckline', 'collar', 'lapel', 'closure', 'insulation'], bottom: ['fit', 'inseam', 'rise', 'leg', 'waistband', 'hem', 'pockets'], skirt: ['length', 'flare', 'waistband', 'slit'], hat: ['style', 'height', 'brim', 'stiffener', 'billShape', 'closure'], bag: ['type', 'width', 'height', 'depth', 'handles', 'closure', 'hardware'], scarf: ['length', 'width', 'ends'], tie: ['width', 'length', 'tip', 'knot'] };
+const KEY_OPTS = { legwear: ['type', 'denier', 'pattern', 'color', 'color2', 'topBand'], brief: ['style', 'rise', 'legCut', 'waistband', 'pouch'], bra: ['style', 'band', 'cup', 'straps', 'closure', 'wire', 'padding'], top: ['fit', 'length', 'sleeve', 'cuff', 'neckline', 'collar', 'lapel', 'closure', 'insulation'], bottom: ['fit', 'inseam', 'rise', 'leg', 'waistband', 'hem', 'pockets'], skirt: ['length', 'flare', 'waistband', 'slit'], hat: ['style', 'height', 'brim', 'stiffener', 'billShape', 'closure'], bag: ['type', 'width', 'height', 'depth', 'handles', 'closure', 'hardware'], scarf: ['length', 'width', 'ends'], tie: ['width', 'length', 'tip', 'knot'] };
 function cStyle(el, p) {
   const t = TEMPLATES[p.template];
   if (t?.why) el.append(h('div', { class: 'tip' }, h('b', {}, 'Industry default: '), t.why));
@@ -287,7 +289,8 @@ function cStyle(el, p) {
       const s = schema[k]; if (!s) return null;
       const val = g.options[k];
       const input = s.type === 'select'
-        ? sel(val, s.values.map((v) => ({ value: v, label: pretty(v) + (v === s.default ? ' (default)' : '') })), (v) => store.dispatch({ type: 'set_option', garment: g.id, key: k, value: v }))
+        ? sel(String(val), s.values.map((v) => ({ value: v, label: pretty(v) + (v === s.default ? ' (default)' : '') })), (v) => store.dispatch({ type: 'set_option', garment: g.id, key: k, value: v }))
+        : s.type === 'color' ? h('input', { type: 'color', value: val, onchange: (e) => store.dispatch({ type: 'set_option', garment: g.id, key: k, value: e.target.value }) })
         : h('input', { type: 'range', min: s.min, max: s.max, step: s.step, value: val, onchange: (e) => store.dispatch({ type: 'set_option', garment: g.id, key: k, value: Number(e.target.value) }), oninput: (e) => (e.target.closest('label').querySelector('b').textContent = e.target.value) });
       return field(s.label, input, s.type === 'range' ? h('b', {}, val) : null);
     };
@@ -296,8 +299,13 @@ function cStyle(el, p) {
       h('h3', {}, 'Customise'),
       gs.length > 1 ? h('div', { class: 'chips', style: 'margin-bottom:8px' }, gs.map((x) => h('button', { class: `chip ${x.id === ui.garment ? 'on' : ''}`, onclick: () => { ui.garment = x.id; renderPanel(); } }, GENERATORS[x.generator].label.split(' /')[0]))) : null,
       keys.map(opt),
-      h('details', {}, h('summary', {}, 'All options'), h('div', {}, Object.keys(schema).filter((k) => !keys.includes(k)).map(opt))),
+      h('details', {}, h('summary', {}, 'All options'), h('div', {}, Object.keys(schema).filter((k) => !keys.includes(k) && !/Adj$/.test(k)).map(opt))),
     ));
+    const adj = Object.keys(schema).filter((k) => /Adj$/.test(k) || ['length', 'inseam', 'flare'].includes(k));
+    if (adj.length) el.append(h('details', { open: ui.tailorOpen }, h('summary', { onclick: () => (ui.tailorOpen = !ui.tailorOpen) }, '✂ Tailor the fit'), h('div', {},
+      h('div', { class: 'tip' }, 'Quick alterations like a tailor: take in / let out, lengthen / shorten. Turn on ', h('b', {}, 'Fit map'), ' (bottom of the 3D view) to see tight (red) and loose (blue) areas.'),
+      adj.map((k) => { const sc = schema[k]; const v = g.options[k] ?? 0; const step = (d) => store.dispatch({ type: 'set_option', garment: g.id, key: k, value: Math.round((Number(v) + d) * 10) / 10 }); return h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, sc.label.replace('Tailor: ', '')), h('div', { class: 's' }, `${v} ${/Adj$/.test(k) && v ? '(altered)' : ''}`)), h('button', { class: 'btn sm', onclick: () => step(-2) }, '−2'), h('button', { class: 'btn sm', onclick: () => step(-1) }, '−1'), h('button', { class: 'btn sm', onclick: () => step(1) }, '+1'), h('button', { class: 'btn sm', onclick: () => step(2) }, '+2')); }),
+    )));
   }
   // size
   const chart = SIZE_CHARTS[p.sizeChart || 'unisex'];
@@ -306,11 +314,33 @@ function cStyle(el, p) {
     h('div', { class: 'seg', style: 'margin-bottom:8px' }, Object.entries(SIZE_CHARTS).map(([k, c]) => h('button', { class: (p.sizeChart || 'unisex') === k ? 'on' : '', onclick: () => store.dispatch({ type: 'set_size', chart: k, size: c.sizes[p.size] ? p.size : 'M' }) }, c.label))),
     h('div', { class: 'chips' }, Object.keys(chart.sizes).map((s) => h('button', { class: `chip ${!p.customBody && p.size === s ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'set_size', size: s }) }, s))),
     field('Mannequin', sel(p.mannequin || 'auto', [{ value: 'auto', label: 'Match size chart' }, { value: 'female', label: 'Female body' }, { value: 'male', label: 'Male body' }], (v) => store.dispatch({ type: 'set_size', mannequin: v }))),
-    h('details', { style: 'margin-top:8px' }, h('summary', {}, 'Custom measurements (cm)'), h('div', { class: 'grid2' }, ['chest', 'waist', 'hip', 'height', 'inseam', 'head', 'neck'].map((k) => field(pretty(k), h('input', { type: 'number', value: (p.customBody || chart.sizes[p.size] || chart.sizes.M)[k], onchange: (e) => store.dispatch({ type: 'set_size', custom: { [k]: Number(e.target.value) } }) }))))),
-  ));
+    bodyEditor(p, chart),  ));
   el.append(h('div', { class: 'sec' }, h('h3', {}, 'Outfit'), field('Add another garment (e.g. trousers to make a suit)', sel('', [{ value: '', label: 'Choose…' }, ...TEMPLATE_GROUPS.map((gr) => ({ group: gr, items: Object.entries(TEMPLATES).filter(([, v]) => v.group === gr).map(([id, v]) => ({ value: id, label: v.name })) }))], (v) => v && store.dispatch({ type: 'add_garment', template: v }))),
     gs.length > 1 ? h('div', { class: 'list' }, gs.map((x) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${x.id}: ${GENERATORS[x.generator].label}`)), h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_garment', garment: x.id }) }, 'Remove')))) : null));
   el.append(next('Next: materials →', 'materials'));
+}
+
+// ---- body: shape presets + every key measurement ----
+const BODY_FIELDS = [['height', 'Height', 140, 210], ['weight', 'Weight (kg)', 40, 160], ['chest', 'Chest / bust', 70, 150], ['underbust', 'Underbust', 60, 140], ['waist', 'Waist', 50, 150], ['hip', 'Hips', 70, 160], ['thigh', 'Thigh', 40, 90], ['shoulder', 'Shoulder width', 32, 58], ['inseam', 'Inseam', 60, 95], ['arm', 'Arm length', 45, 72], ['neck', 'Neck', 28, 50], ['head', 'Head', 50, 64]];
+function bodyEditor(p, chart) {
+  const mq = p.mannequin || ((p.sizeChart || 'unisex') === 'womens' ? 'female' : 'male');
+  const R = REF_BODY[mq];
+  const cur = { ...R, ...(chart.sizes[p.size] || chart.sizes.M), ...(p.customBody || {}) };
+  cur.weight = cur.weight || Math.round(22 * (cur.height / 100) ** 2);
+  const setM = (k, v) => {
+    const patch = { [k]: v };
+    if (k === 'weight') {
+      // weight changes girths: waist most, then hips/chest, then thigh/underbust
+      const r = v / cur.weight;
+      for (const [kk, pw] of [['waist', 0.75], ['hip', 0.45], ['chest', 0.4], ['underbust', 0.45], ['thigh', 0.5], ['neck', 0.3]]) patch[kk] = Math.round(cur[kk] * r ** pw * 10) / 10;
+    }
+    store.dispatch({ type: 'set_size', custom: patch });
+  };
+  return h('details', { style: 'margin-top:8px', open: Boolean(p.customBody) }, h('summary', {}, p.customBody ? `Custom body${p.bodyShape ? ` · ${BODY_SHAPES[p.bodyShape]?.name}` : ''}` : 'Body type & custom measurements'), h('div', {},
+    h('div', { class: 'chips scrollx', style: 'margin-bottom:8px' }, Object.entries(BODY_SHAPES).map(([k, b]) => h('button', { class: `chip ${p.bodyShape === k ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'set_size', shape: k }) }, b.name))),
+    h('div', { class: 'grid2' }, BODY_FIELDS.map(([k, label, min, max]) => field(label, h('input', { type: 'range', min, max, step: k === 'weight' || k === 'height' ? 1 : 0.5, value: cur[k], onchange: (e) => setM(k, Number(e.target.value)), oninput: (e) => (e.target.closest('label').querySelector('b').textContent = e.target.value) }), h('b', {}, cur[k])))),
+    h('div', { class: 'chips' }, h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'set_size', size: p.size || 'M' }) }, 'Reset to size chart')),
+    h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:6px' }, 'cm unless noted. The mannequin, its collision body and every pattern re-draft to these measurements.')));
 }
 
 // ---- target chooser (all / garment / panel) ----
@@ -443,6 +473,30 @@ function cDetails(el, p) {
       h('div', { class: 'list', style: 'margin-top:8px' }, p.trims.slice(-12).map((t) => h('div', { class: 'row' }, h('div', { class: 'grow s' }, `${TRIMS[t.type]?.name} on ${p.panels.find((x) => x.id === t.panel)?.name}`), h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_trim', id: t.id }) }, '✕')))),
     )));
   }
+  // zippers
+  const zips = p.trims.filter((t) => t.type.startsWith('zipper'));
+  el.append(h('details', { open: zips.length > 0 }, h('summary', {}, `Zippers (${zips.length})`), h('div', {},
+    zips.length ? null : h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-bottom:6px' }, 'No zipper yet: choose a zip closure in Style, or add one below.'),
+    zips.map((t, i) => { const z = zipperSpec(t.zip); const set = (patch) => store.dispatch({ type: 'set_zipper', id: t.id, ...patch }); return h('div', { class: 'sec' }, h('div', { class: 't', style: 'font-weight:600;font-size:13px' }, `Zipper ${i + 1} on ${p.panels.find((x) => x.id === t.panel)?.name}`), h('div', { class: 'grid2' },
+      field('Type', sel(z.type, Object.entries(ZIPPER_TYPES).map(([k, v]) => ({ value: k, label: `${v.name}${v.recommended ? ' ★' : ''}` })), (v) => set({ zipType: v }))),
+      field('Size', sel(z.size, Object.keys(ZIPPER_SIZES).map((k) => ({ value: k, label: k })), (v) => set({ size: v }))),
+      field('Ends', sel(z.end, Object.entries(ZIPPER_ENDS).map(([k, v]) => ({ value: k, label: v })), (v) => set({ end: v }))),
+      field('Slider', sel(z.slider, Object.entries(ZIPPER_SLIDERS).map(([k, v]) => ({ value: k, label: v })), (v) => set({ slider: v }))),
+      field('Puller', sel(z.puller, Object.entries(ZIPPER_PULLERS).map(([k, v]) => ({ value: k, label: v })), (v) => set({ puller: v }))),
+      field('Tape colour', h('input', { type: 'color', value: z.tape, onchange: (e) => set({ tape: e.target.value }) }))),
+      h('div', { class: 's', style: 'font-size:12px;color:var(--muted)' }, ZIPPER_TYPES[z.type]?.use), h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_trim', id: t.id }) }, 'Remove')); }),
+    h('button', { class: 'btn sm', onclick: () => { const pan = p.panels.find((x) => x.role === 'body' || x.role === 'bag' || x.role === 'leg') || p.panels[0]; const ys = pan.points.map((q) => q[1]); store.dispatch({ type: 'add_zipper', panel: pan.id, at: [0, Math.min(...ys) + 3], to: [0, Math.max(...ys) - 6] }); } }, '+ Add centre zipper'),
+  )));
+  // decorative edges
+  const edgeKeys = [...new Set(p.panels.flatMap((x) => Object.keys(x.edges || {}).filter((k) => x.edges[k]?.length)))];
+  if (edgeKeys.length) el.append(h('details', {}, h('summary', {}, 'Decorative edges (scallops, ruffles, piping, fringe…)'), h('div', {},
+    edgeKeys.map((w) => { const curE = p.panels.find((x) => x.edgeFinish?.[w])?.edgeFinish[w] || 'hemmed'; return h('div', { class: 'grid2' }, field(`${pretty(w)} edge`, sel(curE, Object.entries(EDGE_TREATMENTS).map(([k, v]) => ({ value: k, label: v.name })), (v) => store.dispatch({ type: 'set_edge', where: w, treatment: v, color: ui.edgeColor }), { 'aria-label': `${w} edge` })), field('Trim colour', h('input', { type: 'color', value: ui.edgeColor || '#ffffff', onchange: (e) => { ui.edgeColor = e.target.value; if (curE !== 'hemmed') store.dispatch({ type: 'set_edge', where: w, treatment: curE, color: e.target.value }); } }))); }),
+  )));
+  // lacing
+  el.append(h('details', {}, h('summary', {}, 'Lacing (lace-up fronts, backs, corsets)'), h('div', {},
+    h('div', { class: 'grid2' }, field('Style', sel(ui.laceStyle || 'crisscross', Object.entries(LACING_STYLES).map(([k, v]) => ({ value: k, label: v })), (v) => { ui.laceStyle = v; })), field('Cord colour', h('input', { type: 'color', value: ui.laceColor || '#111111', onchange: (e) => { ui.laceColor = e.target.value; } }))),
+    h('div', { class: 'chips' }, p.panels.filter((x) => ['body', 'brief', 'bra', 'leg'].includes(x.role)).slice(0, 4).map((pan) => h('button', { class: 'btn sm', onclick: () => { const ys = pan.points.map((q) => q[1]); const y0 = Math.min(...ys); const y1 = Math.max(...ys); store.dispatch({ type: 'add_lacing', panel: pan.id, at: [0, y0 + (y1 - y0) * 0.2], to: [0, y1 - (y1 - y0) * 0.15], style: ui.laceStyle || 'crisscross', color: ui.laceColor }); } }, `+ Lacing on ${pan.name}`))),
+  )));
   el.append(next('Next: make it →', 'make'));
 }
 

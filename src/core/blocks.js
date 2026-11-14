@@ -33,6 +33,10 @@ class Poly {
   }
 }
 const round = (v) => Math.round(v * 10) / 10;
+/** Polyline of a tagged edge run (for decorative edges / lacing placement). */
+function pathOf(poly, tag) {
+  try { const r = poly.range(tag); const n = poly.pts.length; const out = []; for (let i = r.edge; ; i++) { out.push(poly.pts[i % n]); if (i % n === r.to % n) { out.push(poly.pts[(i + 1) % n]); break; } } return out; } catch { return []; }
+}
 
 /** Mirror a Poly across x=0 (left <-> right tags swapped), keeping a valid outline. */
 function mirror(poly) {
@@ -54,6 +58,8 @@ function seam(pa, polyA, tagA, pb, polyB, tagB, stitch) {
 
 // ---------- body reference (matches src/sim/avatar.js) ----------
 import { DEFAULT_BODY } from './sizes.js';
+import { LEGWEAR_OPTIONS, buildLegwear } from './legwear.js';
+import { ZIPPER_DEFAULTS } from './trims.js';
 // Reference body comes from the selected size (o.__body); generators read it via bodyOf().
 const bodyOf = (o) => o.__body || DEFAULT_BODY;
 
@@ -71,7 +77,7 @@ export const TOP_OPTIONS = {
   shoulder: { label: 'Shoulder / strap width (sleeveless)', type: 'select', values: ['full', 'tank', 'a-shirt', 'racer', 'strap'], default: 'full' },
   cuff: { label: 'Cuff', type: 'select', values: ['none', 'hemmed', 'rib', 'barrel', 'french', 'button-tab', 'elastic', 'rolled', 'zip', 'snap-tab', 'storm'], default: 'hemmed' },
   hem: { label: 'Hem', type: 'select', values: ['straight', 'curved', 'rib', 'drawcord', 'raw'], default: 'straight' },
-  closure: { label: 'Closure', type: 'select', values: ['none', 'single-breasted', 'double-breasted', 'zip', 'two-way-zip', 'asymmetric-zip', 'snaps', 'toggles', 'half-zip', 'placket'], default: 'none' },
+  closure: { label: 'Closure', type: 'select', values: ['none', 'single-breasted', 'double-breasted', 'zip', 'two-way-zip', 'asymmetric-zip', 'snaps', 'toggles', 'half-zip', 'placket', 'lace-up-front', 'lace-up-back'], default: 'none' },
   buttons: { label: 'Buttons (front)', type: 'range', min: 1, max: 8, step: 1, default: 2 },
   lapel: { label: 'Lapel', type: 'select', values: ['none', 'notch', 'peak', 'shawl', 'biker'], default: 'none' },
   lapelWidth: { label: 'Lapel width (cm)', type: 'range', min: 4, max: 13, step: 0.5, default: 8 },
@@ -83,11 +89,15 @@ export const TOP_OPTIONS = {
   fillWeight: { label: 'Fill weight (g/m²)', type: 'range', min: 40, max: 400, step: 10, default: 120 },
   quilting: { label: 'Quilting', type: 'select', values: ['channel', 'box', 'diamond', 'onion', 'chevron', 'welded', 'none'], default: 'channel' },
   lining: { label: 'Lining', type: 'select', values: ['none', 'half', 'full'], default: 'none' },
+  chestAdj: { label: 'Tailor: chest (cm, + let out / − take in)', type: 'range', min: -12, max: 20, step: 0.5, default: 0 },
+  waistAdj: { label: 'Tailor: waist suppression (cm taken in)', type: 'range', min: 0, max: 16, step: 0.5, default: 0 },
+  shoulderAdj: { label: 'Tailor: shoulder width (cm)', type: 'range', min: -4, max: 6, step: 0.5, default: 0 },
+  sleeveAdj: { label: 'Tailor: sleeve length (cm)', type: 'range', min: -15, max: 10, step: 0.5, default: 0 },
 };
 
 function topPanels(o) {
   const BODY = bodyOf(o);
-  const ease = FIT[o.fit] ?? 14;
+  const ease = (FIT[o.fit] ?? 14) + (o.chestAdj || 0);
   const hw = (BODY.chest + ease) / 4; // half panel width at chest
   const H = o.length;
   const sleeveless = o.sleeve === 'none';
@@ -96,7 +106,7 @@ function topPanels(o) {
   const neckW = o.neckline === 'boat' ? 13 : 8;
   const shoulderX = sleeveless
     ? ({ full: 19, tank: neckW + 6, 'a-shirt': neckW + 3.5, racer: neckW + 4, strap: neckW + 2.5 }[o.shoulder] ?? 19)
-    : 19.5 + ease * 0.08;
+    : 19.5 + (FIT[o.fit] ?? 14) * 0.08 + (o.shoulderAdj || 0) / 2;
   const shoulderDrop = sleeveless && o.shoulder !== 'full' ? 1 : 4;
   const hemW = hw + o.flare;
   const curvedHem = o.hem === 'curved' ? 5 : 0;
@@ -110,7 +120,7 @@ function topPanels(o) {
     p.add(0, 0, 'hem-r');
     if (curvedHem) p.add(hemW * 0.6, 0.5, 'hem-r');
     p.add(hemW, curvedHem, 'side-r');
-    if (Math.abs(o.flare) > 2 && H > 75) p.add(hw - 1, Math.max(curvedHem + 5, sideH - 28), 'side-r'); // waist shaping for dresses
+    if ((Math.abs(o.flare) > 2 && H > 75) || o.waistAdj) p.add(hw - 1 - (o.waistAdj || 0) / 4, Math.max(curvedHem + 5, sideH - 24), 'side-r'); // waist shaping / suppression
     p.add(hw, sideH, 'arm-r');
     const scoop = aDeep ? 6 : 1.5;
     p.add(hw - scoop, sideH + armDepth * 0.35, 'arm-r');
@@ -142,7 +152,7 @@ function topPanels(o) {
 function sleevePanel(o, ease, side) {
   const BODY = bodyOf(o);
   const lengths = { cap: 9, short: 22, elbow: 32, 'three-quarter': 44, long: 60 };
-  const L = lengths[o.sleeve] || 22;
+  const L = (lengths[o.sleeve] || 22) + (o.sleeveAdj || 0);
   const W = 34 * BODY.gs + ease * 0.5; // bicep circumference incl. ease
   const cuffW = o.sleeve === 'long' || o.sleeve === 'three-quarter' ? (o.cuff === 'rib' || o.cuff === 'elastic' ? 21 : 25 + ease * 0.2) : W - 3;
   const capH = 9 + (o.fit === 'slim' ? 3 : 0);
@@ -227,6 +237,10 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   }
   if (['zip', 'two-way-zip', 'half-zip'].includes(o.closure)) trims.push({ type: 'zipper', panel: id('front'), at: [0, 1], to: [0, o.closure === 'half-zip' ? t.H - 4 : t.H - 8], twoWay: o.closure === 'two-way-zip' });
   if (o.closure === 'asymmetric-zip') trims.push({ type: 'zipper', panel: id('front'), at: [6, 1], to: [-7, t.H - 5] });
+  if (o.closure === 'lace-up-front' || o.closure === 'lace-up-back') trims.push({ type: 'lacing', panel: id(o.closure === 'lace-up-front' ? 'front' : 'back'), at: [0, Math.max(3, t.H * 0.25)], to: [0, t.H - 12], width: 5, eyelets: 8, style: 'corset' });
+  // zipper defaults by garment type
+  const zipKind = /leather/.test(fabric) ? 'leather' : o.length > 80 ? 'parka' : /waterproof|tpu|pvc/.test(fabric) ? 'shell' : 'jacket';
+  for (const tr of trims) if (tr.type === 'zipper' && !tr.zip) tr.zip = { ...ZIPPER_DEFAULTS[zipKind], ...(o.closure === 'two-way-zip' ? { end: 'two-way' } : {}), ...(o.closure === 'half-zip' ? { end: 'closed' } : {}) };
 
   // lapels / collars (overlays on the front)
   const lw = o.lapelWidth;
@@ -279,6 +293,10 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
     for (const pid of ['front', 'back']) overlays.push({ kind: 'belt', panel: id(pid), points: rect(-t.hw - o.flare * 0.3, t.sideH - 24, t.hw + o.flare * 0.3, t.sideH - 19) });
     if (o.belt === 'buckle-belt') trims.push({ type: 'buckle', panel: id('front'), at: [0, t.sideH - 21.5] });
   }
+  // decorative-edge paths
+  panels[0].edges = { hem: [...pathOf(t.front, 'hem-l'), ...pathOf(t.front, 'hem-r').slice(1)], neck: [...pathOf(t.front, 'neck-r'), ...pathOf(t.front, 'neck-l').slice(1)], armhole: o.sleeve === 'none' ? pathOf(t.front, 'arm-r') : [] };
+  panels[1].edges = { hem: [...pathOf(t.back, 'hem-l'), ...pathOf(t.back, 'hem-r').slice(1)], neck: [...pathOf(t.back, 'neck-r'), ...pathOf(t.back, 'neck-l').slice(1)], armhole: o.sleeve === 'none' ? pathOf(t.back, 'arm-r') : [] };
+  for (const pan of panels) if (pan.role === 'sleeve') { const c = pan.points; pan.edges = { cuff: [c[0], c[1]] }; }
   if (o.insulation && o.insulation !== 'none') {
     for (const pan of panels) pan.insulation = { fill: o.insulation, weight: o.fillWeight, quilting: o.quilting };
   }
@@ -301,6 +319,10 @@ export const BOTTOM_OPTIONS = {
   pockets: { label: 'Pockets', type: 'select', values: ['five-pocket', 'slant', 'side-seam', 'cargo', 'welt-back', 'none'], default: 'slant' },
   pleats: { label: 'Pleats', type: 'select', values: ['flat', 'single', 'double'], default: 'flat' },
   beltLoops: { label: 'Belt loops', type: 'select', values: ['yes', 'no'], default: 'yes' },
+  waistAdj: { label: 'Tailor: waist (cm)', type: 'range', min: -10, max: 12, step: 0.5, default: 0 },
+  hipAdj: { label: 'Tailor: seat / hips (cm)', type: 'range', min: -10, max: 14, step: 0.5, default: 0 },
+  thighAdj: { label: 'Tailor: thigh (cm)', type: 'range', min: -8, max: 10, step: 0.5, default: 0 },
+  hemAdj: { label: 'Tailor: leg opening (cm)', type: 'range', min: -10, max: 14, step: 0.5, default: 0 },
 };
 
 export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
@@ -309,11 +331,11 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
   const ease = (FIT[o.fit] ?? 14) * 0.6;
   const riseCm = { low: 20, mid: 25, high: 31 }[o.rise] ?? 25;
   const I = o.inseam;
-  const legHalf = { skinny: 7, slim: 8.5, tapered: 8, straight: 10.5, wide: 15, bootcut: 11.5, flare: 16 }[o.leg] ?? 10.5;
+  const legHalf = ({ skinny: 7, slim: 8.5, tapered: 8, straight: 10.5, wide: 15, bootcut: 11.5, flare: 16 }[o.leg] ?? 10.5) + (o.hemAdj || 0) / 4;
   const kneeHalf = Math.min(legHalf + 1.5, { bootcut: 9.5, flare: 9.5 }[o.leg] ?? legHalf + 1.5);
-  const thighHalf = 13 + ease * 0.4;
-  const hipQ = (BODY.hip + ease * 2) / 4;
-  const waistQ = (BODY.waist + 4 + (o.waistband === 'elastic' || o.waistband === 'drawstring' ? 14 : 0)) / 4;
+  const thighHalf = 13 + ease * 0.4 + (o.thighAdj || 0) / 4;
+  const hipQ = (BODY.hip + ease * 2 + (o.hipAdj || 0)) / 4;
+  const waistQ = (BODY.waist + 4 + (o.waistAdj || 0) + (o.waistband === 'elastic' || o.waistband === 'drawstring' ? 14 : 0)) / 4;
   const shortLeg = I < 30;
   // leg-centred coordinates: x=0 at leg centre, +x outseam, -x towards crotch
   const legPoly = (crotchExt, extraRise) => {
@@ -375,7 +397,8 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
   }
   if (o.waistband === 'button') trims.push({ type: o.pockets === 'five-pocket' ? 'jeans-button' : 'button-4hole', panel: id('front-r'), at: [-9, top - 2] });
   if (o.waistband === 'drawstring') trims.push({ type: 'grommet', panel: id('front-r'), at: [-8, top - 2] }, { type: 'grommet', panel: id('front-l'), at: [8, top - 2] });
-  if (o.fly === 'zip') overlays.push({ kind: 'fly', panel: id('front-r'), points: rect(-10, top - 18, -7, top - 4) });
+  if (o.fly === 'zip') { overlays.push({ kind: 'fly', panel: id('front-r'), points: rect(-10, top - 18, -7, top - 4) }); trims.push({ type: 'zipper', panel: id('front-r'), at: [-8.5, top - 17], to: [-8.5, top - 5], zip: { ...ZIPPER_DEFAULTS[/denim/.test(fabric) ? 'jeans' : 'pocket'], end: 'closed', slider: 'auto-lock' } }); }
+  for (const pan of panels) pan.edges = { hem: pathOf(pan.id.endsWith('front-r') || pan.id.endsWith('back-l') ? front : back, 'hem') };
   if (o.pockets === 'five-pocket') {
     for (const pid of ['front-r', 'front-l']) {
       const s = pid === 'front-r' ? 1 : -1;
@@ -432,6 +455,8 @@ export function buildSkirt(o, prefix = '', fabric = 'denim') {
   if (o.waistband === 'elastic') for (const pan of panels) pan.gather = [{ y0: o.length - 4, y1: o.length + 1, ratio: (BODY.waist + 6) / (BODY.waist + 18) }];
   for (const pid of ['front', 'back']) overlays.push({ kind: 'waistband', style: o.waistband, panel: id(pid), points: rect(-wq, o.length - 4, wq, o.length) });
   if (o.waistband === 'button') trims.push({ type: o.pockets === 'five-pocket' ? 'jeans-button' : 'button-4hole', panel: id('front'), at: [0, o.length - 2] });
+  panels[0].edges = { hem: pathOf(f, 'hem') }; panels[1].edges = { hem: pathOf(b, 'hem') };
+  if (o.waistband === 'facing') trims.push({ type: 'zipper', panel: id('back'), at: [0, o.length - 20], to: [0, o.length - 1], zip: { ...ZIPPER_DEFAULTS.dress } });
   if (o.slit !== 'none') overlays.push({ kind: 'vent', panel: id(o.slit === 'back' ? 'back' : 'front'), points: rect((o.slit === 'side' ? wq + o.flare - 1 : 0) - 0.4, 0, (o.slit === 'side' ? wq + o.flare - 1 : 0) + 0.4, Math.min(30, o.length * 0.4)) });
   if (o.pockets === 'patch') for (const s of [1, -1]) overlays.push({ kind: 'pocket', style: 'patch', panel: id('back'), points: rect(s > 0 ? 3 : -15, o.length - 20, s > 0 ? 15 : -3, o.length - 7) });
   if (o.pockets === 'five-pocket') { for (const s of [1, -1]) overlays.push({ kind: 'pocket', style: 'scoop', panel: id('front'), points: [[s * wq, o.length - 4], [s * wq, o.length - 13], [s * (wq - 9), o.length - 4]] }); trims.push({ type: 'rivet', panel: id('front'), at: [wq - 1, o.length - 12] }, { type: 'rivet', panel: id('front'), at: [-wq + 1, o.length - 12] }); }
@@ -725,7 +750,7 @@ export function buildBag(o, prefix = '', fabric = 'canvas') {
     default: break;
   }
   switch (o.closure) {
-    case 'zip': trims.push({ type: 'zipper', panel: id('front'), at: [-W * 0.9, topY - 0.3], to: [W * 0.9, topY - 0.3], color: metal }); break;
+    case 'zip': trims.push({ type: 'zipper', panel: id('front'), at: [-W * 0.9, topY - 0.3], to: [W * 0.9, topY - 0.3], zip: { ...ZIPPER_DEFAULTS.bag, type: o.hardware === 'gold' ? 'premium-polished' : 'coil' } }); break;
     case 'magnetic-snap': trims.push({ type: 'magnetic-snap', panel: id('front'), at: [0, topY - 2], color: metal }); break;
     case 'flap-magnet': case 'flap-buckle': case 'turn-lock': {
       overlays.push({ kind: 'flap', panel: id('front'), points: o.closure === 'turn-lock' ? [[-W, topY], [W, topY], [W, topY * 0.55], [0, topY * 0.42], [-W, topY * 0.55]] : rect(-W, topY * 0.5, W, topY) });
@@ -796,6 +821,7 @@ export function buildBrief(o, prefix = '', fabric = 'microfiber-jersey') {
   for (const pid of ['front', 'back']) {
     if (o.waistband !== 'laser-cut') overlays.push({ kind: 'waistband', style: o.waistband, panel: id(pid), points: rect(-hipQ, H - (o.waistband === 'exposed-elastic' ? 3.5 : 1.2), hipQ, H), color: o.waistband === 'exposed-elastic' ? '#111111' : undefined });
   }
+  panels[0].edges = { leg: [...pathOf(f, 'leg-r'), ...pathOf(f, 'leg-l')], waist: pathOf(f, 'waist') }; panels[1].edges = { leg: [...pathOf(b, 'leg-r'), ...pathOf(b, 'leg-l')], waist: pathOf(b, 'waist') };
   if (o.gusset !== 'none') overlays.push({ kind: 'gusset', style: o.gusset, panel: id('front'), points: rect(-crotchW, 0, crotchW, 9), fabric: o.gusset === 'cotton' ? 'cotton-jersey' : undefined });
   if (o.pouch !== 'none') overlays.push({ kind: 'pouch', style: o.pouch, panel: id('front'), points: [[-6, 2], [6, 2], [8, H * 0.55], [0, H * 0.7], [-8, H * 0.55]] });
   if (o.pouch === 'fly') trims.push({ type: 'button-2hole', panel: id('front'), at: [0, H * 0.55], size: 9 });
@@ -900,6 +926,7 @@ export const GENERATORS = {
   bag: { label: 'Bag', options: BAG_OPTIONS, build: buildBag },
   brief: { label: 'Underwear bottoms', options: BRIEF_OPTIONS, build: buildBrief },
   bra: { label: 'Bra / bralette', options: BRA_OPTIONS, build: buildBra },
+  legwear: { label: 'Hosiery & socks', options: LEGWEAR_OPTIONS, build: buildLegwear },
 };
 
 export function defaultOptions(gen) {

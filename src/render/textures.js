@@ -79,6 +79,11 @@ function weave(g, pattern, base, look) {
       g.fillStyle = css(shade(base, 1.9), 0.7);
       for (let x = 0; x < SIZE; x += 32) g.fillRect(x, 0, 2, SIZE);
       break;
+    case 'fishnet':
+      g.clearRect(0, 0, SIZE, SIZE);
+      g.strokeStyle = base; g.lineWidth = 5;
+      for (let k = -SIZE; k < SIZE * 2; k += 32) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + SIZE, SIZE); g.stroke(); g.beginPath(); g.moveTo(k, SIZE); g.lineTo(k + SIZE, 0); g.stroke(); }
+      break;
     case 'lace': case 'mesh':
       g.clearRect(0, 0, SIZE, SIZE); g.fillStyle = base; g.fillRect(0, 0, SIZE, SIZE);
       g.globalCompositeOperation = 'destination-out';
@@ -200,6 +205,19 @@ function printDesign(g, design, colors = [], opacity = 1) {
     case 'leopard': for (let k = 0; k < 70; k++) { const x = r() * SIZE; const y = r() * SIZE; g.fillStyle = c3; g.beginPath(); g.ellipse(x, y, 7, 5, r() * 3, 0, 6.3); g.fill(); g.strokeStyle = c1; g.lineWidth = 2.5; g.beginPath(); g.arc(x, y, 9, r() * 3, r() * 3 + 3.5); g.stroke(); } break;
     case 'floral': for (let k = 0; k < 18; k++) { const x = r() * SIZE; const y = r() * SIZE; for (let p = 0; p < 5; p++) { g.fillStyle = c3; g.beginPath(); g.ellipse(x + Math.cos(p * 1.26) * 7, y + Math.sin(p * 1.26) * 7, 6, 3.5, p * 1.26, 0, 6.3); g.fill(); } g.fillStyle = c2; g.beginPath(); g.arc(x, y, 3, 0, 6.3); g.fill(); } break;
     case 'paisley': for (let k = 0; k < 14; k++) { const x = r() * SIZE; const y = r() * SIZE; g.strokeStyle = c1; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.bezierCurveTo(x + 22, y - 20, x + 30, y + 14, x, y + 18); g.bezierCurveTo(x - 8, y + 10, x - 4, y + 2, x, y); g.stroke(); } break;
+    case 'zebra': for (let k = 0; k < 14; k++) { g.fillStyle = c1; g.beginPath(); const y = k * 20 + r() * 8; g.moveTo(0, y); for (let x = 0; x <= SIZE; x += 16) g.lineTo(x, y + Math.sin(x * 0.05 + k) * 8); for (let x = SIZE; x >= 0; x -= 16) g.lineTo(x, y + 8 + Math.sin(x * 0.05 + k) * 6 + r() * 3); g.fill(); } break;
+    case 'snakeskin': for (let y = 0; y < SIZE; y += 14) for (let x = (y / 14) % 2 ? 9 : 0; x < SIZE; x += 18) { g.fillStyle = css(c1, 0.35 + r() * 0.4); g.beginPath(); g.moveTo(x, y); g.lineTo(x + 9, y + 7); g.lineTo(x, y + 14); g.lineTo(x - 9, y + 7); g.closePath(); g.fill(); g.strokeStyle = css(c3, 0.5); g.lineWidth = 1; g.stroke(); } break;
+    case 'ditsy-floral': for (let k = 0; k < 70; k++) { const x = r() * SIZE; const y = r() * SIZE; for (let p2 = 0; p2 < 5; p2++) { g.fillStyle = [c3, c1][k % 2]; g.beginPath(); g.arc(x + Math.cos(p2 * 1.26) * 3, y + Math.sin(p2 * 1.26) * 3, 2.2, 0, 6.3); g.fill(); } } break;
+    case 'houndstooth': { const u = 16; for (let y = 0; y < SIZE; y += u) for (let x = 0; x < SIZE; x += u) { g.fillStyle = c1; g.beginPath(); g.moveTo(x, y); g.lineTo(x + u / 2, y); g.lineTo(x + u, y + u / 2); g.lineTo(x + u, y + u); g.lineTo(x + u / 2, y + u); g.lineTo(x + u / 2, y + u * 0.75); g.lineTo(x, y + u / 4); g.closePath(); g.fill(); } break; }
+    case 'tartan': for (const [p0, w, c] of [[0, 48, c1], [80, 12, c3], [120, 48, c1], [200, 6, c2]]) { g.fillStyle = css(c, 0.5); g.fillRect(p0, 0, w, SIZE); g.fillRect(0, p0, SIZE, w); } break;
+    case 'argyle': { const w = 64; const hgt = 96; for (let y = -hgt; y < SIZE + hgt; y += hgt / 2) for (let x = ((y / (hgt / 2)) % 2 ? w / 2 : 0) - w; x < SIZE + w; x += w) { g.fillStyle = css(((x + y) / 32) % 2 ? c1 : c3, 0.85); g.beginPath(); g.moveTo(x + w / 2, y); g.lineTo(x + w, y + hgt / 2); g.lineTo(x + w / 2, y + hgt); g.lineTo(x, y + hgt / 2); g.closePath(); g.fill(); } g.strokeStyle = c2; g.lineWidth = 1.5; for (let k = -SIZE; k < SIZE * 2; k += w) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + SIZE * (w / hgt) * 1.5, SIZE); g.stroke(); g.beginPath(); g.moveTo(k, SIZE); g.lineTo(k + SIZE * (w / hgt) * 1.5, 0); g.stroke(); } break; }
+    case 'chevron': g.strokeStyle = c1; g.lineWidth = 10; for (let y = -32; y < SIZE + 32; y += 32) { g.beginPath(); for (let x = 0; x <= SIZE; x += 32) g.lineTo(x, y + ((x / 32) % 2 ? 16 : 0)); g.stroke(); } break;
+    case 'zigzag': g.strokeStyle = c1; g.lineWidth = 3; for (let y = 0; y < SIZE; y += 16) { g.beginPath(); for (let x = 0; x <= SIZE; x += 8) g.lineTo(x, y + ((x / 8) % 2 ? 6 : 0)); g.stroke(); } break;
+    case 'waves': g.strokeStyle = c1; g.lineWidth = 4; for (let y = 0; y < SIZE; y += 20) { g.beginPath(); for (let x = 0; x <= SIZE; x += 4) g.lineTo(x, y + Math.sin((x / SIZE) * Math.PI * 4) * 6); g.stroke(); } break;
+    case 'hearts': for (let y = 16; y < SIZE; y += 40) for (let x = (y / 40) % 2 ? 36 : 16; x < SIZE; x += 40) { g.fillStyle = c3; g.beginPath(); g.moveTo(x, y + 6); g.bezierCurveTo(x - 12, y - 4, x - 6, y - 12, x, y - 5); g.bezierCurveTo(x + 6, y - 12, x + 12, y - 4, x, y + 6); g.fill(); } break;
+    case 'stars': for (let k = 0; k < 40; k++) { const x = r() * SIZE; const y = r() * SIZE; const rr = 3 + r() * 5; g.fillStyle = c1; g.beginPath(); for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2 - Math.PI / 2; const rad = i % 2 ? rr * 0.45 : rr; g.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad); } g.fill(); } break;
+    case 'triangles': for (let y = 0; y < SIZE; y += 32) for (let x = 0; x < SIZE; x += 32) { g.fillStyle = [c1, c2, c3][(x / 32 + y / 32) % 3]; g.beginPath(); g.moveTo(x, y + 32); g.lineTo(x + 16, y); g.lineTo(x + 32, y + 32); g.fill(); } break;
+    case 'ikat': for (let x = 0; x < SIZE; x += 32) for (let y = 0; y < SIZE; y += 4) { g.fillStyle = css((x / 32) % 2 ? c1 : c3, 0.6); const w = 10 + Math.sin(y * 0.08 + x) * 8 + r() * 4; g.fillRect(x + 16 - w / 2, y, w, 3.2); } break;
     case 'gradient': { const gr = g.createLinearGradient(0, 0, 0, SIZE); gr.addColorStop(0, c1); gr.addColorStop(1, c2); g.fillStyle = gr; g.fillRect(0, 0, SIZE, SIZE); break; }
     default: break;
   }

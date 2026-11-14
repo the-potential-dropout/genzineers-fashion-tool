@@ -70,7 +70,7 @@ export function mergeGarment(p, g) {
   for (const s of out.seams) p.seams.push({ id: uid('seam'), threadColor: '#d8d2c4', thread: 'poly-corespun', ...s });
   for (const t of out.trims) p.trims.push({ id: uid('trim'), ...t });
   for (const o of out.overlays) p.overlays.push({ id: uid('ov'), ...o });
-  p.garmentForms = { ...(p.garmentForms || {}), [g.id]: { colliders: out.colliders || [], display: out.display || {}, meta: out.meta || {} } };
+  p.garmentForms = { ...(p.garmentForms || {}), [g.id]: { colliders: out.colliders || [], display: out.display || {}, meta: out.meta || {}, shells: out.shells || [] } };
   syncForms(p);
 }
 
@@ -78,6 +78,7 @@ export function mergeGarment(p, g) {
 export function syncForms(p) {
   const forms = Object.entries(p.garmentForms || {}).filter(([gid]) => (p.garments || []).some((g) => g.id === gid)).map(([, v]) => v);
   p.colliders = forms.flatMap((f) => f.colliders);
+  p.shells = forms.flatMap((f) => f.shells || []);
   // show the body if any garment is worn; bags-only projects show a product stand
   p.display = { avatar: !forms.length || forms.some((f) => f.display.avatar !== false) };
 }

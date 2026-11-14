@@ -304,7 +304,7 @@ export function buildCloth(project) {
   for (const t of project.trims) {
     const pan = panels.find((x) => x.id === t.panel);
     if (!pan?.count) continue;
-    trims.push({ ...t, particle: nearest(pan, t.at[0], t.at[1]), facing: pan.panel.placement.rotationY || 0 });
+    trims.push({ ...t, particle: t.at ? nearest(pan, t.at[0], t.at[1]) : -1, facing: pan.panel.placement.rotationY || 0 });
   }
 
   // ---- global triangle index (for normals) ----

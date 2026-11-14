@@ -65,7 +65,7 @@ export const PRINT_METHODS = {
   'embroidery': P('Embroidery (machine)', ANY, 'raised', 'Thread-stitched logos; 3D puff embroidery available.', { moq: '12-24 pcs' }),
 };
 
-export const PRINT_DESIGNS = ['solid', 'stripes', 'breton', 'pinstripe', 'gingham', 'polka', 'camo', 'leopard', 'floral', 'paisley', 'checkerboard', 'gradient', 'logo', 'image'];
+export const PRINT_DESIGNS = ['solid', 'stripes', 'breton', 'pinstripe', 'gingham', 'polka', 'camo', 'leopard', 'zebra', 'snakeskin', 'floral', 'ditsy-floral', 'paisley', 'checkerboard', 'houndstooth', 'tartan', 'argyle', 'chevron', 'zigzag', 'waves', 'hearts', 'stars', 'triangles', 'ikat', 'gradient', 'logo', 'image'];
 
 const PT = (name, fibers, effect, use) => ({ name, fibers, effect, use });
 export const PAINTS = {

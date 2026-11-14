@@ -8,14 +8,15 @@
  */
 import { FABRICS, FABRIC_FAMILIES, PATTERNS, FX } from './fabrics.js';
 import { ASSEMBLY, ASSEMBLY_GROUPS, THREADS } from './assembly.js';
-import { TRIMS, STIFFENERS } from './trims.js';
+import { TRIMS, STIFFENERS, ZIPPER_TYPES, ZIPPER_SIZES, ZIPPER_ENDS, ZIPPER_SLIDERS, ZIPPER_PULLERS, EDGE_TREATMENTS, LACING_STYLES, zipperSpec } from './trims.js';
 import { TEMPLATES, templateGarments } from './templates.js';
 import { GENERATORS } from './blocks.js';
 import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS } from './color.js';
 import { recommendFor } from './guidance.js';
 import { BLENDS, FIBERS, INSULATION, QUILTING, WATERPROOF, blendFabric } from './materials.js';
 import { createProject, mergeGarment, regradeProject, syncForms, uid, validateProject, summarizeProject } from './project.js';
-import { SIZE_CHARTS } from './sizes.js';
+import { SIZE_CHARTS, REF_BODY } from './sizes.js';
+import { BODY_SHAPES } from '../sim/avatar.js';
 import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitDefaults } from './knit.js';
 import { JEWELRY_TEMPLATES, METALS, GEMS, CUTS, SETTINGS, LINKS, CLASPS, BAILS, EARRING_BACKS, RING_PROFILES, PLATINGS, goldAlloy, estimateMetal, caratEstimate, ringSize } from './jewelry.js';
 
@@ -44,6 +45,10 @@ export const ACTION_DOCS = {
   add_trim: '{ trim: "<trim id>", panel, at: [x,y] cm, to?: [x,y] (line trims), size? mm, color? }',
   set_trim: '{ id|"all", match?: "<trim id>", trim?, color?, size? } swap or recolour trims',
   remove_trim: '{ id }',
+  set_zipper: '{ id?: "<trim id>"|"all", zipType?, size?: "#3"|"#4.5"|"#5"|"#8"|"#10", end?: closed|open|two-way|two-way-closed, slider?, puller?, tape?: "#rrggbb" } configure zippers (catalog zipperTypes/zipperEnds/zipperSliders/zipperPullers)',
+  add_zipper: '{ panel, at: [x,y], to: [x,y], zipType?, size?, end?, slider?, puller?, tape? }',
+  set_edge: '{ garment?, where: "hem"|"neck"|"cuff"|"armhole"|"leg"|"waist"|"all", treatment: "<edge id>", color? } decorative edge finish (catalog edgeTreatments)',
+  add_lacing: '{ panel, at: [x,y], to: [x,y], width?: cm, eyelets?: n, style?: crisscross|ladder|corset|spiral, color? } lace-up detail with eyelets and cord',
   add_overlay: '{ kind: pocket|patch|flap|placket|yoke|band|cuff|collar|lapel|appliqué, panel, points: [[x,y]...], fabric?, color? }',
   remove_overlay: '{ id }',
   set_size: '{ size?: "XS".. "4XL", chart?: "unisex"|"mens"|"womens", custom?: { chest, waist, hip, height, inseam, head, neck } (cm) } re-drafts all patterns and the avatar',
@@ -65,7 +70,7 @@ export function catalog() {
   const o = (obj, fn) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, fn(v)]));
   return {
     templates: o(TEMPLATES, (v) => `${v.name} [${v.group}${v.audience ? `, ${v.audience}` : ''}]`),
-    generators: o(GENERATORS, (g) => o(g.options, (x) => (x.type === 'select' ? x.values : `${x.min}..${x.max}`))),
+    generators: o(GENERATORS, (g) => o(g.options, (x) => (x.type === 'select' ? x.values : x.type === 'color' ? '#rrggbb' : `${x.min}..${x.max}`))),
     fabrics: o(FABRICS, (v) => `${v.name} (${v.category}, ${v.fiber}, ${v.weightGsm}gsm)`),
     fabricFamilies: o(FABRIC_FAMILIES, (v) => v.variants),
     assembly: o(ASSEMBLY, (v) => `${v.name} [${v.method}] - ${v.use}`),
@@ -73,6 +78,8 @@ export function catalog() {
     threads: o(THREADS, (v) => `${v.name} - ${v.use}`),
     trims: o(TRIMS, (v) => `${v.name} [${v.group}]`),
     stiffeners: o(STIFFENERS, (v) => v.name),
+    zipperTypes: o(ZIPPER_TYPES, (v) => `${v.name} - ${v.use}`), zipperSizes: Object.keys(ZIPPER_SIZES), zipperEnds: ZIPPER_ENDS, zipperSliders: ZIPPER_SLIDERS, zipperPullers: ZIPPER_PULLERS,
+    edgeTreatments: o(EDGE_TREATMENTS, (v) => v.name), lacingStyles: LACING_STYLES,
     sizeCharts: o(SIZE_CHARTS, (c) => Object.keys(c.sizes)),
     jewelryTemplates: o(JEWELRY_TEMPLATES, (v) => `${v.name} [${v.group}]`),
     metals: o(METALS, (v) => `${v.name} - ${v.note}`),
@@ -169,8 +176,9 @@ export function applyAction(project, action) {
       for (const [k, v] of Object.entries(changes)) {
         const s = schema[k];
         if (!s) throw new Error(`unknown option "${k}" for ${g.generator}; options: ${Object.keys(schema).join(', ')}`);
-        if (s.type === 'select' && !s.values.includes(v)) throw new Error(`option ${k} must be one of ${s.values.join(', ')}`);
-        g.options[k] = s.type === 'range' ? clamp(Number(v), s.min, s.max) : v;
+        if (s.type === 'select' && !s.values.includes(String(v))) throw new Error(`option ${k} must be one of ${s.values.join(', ')}`);
+        if (s.type === 'color' && !/^#[0-9a-f]{6}$/i.test(v)) throw new Error(`option ${k} must be a #rrggbb colour`);
+        g.options[k] = s.type === 'range' ? clamp(Number(v), s.min, s.max) : s.type === 'select' ? String(v) : v;
       }
       mergeGarment(p, g);
       result = `updated ${Object.keys(changes).join(', ')}`;
@@ -366,6 +374,46 @@ export function applyAction(project, action) {
       result = `updated ${targets.length} trim(s)`;
       break;
     }
+    case 'set_zipper': case 'add_zipper': {
+      const { type, id, panel, at, to, ...spec } = a;
+      if (spec.type) delete spec.type;
+      const zt = a.zipType || a.kind || (a.type === 'add_zipper' ? undefined : undefined);
+      const z = { ...(a.zip || {}), ...spec };
+      if (zt) z.type = zt;
+      if (z.type && !ZIPPER_TYPES[z.type]) throw new Error(`unknown zipper type "${z.type}" (have: ${Object.keys(ZIPPER_TYPES).join(', ')})`);
+      if (z.size && !ZIPPER_SIZES[z.size]) throw new Error(`zipper size must be one of ${Object.keys(ZIPPER_SIZES).join(', ')}`);
+      if (z.end && !ZIPPER_ENDS[z.end]) throw new Error(`zipper end must be one of ${Object.keys(ZIPPER_ENDS).join(', ')}`);
+      if (z.slider && !ZIPPER_SLIDERS[z.slider]) throw new Error(`unknown slider "${z.slider}"`);
+      if (z.puller && !ZIPPER_PULLERS[z.puller]) throw new Error(`unknown puller "${z.puller}"`);
+      if (a.type === 'add_zipper') {
+        panelOf(p, panel);
+        p.trims.push({ id: uid('trim'), custom: true, type: 'zipper', panel, at, to, zip: zipperSpec(z) });
+        result = 'zipper added';
+      } else {
+        const ts = p.trims.filter((t) => t.type.startsWith('zipper') && (!id || id === 'all' || t.id === id));
+        for (const t of ts) { t.type = 'zipper'; t.zip = zipperSpec({ ...(t.zip || {}), ...z }); }
+        result = `updated ${ts.length} zipper(s)`;
+      }
+      break;
+    }
+    case 'set_edge': {
+      if (!EDGE_TREATMENTS[a.treatment]) throw new Error(`unknown edge treatment "${a.treatment}" (have: ${Object.keys(EDGE_TREATMENTS).join(', ')})`);
+      const wheres = a.where === 'all' || !a.where ? ['hem', 'neck', 'cuff', 'armhole', 'leg', 'waist'] : [a.where];
+      const pans = p.panels.filter((x) => !a.garment || x.garment === a.garment);
+      p.trims = p.trims.filter((t) => !(t.edge && wheres.includes(t.edge) && pans.some((x) => x.id === t.panel)));
+      let n = 0;
+      if (EDGE_TREATMENTS[a.treatment].shape) for (const pan of pans) for (const w of wheres) { const path = pan.edges?.[w]; if (path?.length >= 2) { p.trims.push({ id: uid('trim'), type: 'edge-trim', edge: w, treatment: a.treatment, panel: pan.id, path, ...(a.color ? { color: a.color } : {}) }); n++; } }
+      for (const pan of pans) { pan.edgeFinish = { ...(pan.edgeFinish || {}) }; for (const w of wheres) pan.edgeFinish[w] = a.treatment; }
+      result = `${EDGE_TREATMENTS[a.treatment].name} on ${n} edge(s)`;
+      break;
+    }
+    case 'add_lacing': {
+      panelOf(p, a.panel);
+      if (a.style && !LACING_STYLES[a.style]) throw new Error(`lacing style must be one of ${Object.keys(LACING_STYLES).join(', ')}`);
+      p.trims.push({ id: uid('trim'), custom: true, type: 'lacing', panel: a.panel, at: a.at, to: a.to, width: a.width || 5, eyelets: a.eyelets || 8, style: a.style || 'crisscross', ...(a.color ? { color: a.color } : {}) });
+      result = 'lacing added';
+      break;
+    }
     case 'remove_trim':
       p.trims = p.trims.filter((t) => t.id !== a.id);
       break;
@@ -384,7 +432,15 @@ export function applyAction(project, action) {
       if (a.chart) { if (!SIZE_CHARTS[a.chart]) throw new Error(`unknown size chart "${a.chart}"`); p.sizeChart = a.chart; }
       const chart = SIZE_CHARTS[p.sizeChart || 'unisex'];
       if (a.size) { if (!chart.sizes[a.size]) throw new Error(`size must be one of ${Object.keys(chart.sizes).join(', ')}`); p.size = a.size; delete p.customBody; }
-      if (a.custom) p.customBody = { ...(chart.sizes[p.size] || chart.sizes.M), ...a.custom };
+      if (a.custom) p.customBody = { ...(p.customBody || chart.sizes[p.size] || chart.sizes.M), ...a.custom };
+      if (a.shape) {
+        const sh = BODY_SHAPES[a.shape];
+        if (!sh) throw new Error(`unknown body shape "${a.shape}" (have: ${Object.keys(BODY_SHAPES).join(', ')})`);
+        const base = { ...(chart.sizes[p.size] || chart.sizes.M) };
+        base.weight = base.weight || Math.round(22 * (base.height / 100) ** 2);
+        for (const [k, f2] of Object.entries(sh.m)) base[k] = Math.round((base[k] || REF_BODY[p.mannequin || (p.sizeChart === 'womens' ? 'female' : 'male')][k]) * f2 * 10) / 10;
+        p.customBody = base; p.bodyShape = a.shape;
+      }
       if (a.mannequin) { if (a.mannequin === 'auto') delete p.mannequin; else if (['male', 'female'].includes(a.mannequin)) p.mannequin = a.mannequin; else throw new Error('mannequin must be male | female | auto'); }
       regradeProject(p);
       result = `size ${p.customBody ? 'custom' : p.size} (${chart.label})`;
@@ -493,7 +549,7 @@ export function applyAction(project, action) {
 
 /** Which actions only change looks (no physics rebuild needed). */
 export function isLookOnly(type) {
-  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay'].includes(type);
+  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim'].includes(type);
 }
 
 export function applyActions(project, actions) {

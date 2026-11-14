@@ -52,11 +52,11 @@ export const TRIMS = {
   'cord-stopper': t('Fasteners', 'Cord stopper / toggle', 'stopper', 18, '#151515', 0, 0.6, 'Drawcords on hoods, hems, bags', {}),
   'belt-loop': t('Fasteners', 'Belt loop', 'loop', 12, '#000000', 0, 0.8, 'Trousers, coats', { useFabric: true }),
   'velcro': t('Fasteners', 'Hook & loop tape', 'label', 25, '#222222', 0, 0.9, 'Cuffs, pockets, kidswear', {}),
-  'zipper': t('Fasteners', 'Zip (metal, #5)', 'linear', 6, '#b8b8b8', 1.0, 0.3, 'Jackets, jeans, bags', { line: true, zip: 'metal' }),
-  'zipper-coil': t('Fasteners', 'Zip (nylon coil, #5)', 'linear', 5, '#111111', 0, 0.5, 'Garments, linings, pockets', { line: true, zip: 'coil' }),
-  'zipper-invisible': t('Fasteners', 'Zip (invisible / concealed)', 'linear', 3, '#222222', 0, 0.5, 'Dresses, skirts', { line: true, zip: 'invisible' }),
-  'zipper-waterproof': t('Fasteners', 'Zip (water-resistant, coated)', 'linear', 6, '#111111', 0.1, 0.2, 'Shell jackets', { line: true, zip: 'coil' }),
-  'zipper-vislon': t('Fasteners', 'Zip (moulded plastic / Vislon type)', 'linear', 7, '#e5e5e5', 0, 0.4, 'Parkas, sportswear', { line: true, zip: 'moulded' }),
+  'zipper': t('Zippers', 'Zipper (configurable)', 'linear', 6, '#b8b8b8', 1.0, 0.3, 'Any garment: choose type, size, ends, slider and puller', { line: true, zip: 'metal' }),
+  'zipper-coil': t('Zippers', 'Zip (nylon coil, #5)', 'linear', 5, '#111111', 0, 0.5, 'Garments, linings, pockets', { line: true, zip: 'coil' }),
+  'zipper-invisible': t('Zippers', 'Zip (invisible / concealed)', 'linear', 3, '#222222', 0, 0.5, 'Dresses, skirts', { line: true, zip: 'invisible' }),
+  'zipper-waterproof': t('Zippers', 'Zip (water-resistant, coated)', 'linear', 6, '#111111', 0.1, 0.2, 'Shell jackets', { line: true, zip: 'coil' }),
+  'zipper-vislon': t('Zippers', 'Zip (moulded plastic / Vislon type)', 'linear', 7, '#e5e5e5', 0, 0.4, 'Parkas, sportswear', { line: true, zip: 'moulded' }),
   // ---------------- Lingerie hardware & elastics ----------------
   'underwire': t('Lingerie', 'Underwire (steel / nylon-coated)', 'linear', 3, '#cfcfcf', 0.6, 0.4, 'Cup support; sewn into a channelling casing', { line: true }),
   'bra-hook-eye': t('Lingerie', 'Bra hook & eye (3x2)', 'label', 30, '#e8d6cc', 0.3, 0.5, 'Back or front band closure, 3 rows of eyes for adjustment', {}),
@@ -67,6 +67,8 @@ export const TRIMS = {
   'fold-over-elastic': t('Lingerie', 'Fold-over elastic (FOE)', 'linear', 15, '#111111', 0, 0.6, 'Binds raw edges in one step', { line: true, tape: true }),
   'jacquard-waistband': t('Lingerie', 'Jacquard waistband elastic (branded)', 'linear', 35, '#111111', 0, 0.6, 'Exposed logo waistband for boxer briefs / trunks', { line: true, tape: true }),
   'bra-gore-bow': t('Lingerie', 'Centre gore bow', 'bow', 14, '#f2e6dc', 0, 0.6, 'Classic small bow at the centre front', {}),
+  'lacing': t('Fasteners', 'Lacing (eyelets + cord)', 'linear', 6, '#111111', 0.2, 0.6, 'Corsets, lace-up fronts/backs, lingerie, boots', { line: true, lacing: true }),
+  'edge-trim': t('Edges', 'Decorative edge', 'linear', 8, '#ffffff', 0, 0.7, 'Scallops, ruffles, fringe, piping... along an edge', { line: true, edge: true }),
   // ---------------- Decorations ----------------
   'stud-cone': t('Decorations', 'Cone stud', 'stud-cone', 10, '#c8c8c8', 1.0, 0.2, 'Punk / rock leather', {}),
   'stud-pyramid': t('Decorations', 'Pyramid stud', 'stud-pyramid', 10, '#c8c8c8', 1.0, 0.2, 'Belts, jackets, bags', {}),
@@ -105,7 +107,63 @@ export const TRIMS = {
   'snapback-strap': t('Hidden', 'Snapback closure', 'label', 40, '#1a1a1a', 0, 0.5, '', {}),
 };
 
-export const TRIM_GROUPS = ['Buttons', 'Fasteners', 'Decorations', 'Lingerie', 'Labels', 'Bags'];
+export const TRIM_GROUPS = ['Buttons', 'Zippers', 'Fasteners', 'Decorations', 'Edges', 'Lingerie', 'Labels', 'Bags'];
+
+// ---------------- Zippers ----------------
+export const ZIPPER_TYPES = {
+  'metal-brass': { name: 'Metal, brass', teeth: '#c9a24a', metal: 0.9, use: 'Jeans, workwear, heritage jackets' },
+  'metal-antique-brass': { name: 'Metal, antique brass', teeth: '#8f7440', metal: 0.85, use: 'Leather, waxed cotton, vintage' },
+  'metal-nickel': { name: 'Metal, nickel / silver', teeth: '#c8ccd2', metal: 0.95, use: 'Bikers, bags, outerwear' },
+  'metal-gunmetal': { name: 'Metal, gunmetal / black nickel', teeth: '#3d3f44', metal: 0.9, use: 'Modern outerwear, leather' },
+  'metal-aluminium': { name: 'Metal, aluminium (light)', teeth: '#b8bcc2', metal: 0.8, use: 'Light garments; cheaper than brass' },
+  'premium-polished': { name: 'Premium polished metal (Excella-type)', teeth: '#d8b860', metal: 1.0, use: 'Luxury bags, couture, high-end denim' },
+  coil: { name: 'Nylon coil', teeth: null, metal: 0, use: 'Dresses, pockets, linings, sportswear, bags (flexible, light)', recommended: true },
+  invisible: { name: 'Invisible / concealed coil', teeth: null, metal: 0, use: 'Dresses, skirts, trousers (hidden in the seam)' },
+  'water-resistant': { name: 'Water-resistant coil (PU coated)', teeth: '#111111', metal: 0.1, use: 'Shell jackets, outdoor gear (pair with taped seams)' },
+  moulded: { name: 'Moulded plastic (Vislon-type)', teeth: null, metal: 0, use: 'Parkas, sportswear, kidswear (chunky, light, durable)' },
+  reversible: { name: 'Reversible coil (two-sided slider)', teeth: null, metal: 0, use: 'Reversible jackets' },
+  decorative: { name: 'Decorative (chain / rhinestone)', teeth: '#e8f4ff', metal: 0.6, use: 'Eveningwear, statement pieces' },
+};
+export const ZIPPER_SIZES = { '#3': 3, '#4.5': 4.5, '#5': 5, '#8': 8, '#10': 10 };
+export const ZIPPER_ENDS = { closed: 'Closed-end (one-way)', open: 'Open-end / separating (jackets)', 'two-way': 'Two-way separating (long coats, parkas)', 'two-way-closed': 'Two-way closed (bags, sleeping bags)' };
+export const ZIPPER_SLIDERS = { 'auto-lock': 'Auto-lock (stays put; flies, jackets)', 'non-lock': 'Non-lock (free-running; bags, pockets)', 'pin-lock': 'Pin-lock (semi-auto)', reversible: 'Reversible (pull both sides)', 'cam-lock': 'Cam-lock' };
+export const ZIPPER_PULLERS = { standard: 'Standard metal tab', 'leather-tab': 'Leather tab', 'cord-pull': 'Cord pull with end stopper', ring: 'Ring pull', 'logo': 'Custom logo puller', 'rubber': 'Rubberised / glove-friendly', 'pearl': 'Pearl / decorative' };
+export const ZIPPER_DEFAULTS = {
+  jeans: { type: 'metal-brass', size: '#4.5', end: 'closed', slider: 'auto-lock', puller: 'standard' },
+  jacket: { type: 'metal-nickel', size: '#5', end: 'open', slider: 'auto-lock', puller: 'standard' },
+  parka: { type: 'moulded', size: '#8', end: 'two-way', slider: 'auto-lock', puller: 'cord-pull' },
+  dress: { type: 'invisible', size: '#3', end: 'closed', slider: 'non-lock', puller: 'standard' },
+  shell: { type: 'water-resistant', size: '#5', end: 'open', slider: 'auto-lock', puller: 'cord-pull' },
+  bag: { type: 'coil', size: '#5', end: 'two-way-closed', slider: 'non-lock', puller: 'leather-tab' },
+  pocket: { type: 'coil', size: '#3', end: 'closed', slider: 'non-lock', puller: 'cord-pull' },
+  leather: { type: 'metal-gunmetal', size: '#5', end: 'open', slider: 'auto-lock', puller: 'leather-tab' },
+};
+export function zipperSpec(z = {}) { return { ...ZIPPER_DEFAULTS.jacket, tape: '#111111', ...z }; }
+
+// ---------------- Decorative edges ----------------
+export const EDGE_TREATMENTS = {
+  hemmed: { name: 'Plain hem (coverstitched / turned)', shape: null },
+  raw: { name: 'Raw / cut edge', shape: null },
+  'laser-cut': { name: 'Laser-cut sealed', shape: null },
+  frayed: { name: 'Frayed', shape: 'fray' },
+  scalloped: { name: 'Scalloped', shape: 'scallop' },
+  lettuce: { name: 'Lettuce edge', shape: 'wave' },
+  picot: { name: 'Picot', shape: 'picot' },
+  ruffle: { name: 'Ruffle / frill', shape: 'ruffle' },
+  pinked: { name: 'Pinked (zigzag cut)', shape: 'pinked' },
+  piped: { name: 'Piped', shape: 'tube' },
+  'bias-bound': { name: 'Bias-bound', shape: 'band' },
+  'blanket-stitch': { name: 'Blanket stitch', shape: 'blanket' },
+  'ric-rac': { name: 'Ric-rac braid', shape: 'zigzag' },
+  fringe: { name: 'Fringe', shape: 'fringe' },
+  'lace-edge': { name: 'Lace edging', shape: 'lace' },
+  'pompom-trim': { name: 'Pom-pom trim', shape: 'pompom' },
+  'feather-trim': { name: 'Feather trim', shape: 'feather' },
+  'sequin-edge': { name: 'Sequin edging', shape: 'sequin' },
+};
+
+// ---------------- Lacing ----------------
+export const LACING_STYLES = { crisscross: 'Criss-cross', ladder: 'Ladder (straight bar)', corset: 'Corset (bunny-ear loops at waist)', spiral: 'Spiral (single lace)' };
 
 export function resolveTrim(id) {
   return TRIMS[id] || TRIMS['button-4hole'];

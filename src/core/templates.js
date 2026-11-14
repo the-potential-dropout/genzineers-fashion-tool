@@ -11,7 +11,7 @@ import { GENERATORS, defaultOptions } from './blocks.js';
 
 const g = (generator, options = {}, extra = {}) => ({ generator, options, ...extra });
 
-export const TEMPLATE_GROUPS = ['T-shirts & tanks', 'Shirts & polos', 'Sweats & hoodies', 'Jackets', 'Tailoring & suits', 'Coats', 'Dresses', 'Trousers & jeans', 'Shorts', 'Knitwear', 'Underwear & lingerie', 'Skirts', 'Accessories', 'Hats', 'Bags'];
+export const TEMPLATE_GROUPS = ['T-shirts & tanks', 'Shirts & polos', 'Sweats & hoodies', 'Jackets', 'Tailoring & suits', 'Coats', 'Dresses', 'Trousers & jeans', 'Shorts', 'Knitwear', 'Underwear & lingerie', 'Hosiery & socks', 'Skirts', 'Accessories', 'Hats', 'Bags'];
 
 export const TEMPLATES = {
   // ---------- T-shirts & tanks ----------
@@ -127,7 +127,24 @@ export const TEMPLATES = {
   'sports-bra': { name: 'Sports bra (racerback)', group: 'Underwear & lingerie', audience: "Women's", garments: [g('bra', { style: 'sports', band: 76, cup: 'C', straps: 'racer', strapWidth: 25, closure: 'pullover', padding: 'removable-pads', bandHeight: 7 }, { fabric: 'spandex-jersey', stitch: 'flatlock-607' })] },
   'balconette': { name: 'Underwire balconette', group: 'Underwear & lingerie', audience: "Women's", garments: [g('bra', { style: 'balconette', band: 76, cup: 'C', straps: 'convertible', strapWidth: 12, closure: 'back-hook', wire: 'underwire', padding: 'molded-foam' }, { fabric: 'stretch-satin', stitch: 'zigzag-304' })], why: 'Moulded foam cups on underwires in channelling, power-mesh wings, convertible straps.' },
   'bandeau': { name: 'Bandeau', group: 'Underwear & lingerie', audience: "Women's", garments: [g('bra', { style: 'bandeau', band: 74, cup: 'B', straps: 'strapless', closure: 'pullover', padding: 'removable-pads', bandHeight: 4 }, { fabric: 'microfiber-jersey', stitch: 'flatlock-607' })] },
+  'corset-top': { name: 'Lace-up corset top', group: 'Underwear & lingerie', audience: "Women's", garments: [g('top', { fit: 'slim', length: 44, neckline: 'scoop', sleeve: 'none', shoulder: 'strap', closure: 'lace-up-back', chestAdj: -6, waistAdj: 10 }, { fabric: 'stretch-satin', stitch: 'lockstitch-301' })], why: 'Satin coutil-style shell, spiral steel boning in the seams, grommets with corset lacing at the back.' },
   'camisole': { name: 'Silk camisole', group: 'Underwear & lingerie', audience: "Women's", garments: [g('top', { fit: 'regular', length: 62, flare: 4, neckline: 'v-neck', sleeve: 'none', shoulder: 'strap' }, { fabric: 'silk-charmeuse', stitch: 'french-seam' })] },
+
+  // ---------- Hosiery & socks ----------
+  'sheer-tights': { name: 'Sheer tights (15D)', group: 'Hosiery & socks', audience: "Women's", garments: [g('legwear', { type: 'tights', denier: '15', pattern: 'plain', yarn: 'nylon-elastane', color: '#2a2220', topBand: 'comfort-waist', toe: 'reinforced', heel: 'none' })], why: '15 denier nylon 6.6 / elastane, 400-needle circular knit, flat seams, cotton gusset, reinforced toe.' },
+  'opaque-tights': { name: 'Opaque tights (60D)', group: 'Hosiery & socks', audience: "Women's", garments: [g('legwear', { type: 'tights', denier: '60', pattern: 'plain', yarn: 'microfiber', color: '#111111', topBand: 'comfort-waist', heel: 'none' })] },
+  'fishnet-tights': { name: 'Fishnet tights', group: 'Hosiery & socks', audience: "Women's", garments: [g('legwear', { type: 'tights', denier: '30', pattern: 'fishnet', color: '#0d0d0d', topBand: 'comfort-waist', heel: 'none' })] },
+  'seamed-stockings': { name: 'Seamed stockings (cuban heel)', group: 'Hosiery & socks', audience: "Women's", garments: [g('legwear', { type: 'stockings', denier: '15', pattern: 'back-seam', yarn: 'silk', color: '#3a2a24', topBand: 'welt', heel: 'cuban-heel' })] },
+  'lace-hold-ups': { name: 'Lace-top hold-ups', group: 'Hosiery & socks', audience: "Women's", garments: [g('legwear', { type: 'hold-ups', denier: '20', pattern: 'plain', color: '#1d1a1a', topBand: 'silicone-lace', heel: 'none' })] },
+  'thermal-leggings': { name: 'Footless tights / leggings', group: 'Hosiery & socks', audience: 'Unisex', garments: [g('legwear', { type: 'leggings', denier: '200', pattern: 'plain', yarn: 'microfiber', color: '#1a1a1a', topBand: 'comfort-waist' })] },
+  'crew-socks': { name: 'Crew socks (cotton rib)', group: 'Hosiery & socks', audience: 'Unisex', garments: [g('legwear', { type: 'crew', pattern: 'ribbed', yarn: 'cotton-socks', color: '#f2f0ea', topBand: 'rib', toe: 'seamless-linked', heel: 'y-heel', cushion: 'sole-terry' })], why: '80/18/2 combed cotton / nylon / elastane, 168-needle, Y-heel, hand-linked seamless toe, terry sole.' },
+  'athletic-socks': { name: 'Athletic quarter socks', group: 'Hosiery & socks', audience: 'Unisex', garments: [g('legwear', { type: 'quarter', pattern: 'ribbed', yarn: 'cotton-socks', color: '#ffffff', color2: '#ff5a1f', topBand: 'rib', cushion: 'full-terry' })] },
+  'ankle-socks': { name: 'Ankle socks', group: 'Hosiery & socks', audience: 'Unisex', garments: [g('legwear', { type: 'ankle', pattern: 'plain', yarn: 'bamboo', color: '#2f3a4a', topBand: 'rib' })] },
+  'no-show-socks': { name: 'No-show liners', group: 'Hosiery & socks', audience: 'Unisex', garments: [g('legwear', { type: 'no-show', pattern: 'plain', yarn: 'cotton-socks', color: '#d8c8b8', topBand: 'picot' })] },
+  'argyle-socks': { name: 'Argyle dress socks', group: 'Hosiery & socks', audience: "Men's", garments: [g('legwear', { type: 'crew', pattern: 'argyle', yarn: 'merino-socks', color: '#1d2a44', color2: '#c9a54a', topBand: 'rib' })] },
+  'hiking-socks': { name: 'Merino hiking socks', group: 'Hosiery & socks', audience: 'Unisex', garments: [g('legwear', { type: 'crew', pattern: 'ribbed', yarn: 'merino-socks', color: '#5b6b4a', topBand: 'rib', cushion: 'full-terry', heel: 'y-heel' })] },
+  'knee-socks': { name: 'Knee-high socks', group: 'Hosiery & socks', audience: 'Unisex', garments: [g('legwear', { type: 'knee-high', pattern: 'cable', yarn: 'merino-socks', color: '#e8e0cc', topBand: 'rib' })] },
+  'over-knee-socks': { name: 'Over-the-knee socks', group: 'Hosiery & socks', audience: "Women's", garments: [g('legwear', { type: 'over-knee', pattern: 'stripes', yarn: 'cotton-socks', color: '#111111', color2: '#f2f0ea', topBand: 'rib' })] },
 
   // ---------- Skirts ----------
   'skirt-aline': { name: 'A-line skirt', group: 'Skirts', garments: [g('skirt', { length: 58, flare: 14, waistband: 'button' }, { fabric: 'denim', stitch: 'safety-516' })] },

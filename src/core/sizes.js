@@ -36,34 +36,35 @@ export const SIZE_CHARTS = {
 };
 
 import { MANNEQUINS } from '../sim/mannequins.js';
+import { bodyScales, gradePoint, girthAt, REF_BODY } from '../sim/avatar.js';
 
 /**
- * Map body measurements to the reference body used by the generators and
- * the avatar. Landmarks come from the fitted CC0 mannequin (male or female),
- * graded by height (hs) and girth (gs chest, hipS hips).
+ * Map body measurements to the reference body used by the generators and the
+ * avatar. Landmarks come from the fitted CC0 mannequin, graded with exactly
+ * the same transform as the mesh and the colliders.
  */
 export function bodyFromMeasurements(m, mannequin = 'male') {
   const L = MANNEQUINS[mannequin].landmarks;
-  const ref = mannequin === 'female' ? { chest: 90, hip: 98 } : { chest: 94, hip: 100 };
-  const hs = m.height / 175; // vertical scale (mannequins are normalised to 175 cm)
-  const gs = m.chest / ref.chest;
-  const hipS = m.hip / ref.hip;
-  return {
-    ...m,
-    mannequin,
-    hs, gs, hipS,
-    waistS: m.waist / 80,
-    shoulderY: L.shoulderTop * hs + 0.01,
-    waistY: (L.waistY - 0.06) * hs, // where waistbands sit (just below the natural waist)
-    naturalWaistY: L.waistY * hs,
-    crotchY: L.crotchY * hs,
-    armY: L.armY * hs,
-    armStartX: L.armStartX * gs + 0.025,
-    legX: L.legX * hipS,
-    headY: L.headY * hs,
-    headR: L.headR * 1.12,
-    neckBase: L.neckBase * hs,
-  };
+  const R = REF_BODY[mannequin];
+  const body = { ...m, mannequin };
+  body._scales = bodyScales(m, mannequin);
+  const sc = body._scales;
+  const gp = (x, y, z = 0) => gradePoint(body, x, y, z);
+  Object.assign(body, {
+    hs: (m.height || R.height) / 175,
+    gs: sc.chestS, hipS: sc.hipS, waistS: sc.waistS,
+    shoulderY: gp(0, L.shoulderTop)[1] + 0.01,
+    waistY: gp(0, L.waistY - 0.06)[1], // where waistbands sit (just below the natural waist)
+    naturalWaistY: gp(0, L.waistY)[1],
+    crotchY: gp(0, L.crotchY)[1],
+    armY: gp(L.armStartX + 0.05, L.armY)[1],
+    armStartX: L.armStartX * sc.shoulderS + 0.025,
+    legX: L.legX * girthAt(body, L.crotchY - 0.2),
+    headY: gp(0, L.headY)[1],
+    headR: L.headR * 1.12 * ((m.head || R.head) / R.head),
+    neckBase: gp(0, L.neckBase)[1],
+  });
+  return body;
 }
 
 export function bodyFor(project) {
@@ -74,3 +75,4 @@ export function bodyFor(project) {
 }
 
 export const DEFAULT_BODY = bodyFromMeasurements(SIZE_CHARTS.unisex.sizes.M, 'male');
+export { REF_BODY };

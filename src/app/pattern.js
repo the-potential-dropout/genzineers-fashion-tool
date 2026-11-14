@@ -82,7 +82,7 @@ export function createPatternEditor(canvas, store) {
       for (const o of p.overlays || []) { if (o.panel !== pan.id) continue; const op = o.points.map((q) => toScreen(L, q)); g.beginPath(); op.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.stroke(); }
       g.setLineDash([]);
       // trims
-      for (const t of p.trims) { if (t.panel !== pan.id) continue; const [x, y] = toScreen(L, t.at); g.fillStyle = '#2f6bff'; g.beginPath(); g.arc(x, y, 3, 0, 7); g.fill(); }
+      for (const t of p.trims) { if (t.panel !== pan.id || !t.at) continue; const [x, y] = toScreen(L, t.at); g.fillStyle = '#2f6bff'; g.beginPath(); g.arc(x, y, 3, 0, 7); g.fill(); }
       // points
       for (const [x, y] of pts) { g.fillStyle = css.getPropertyValue('--surface') || '#fff'; g.strokeStyle = text; g.lineWidth = 1.2; g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill(); g.stroke(); }
       // label

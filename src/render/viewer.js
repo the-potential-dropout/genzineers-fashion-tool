@@ -13,12 +13,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { resolveFabric } from '../core/fabrics.js';
-import { resolveTrim } from '../core/trims.js';
+import { resolveTrim, ZIPPER_TYPES, ZIPPER_SIZES, EDGE_TREATMENTS, zipperSpec } from '../core/trims.js';
 import { resolveStitch } from '../core/assembly.js';
 import { DYES } from '../core/color.js';
 import { bodyFor } from '../core/sizes.js';
 import { buildAvatar, gradePoint } from '../sim/avatar.js';
 import { MANNEQUINS } from '../sim/mannequins.js';
+import { legwearTop } from '../core/legwear.js';
 import { panelAnchor } from '../sim/cloth.js';
 import { fabricTextures } from './textures.js';
 import { buildJewelry, metalMaterial, gemMaterial } from './jewelry3d.js';
@@ -118,7 +119,11 @@ export class Viewer {
       this._simFrames = (this._simFrames || 0) + 1;
       if (mv < 6e-5) this._still = (this._still || 0) + 1; else this._still = 0;
       // sleep when settled (or after 12 s): zero CPU/GPU while idle
-      if ((this._still > 40 && this.sim.settled?.()) || this._simFrames > 720) { this.simAwake = false; this.onSleep?.(); }
+      if ((this._still > 40 && this.sim.settled?.()) || this._simFrames > 720) {
+        this.simAwake = false;
+        if (this.project?.shells?.length && this._mannequinMesh && !this._shellMeshes?.length) this.addShells(this.project, bodyFor(this.project));
+        this.onSleep?.();
+      }
       this.dirty = true;
     }
     this._frame++;
@@ -148,11 +153,88 @@ export class Viewer {
       return;
     }
     const body = bodyFor(project);
-    const key = `${body.mannequin}:${body.hs}:${body.gs}:${body.hipS}`;
-    if (this._mannequinKey === key && this._mannequinMesh) { this.avatarGroup.add(this._mannequinMesh); return; }
+    const key = `${body.mannequin}:${JSON.stringify(body._scales, (k, v) => (k === 'L' ? undefined : v))}`;
+    this._wantKey = key;
+    if (this._mannequinKey === key && this._mannequinMesh) { this.avatarGroup.add(this._mannequinMesh); this.addShells(project, body); return; }
     // capsule stand-in until the mesh has loaded
     for (const c of buildAvatar(body)) this.avatarGroup.add(this.capsule(c, mat));
     this.loadMannequin(body, key, mat);
+  }
+
+  /** Hosiery & socks: skin-tight layers that follow the graded mannequin surface. */
+  addShells(project, body) {
+    try { this._addShells(project, body); } catch (e) { console.warn('hosiery layer failed', e); }
+  }
+
+  _addShells(project, body) {
+    for (const m of this._shellMeshes || []) { this.avatarGroup.remove(m); m.geometry.dispose(); }
+    this._shellMeshes = [];
+    const base = this._mannequinMesh;
+    if (!base || !project?.shells?.length) return;
+    const g = base.geometry; const ref = g.userData.ref; const pos = g.attributes.position; const nor = g.attributes.normal; const idx = g.index;
+    const L = MANNEQUINS[body.mannequin].landmarks;
+    const triCount = idx ? idx.count / 3 : pos.count / 3;
+    const vi = (t, k) => (idx ? idx.getX(t * 3 + k) : t * 3 + k);
+    // foot extents for toe / heel reinforcement
+    let toeZ = -9; let heelZ = 9;
+    for (let i = 0; i < pos.count; i++) if (ref[i * 3 + 1] < 0.05) { toeZ = Math.max(toeZ, ref[i * 3 + 2]); heelZ = Math.min(heelZ, ref[i * 3 + 2]); }
+    for (const sh of project.shells) {
+      const top = legwearTop(sh.type, body.mannequin);
+      const regions = [{ from: sh.footless ? 0.07 : -1, to: top, look: sh.look, off: sh.thickness }];
+      for (const b of sh.bands || []) regions.push({ from: top + b.from, to: top + b.to, look: b.look, off: sh.thickness * 1.6 });
+      if (sh.toe) regions.push({ from: -1, to: 0.06, zMin: toeZ - 0.06, look: sh.toe.look, off: sh.thickness * 1.4 });
+      if (sh.heel) regions.push({ from: -1, to: sh.heel.cuban ? 0.09 : 0.07, zMax: heelZ + 0.05, look: sh.heel.look, off: sh.thickness * 1.4 });
+      for (const rg of regions) {
+        const P = []; const N = []; const UV = [];
+        for (let t = 0; t < triCount; t++) {
+          const ids = [vi(t, 0), vi(t, 1), vi(t, 2)];
+          let ok = true;
+          for (const i of ids) {
+            const x = ref[i * 3]; const y = ref[i * 3 + 1]; const z = ref[i * 3 + 2];
+            if (y > rg.to || y < rg.from) { ok = false; break; }
+            if (Math.abs(x) > L.armStartX && y > L.crotchY) { ok = false; break; } // never the arms
+            if (rg.zMin != null && z < rg.zMin) { ok = false; break; }
+            if (rg.zMax != null && z > rg.zMax) { ok = false; break; }
+          }
+          if (!ok) continue;
+          for (const i of ids) {
+            const x = ref[i * 3]; const y = ref[i * 3 + 1]; const z = ref[i * 3 + 2];
+            const cx = y < L.crotchY ? Math.sign(x || 1) * L.legX : 0;
+            const ang = Math.atan2(z, x - cx);
+            P.push(pos.getX(i) + nor.getX(i) * rg.off, pos.getY(i) + nor.getY(i) * rg.off, pos.getZ(i) + nor.getZ(i) * rg.off);
+            N.push(nor.getX(i), nor.getY(i), nor.getZ(i));
+            UV.push((ang * 0.07) / 0.1, y / 0.1);
+          }
+        }
+        if (!P.length) continue;
+        const sg = new THREE.BufferGeometry();
+        sg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+        sg.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+        sg.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2));
+        const look = rg.look;
+        const tex = fabricTextures({ look }, look.print ? { print: { design: look.print, colors: look.patternColors } } : {}, null, () => this.addShells(this.project, body));
+        const map = tex.map.clone(); map.repeat.set(look.patternScale || 8, look.patternScale || 8); map.needsUpdate = true;
+        const cutout = look.pattern === 'fishnet' || look.pattern === 'lace';
+        const mat = new THREE.MeshPhysicalMaterial({ map, color: '#ffffff', roughness: look.roughness, sheen: look.sheen, sheenColor: new THREE.Color(look.sheenColor || '#fff'), metalness: look.metalness || 0, transparent: look.opacity < 1 || cutout, opacity: look.opacity, alphaTest: cutout ? 0.35 : 0, depthWrite: look.opacity >= 0.9, side: THREE.DoubleSide });
+        const mesh = new THREE.Mesh(sg, mat);
+        this.avatarGroup.add(mesh);
+        this._shellMeshes.push(mesh);
+      }
+      if (sh.backSeam) {
+        for (const sd of [1, -1]) {
+          const pts = [];
+          for (let y = 0.07; y < top; y += 0.02) {
+            let best = -1; let bz = 9;
+            for (let i = 0; i < pos.count; i++) { const ry = ref[i * 3 + 1]; const rx = ref[i * 3]; if (Math.abs(ry - y) < 0.012 && Math.sign(rx) === sd && Math.abs(Math.abs(rx) - L.legX) < 0.03 && ref[i * 3 + 2] < bz) { bz = ref[i * 3 + 2]; best = i; } }
+            if (best >= 0) pts.push(new THREE.Vector3(pos.getX(best) + nor.getX(best) * 0.002, pos.getY(best), pos.getZ(best) + nor.getZ(best) * 0.002));
+          }
+          // smooth (moving average) so the seam reads as a straight, clean line
+          for (let it = 0; it < 3; it++) for (let i = 1; i < pts.length - 1; i++) { pts[i].x = (pts[i - 1].x + pts[i].x * 2 + pts[i + 1].x) / 4; pts[i].z = (pts[i - 1].z + pts[i].z * 2 + pts[i + 1].z) / 4; }
+          if (pts.length > 2) { const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: sh.look.color })); this.avatarGroup.add(line); this._shellMeshes.push(line); }
+        }
+      }
+    }
+    this.dirty = true;
   }
 
   /** CC0 MakeHuman mannequin, graded with the same transform as the colliders. */
@@ -172,19 +254,24 @@ export class Viewer {
       const g = src.clone();
       const p = g.attributes.position;
       let minY = Infinity; for (let i = 0; i < p.count; i++) minY = Math.min(minY, p.getY(i));
+      const ref = new Float32Array(p.count * 3); // reference-frame positions (for hosiery regions / UVs)
       for (let i = 0; i < p.count; i++) {
         const x = p.getX(i) * M.scale; const y = (p.getY(i) - minY) * M.scale; const z = p.getZ(i) * M.scale - M.zOffset;
+        ref[i * 3] = x; ref[i * 3 + 1] = y; ref[i * 3 + 2] = z;
         p.setXYZ(i, ...gradePoint(body, x, y, z));
       }
+      g.userData.ref = ref;
       g.computeVertexNormals();
       g.computeBoundingSphere();
       const mesh = new THREE.Mesh(g, mat);
       if (this._mannequinKey !== key) this._mannequinMesh?.geometry.dispose();
       this._mannequinKey = key;
       this._mannequinMesh = mesh;
-      if (this.project?.mode !== 'jewelry' && this.project?.display?.avatar !== false && key === `${bodyFor(this.project).mannequin}:${bodyFor(this.project).hs}:${bodyFor(this.project).gs}:${bodyFor(this.project).hipS}`) {
+      if (this.project?.mode !== 'jewelry' && this.project?.display?.avatar !== false && this._wantKey === key) {
         this.avatarGroup.clear();
+        this._shellMeshes = [];
         this.avatarGroup.add(mesh);
+        this.addShells(this.project, body);
         this.dirty = true;
       }
     } catch (e) { console.warn('mannequin load failed, using capsules', e); }
@@ -227,6 +314,7 @@ export class Viewer {
     this.buildTrims(project, sim);
     this.buildStitches(project, sim);
     this.updateGarment();
+    if (this.fitMap) this.setFitMap(true);
     this.simAwake = true;
     this._still = 0;
     this._simFrames = 0;
@@ -308,6 +396,9 @@ export class Viewer {
       const color = t.color || (def.useFabric ? (panel.finish?.color || resolveFabric(project, panel.fabric).look.color) : def.color);
       const mat = new THREE.MeshPhysicalMaterial({ color, metalness: def.metalness, roughness: def.roughness, clearcoat: def.metalness > 0.5 ? 0.4 : 0.2, transmission: def.shape === 'crystal' ? 0.9 : 0, ior: 1.7, thickness: 0.003, iridescence: def.iridescent ? 0.8 : 0 });
       const s = (t.size || def.size) / 1000;
+      if (t.type === 'edge-trim' && t.path?.length >= 2) { this.buildEdgeTrim(t, sim, color); continue; }
+      if (t.type === 'lacing' && t.to) { this.buildLacing(t, sim); continue; }
+      if (t.type.startsWith('zipper') && t.to) { this.buildZipper(t, sim); continue; }
       if (def.line && t.to) {
         const anchors = [];
         if (t.toPanel) anchors.push(panelAnchor(sim, t.panel, t.at[0], t.at[1]), panelAnchor(sim, t.toPanel, t.to[0], t.to[1]));
@@ -333,6 +424,92 @@ export class Viewer {
         this.trimObjs.push({ obj, anchors: [a], def, trim: t, s });
       }
     }
+  }
+
+  /** Sample a panel-space polyline every `step` cm into anchors. */
+  pathAnchors(sim, panel, path, step = 0.8) {
+    const out = [];
+    for (let i = 1; i < path.length; i++) {
+      const [x0, y0] = path[i - 1]; const [x1, y1] = path[i];
+      const n = Math.max(1, Math.round(Math.hypot(x1 - x0, y1 - y0) / step));
+      for (let k = i === 1 ? 0 : 1; k <= n; k++) { const a = panelAnchor(sim, panel, x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n); if (a) out.push(a); }
+    }
+    return out;
+  }
+
+  buildZipper(t, sim) {
+    const z = zipperSpec(t.zip || (t.type === 'zipper-invisible' ? { type: 'invisible', size: '#3' } : t.type === 'zipper-coil' ? { type: 'coil' } : {}));
+    const zt = ZIPPER_TYPES[z.type] || ZIPPER_TYPES.coil;
+    const mm = ZIPPER_SIZES[z.size] || 5;
+    const anchors = this.pathAnchors(sim, t.panel, [t.at, t.to], z.type === 'invisible' ? 1.2 : mm * 0.06 + 0.25);
+    if (anchors.length < 2) return;
+    const teethColor = zt.teeth || z.tape;
+    const tm = new THREE.MeshPhysicalMaterial({ color: teethColor, metalness: zt.metal, roughness: zt.metal ? 0.3 : 0.5, clearcoat: zt.metal ? 0.3 : 0 });
+    const w = (mm * 1.4) / 1000; const th = (mm * 0.45) / 1000;
+    const teeth = z.type === 'invisible' ? null : new THREE.InstancedMesh(z.type === 'moulded' ? new THREE.BoxGeometry(w, w * 0.45, th * 1.4) : z.type.startsWith('metal') || z.type === 'premium-polished' ? new THREE.BoxGeometry(w, w * 0.55, th) : new THREE.CylinderGeometry(w * 0.18, w * 0.18, w, 6).rotateZ(Math.PI / 2), tm, anchors.length);
+    const tape = new THREE.InstancedMesh(new THREE.BoxGeometry(w * 2.6, (mm * 0.55) / 1000 + 0.004, 0.0006), new THREE.MeshStandardMaterial({ color: z.tape, roughness: 0.9 }), anchors.length);
+    const slider = new THREE.Group();
+    const sm = new THREE.MeshPhysicalMaterial({ color: zt.metal ? teethColor : '#2a2a2a', metalness: zt.metal ? 0.9 : 0.6, roughness: 0.3 });
+    slider.add(new THREE.Mesh(new THREE.BoxGeometry(w * 1.3, w * 2.2, th * 2.6), sm));
+    const pullerShape = { 'leather-tab': [w * 1.2, w * 4, 0.0015, '#5a3a24'], 'cord-pull': [w * 0.35, w * 6, w * 0.35, '#111111'], ring: null, rubber: [w * 1.3, w * 3.5, 0.002, '#1a1a1a'], logo: [w * 1.4, w * 3, 0.0012, teethColor], pearl: null, standard: [w * 0.9, w * 3, 0.0008, teethColor] }[z.puller];
+    if (pullerShape) { const pm = new THREE.Mesh(new THREE.BoxGeometry(pullerShape[0], pullerShape[1], pullerShape[2]), new THREE.MeshPhysicalMaterial({ color: pullerShape[3], metalness: pullerShape[3] === teethColor ? zt.metal : 0, roughness: 0.4 })); pm.position.set(0, -pullerShape[1] / 2 - w, th * 2); slider.add(pm); }
+    else { const pm = new THREE.Mesh(z.puller === 'pearl' ? new THREE.SphereGeometry(w * 0.9, 12, 8) : new THREE.TorusGeometry(w * 1.1, w * 0.18, 6, 16), sm); pm.position.set(0, -w * 2.4, th * 2); slider.add(pm); }
+    const grp = new THREE.Group();
+    if (teeth) { teeth.frustumCulled = false; grp.add(teeth); }
+    tape.frustumCulled = false; grp.add(tape); grp.add(slider);
+    if (z.end === 'two-way' || z.end === 'two-way-closed') { const s2 = slider.clone(); s2.rotation.z = Math.PI; grp.add(s2); grp.userData.slider2 = s2; }
+    this.garment.add(grp);
+    this.trimObjs.push({ obj: grp, anchors, zipper: { teeth, tape, slider, th } });
+  }
+
+  buildEdgeTrim(t, sim, color) {
+    const ed = EDGE_TREATMENTS[t.treatment];
+    if (!ed?.shape) return;
+    const anchors = this.pathAnchors(sim, t.panel, t.path, { fringe: 0.5, scallop: 2.2, ruffle: 1.2, pompom: 2.5, feather: 1.5, sequin: 0.6 }[ed.shape] || 0.8);
+    if (anchors.length < 2) return;
+    const col = t.color || color || '#ffffff';
+    const mat = new THREE.MeshPhysicalMaterial({ color: col, roughness: ed.shape === 'sequin' ? 0.15 : 0.75, metalness: ed.shape === 'sequin' ? 0.9 : 0, side: THREE.DoubleSide, sheen: 0.4 });
+    let geo;
+    switch (ed.shape) {
+      case 'scallop': geo = new THREE.CircleGeometry(0.011, 12, Math.PI, Math.PI); break;
+      case 'wave': geo = new THREE.TorusGeometry(0.004, 0.0012, 4, 8, Math.PI); break;
+      case 'picot': geo = new THREE.SphereGeometry(0.0015, 6, 4); break;
+      case 'ruffle': geo = new THREE.ConeGeometry(0.009, 0.03, 6, 1, true); break;
+      case 'pinked': geo = new THREE.CircleGeometry(0.004, 3); break;
+      case 'tube': case 'band': geo = new THREE.CylinderGeometry(ed.shape === 'tube' ? 0.002 : 0.0035, ed.shape === 'tube' ? 0.002 : 0.0035, 0.009, 8).rotateZ(Math.PI / 2); break;
+      case 'blanket': geo = new THREE.BoxGeometry(0.0007, 0.006, 0.0007); break;
+      case 'zigzag': geo = new THREE.BoxGeometry(0.008, 0.0015, 0.0012).rotateZ(0.7); break;
+      case 'fringe': case 'fray': geo = new THREE.CylinderGeometry(0.0006, 0.0006, ed.shape === 'fringe' ? 0.06 : 0.012, 4); break;
+      case 'lace': geo = new THREE.CircleGeometry(0.008, 10, Math.PI, Math.PI); mat.transparent = true; mat.opacity = 0.85; break;
+      case 'pompom': geo = new THREE.SphereGeometry(0.006, 10, 8); break;
+      case 'feather': geo = new THREE.ConeGeometry(0.006, 0.05, 6); break;
+      case 'sequin': geo = new THREE.CylinderGeometry(0.003, 0.003, 0.0004, 10).rotateX(Math.PI / 2); break;
+      default: geo = new THREE.SphereGeometry(0.002, 6, 4);
+    }
+    const obj = new THREE.InstancedMesh(geo, mat, anchors.length);
+    obj.frustumCulled = false;
+    this.garment.add(obj);
+    this.trimObjs.push({ obj, anchors, edgeShape: ed.shape, line: true, def: { fringe: ['fringe', 'fray', 'feather'].includes(ed.shape) } , trim: t, s: 0.01 });
+  }
+
+  buildLacing(t, sim) {
+    const n = Math.max(2, t.eyelets || 8);
+    const left = []; const right = [];
+    const dx = t.to[0] - t.at[0]; const dy = t.to[1] - t.at[1]; const len = Math.hypot(dx, dy) || 1;
+    const px = (-dy / len) * (t.width || 5) / 2; const py = (dx / len) * (t.width || 5) / 2;
+    for (let k = 0; k < n; k++) {
+      const u = k / (n - 1); const cx = t.at[0] + dx * u; const cy = t.at[1] + dy * u;
+      const a = panelAnchor(sim, t.panel, cx - px, cy - py); const b = panelAnchor(sim, t.panel, cx + px, cy + py);
+      if (a && b) { left.push(a); right.push(b); }
+    }
+    if (left.length < 2) return;
+    const eyelets = new THREE.InstancedMesh(new THREE.TorusGeometry(0.0035, 0.0011, 6, 14), new THREE.MeshPhysicalMaterial({ color: '#b8b8b8', metalness: 0.9, roughness: 0.3 }), left.length * 2);
+    eyelets.frustumCulled = false;
+    const cord = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color: t.color || '#111111', roughness: 0.7 }));
+    cord.frustumCulled = false;
+    const grp = new THREE.Group(); grp.add(eyelets); grp.add(cord);
+    this.garment.add(grp);
+    this.trimObjs.push({ obj: grp, anchors: [...left, ...right], lacing: { eyelets, cord, n: left.length, style: t.style || 'crisscross' } });
   }
 
   trimMesh(def, s, mat) {
@@ -382,6 +559,7 @@ export class Viewer {
     const sim = this.sim;
     if (!sim) return;
     for (const m of this.panelMeshes) { m.geometry.attributes.position.needsUpdate = true; m.geometry.attributes.normal.needsUpdate = true; }
+    if (this.fitMap && (this._fitTick = (this._fitTick || 0) + 1) % 15 === 0) this.updateFitColors();
     const P = sim.pos; const N = sim.nor;
     const at = (a, out, nrm) => { out.set(0, 0, 0); nrm.set(0, 0, 0); for (let k = 0; k < a.ids.length; k++) { const q = a.ids[k] * 3; const w = a.w[k]; out.x += P[q] * w; out.y += P[q + 1] * w; out.z += P[q + 2] * w; nrm.x += N[q] * w; nrm.y += N[q + 1] * w; nrm.z += N[q + 2] * w; } nrm.normalize(); };
     const v = new THREE.Vector3(); const n = new THREE.Vector3();
@@ -392,6 +570,57 @@ export class Viewer {
     }
     const q = new THREE.Quaternion(); const z = new THREE.Vector3(0, 0, 1); const mtx = new THREE.Matrix4(); const one = new THREE.Vector3(1, 1, 1);
     for (const t of this.trimObjs) {
+      if (t.zipper) {
+        const zp = t.zipper; const pts = []; const nrm = [];
+        for (let i = 0; i < t.anchors.length; i++) { at(t.anchors[i], v, n); pts.push(v.clone()); nrm.push(n.clone()); }
+        for (let i = 0; i < pts.length; i++) {
+          const tan = pts[Math.min(pts.length - 1, i + 1)].clone().sub(pts[Math.max(0, i - 1)]).normalize();
+          const m4 = new THREE.Matrix4().makeBasis(new THREE.Vector3().crossVectors(tan, nrm[i]).normalize(), tan, nrm[i]);
+          q.setFromRotationMatrix(m4);
+          mtx.compose(pts[i].clone().addScaledVector(nrm[i], 0.0012), q, one); zp.tape.setMatrixAt(i, mtx);
+          if (zp.teeth) { mtx.compose(pts[i].clone().addScaledVector(nrm[i], 0.0012 + zp.th), q, one); zp.teeth.setMatrixAt(i, mtx); }
+          if (i === pts.length - 1) { zp.slider.position.copy(pts[i]).addScaledVector(nrm[i], 0.003); zp.slider.quaternion.copy(q); }
+          if (i === 0 && t.obj.userData.slider2) { t.obj.userData.slider2.position.copy(pts[i]).addScaledVector(nrm[i], 0.003); t.obj.userData.slider2.quaternion.copy(q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI)); }
+        }
+        zp.tape.instanceMatrix.needsUpdate = true; if (zp.teeth) zp.teeth.instanceMatrix.needsUpdate = true;
+        continue;
+      }
+      if (t.lacing) {
+        const lc = t.lacing; const P2 = []; const N2 = [];
+        for (let i = 0; i < t.anchors.length; i++) { at(t.anchors[i], v, n); P2.push(v.clone().addScaledVector(n, 0.002)); N2.push(n.clone()); q.setFromUnitVectors(z, n); mtx.compose(P2[i], q, one); lc.eyelets.setMatrixAt(i, mtx); }
+        lc.eyelets.instanceMatrix.needsUpdate = true;
+        const L2 = P2.slice(0, lc.n); const R2 = P2.slice(lc.n);
+        const path = [];
+        for (let i = lc.n - 1; i >= 0; i--) {
+          if (lc.style === 'ladder') { path.push(L2[i], R2[i]); if (i) path.push(R2[i - 1] ? R2[i - 1] : R2[i], L2[i - 1]); }
+          else if (lc.style === 'spiral') path.push(i % 2 ? L2[i] : R2[i]);
+          else { path.push(i % 2 ? L2[i] : R2[i]); path.push(i % 2 ? R2[i] : L2[i]); }
+        }
+        if (lc.style === 'corset') { const mid = L2[Math.floor(lc.n / 2)].clone().lerp(R2[Math.floor(lc.n / 2)], 0.5); const out = N2[0].clone().multiplyScalar(0.01); path.splice(Math.floor(path.length / 2), 0, mid.clone().add(out).add(new THREE.Vector3(0.02, -0.01, 0)), mid.clone().add(out), mid.clone().add(out).add(new THREE.Vector3(-0.02, -0.01, 0)), mid.clone().add(out)); }
+        lc.cord.geometry.dispose();
+        lc.cord.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(path.map((p2) => p2.clone()), false, 'catmullrom', 0.1), Math.max(16, path.length * 6), 0.0011, 5, false);
+        continue;
+      }
+      if (t.edgeShape) {
+        for (let i = 0; i < t.anchors.length; i++) {
+          at(t.anchors[i], v, n);
+          const prev = t.anchors[Math.max(0, i - 1)]; const nxt = t.anchors[Math.min(t.anchors.length - 1, i + 1)];
+          const pv = new THREE.Vector3(); const pn = new THREE.Vector3(); const nv = new THREE.Vector3(); const nn2 = new THREE.Vector3();
+          at(prev, pv, pn); at(nxt, nv, nn2);
+          const tan = nv.sub(pv).normalize();
+          const down = new THREE.Vector3().crossVectors(n, tan).normalize(); // points away from the panel interior (roughly)
+          if (down.y > 0) down.negate();
+          const m4 = new THREE.Matrix4().makeBasis(tan, down.clone().negate(), n);
+          q.setFromRotationMatrix(m4);
+          const offs = { scallop: 0.004, ruffle: 0.012, fringe: 0.03, fray: 0.005, lace: 0.003, pompom: 0.008, feather: 0.022 }[t.edgeShape] || 0;
+          const pos2 = v.clone().addScaledVector(n, 0.002).addScaledVector(down, offs);
+          const scl = t.edgeShape === 'zigzag' ? new THREE.Vector3(1, i % 2 ? -1 : 1, 1) : t.edgeShape === 'wave' ? new THREE.Vector3(1, i % 2 ? -1 : 1, 1) : one;
+          mtx.compose(pos2, q, scl);
+          t.obj.setMatrixAt(i, mtx);
+        }
+        t.obj.instanceMatrix.needsUpdate = true;
+        continue;
+      }
       if (t.line) {
         if (t.def.strap) {
           const pts = t.anchors.map((a) => { at(a, v, n); return v.clone().addScaledVector(n, 0.004); });
@@ -430,6 +659,44 @@ export class Viewer {
         }
       }
       s.line.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+
+  /** Fit map: colour the cloth by strain (red = tight, white = neutral, blue = loose). */
+  setFitMap(on) {
+    this.fitMap = on;
+    for (const m of this.panelMeshes) {
+      if (on) { m.userData.mat ||= m.material; m.material = this._fitMat ||= new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }); }
+      else if (m.userData.mat) { m.material = m.userData.mat; }
+    }
+    if (on) this.updateFitColors();
+    this.dirty = true;
+  }
+
+  updateFitColors() {
+    const sim = this.sim; if (!sim) return;
+    const n = sim.pos.length / 3;
+    const strain = new Float32Array(n);
+    const P = sim.pos;
+    for (let e = 0; e < sim.rest.length; e++) {
+      if (sim.kc[e] <= 0 || sim.rest[e] > 0.035) continue; // structural/shear only (skip tethers & bend)
+      const a = sim.ci[e * 2]; const b = sim.ci[e * 2 + 1];
+      const d = Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
+      const st = d / sim.rest[e] - 1;
+      if (Math.abs(st) > Math.abs(strain[a])) strain[a] = st;
+      if (Math.abs(st) > Math.abs(strain[b])) strain[b] = st;
+    }
+    for (const m of this.panelMeshes) {
+      const pan = sim.panels.find((p) => p.id === m.userData.panelId);
+      const col = new Float32Array(pan.count * 3);
+      for (let i = 0; i < pan.count; i++) {
+        const st = strain[pan.offset + i];
+        let r = 1; let g = 1; let b = 1;
+        if (st > 0.005) { const k = Math.min(1, st / 0.05); g = 1 - k; b = 1 - k; } // tight -> red
+        else if (st < -0.01) { const k = Math.min(1, -st / 0.06); r = 1 - k * 0.8; g = 1 - k * 0.4; } // loose / compressed -> blue
+        col[i * 3] = r; col[i * 3 + 1] = g; col[i * 3 + 2] = b;
+      }
+      m.geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
     }
   }
 

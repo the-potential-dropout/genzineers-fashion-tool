@@ -8,7 +8,8 @@
  */
 import { resolveFabric } from '../core/fabrics.js';
 import { ASSEMBLY, THREADS } from '../core/assembly.js';
-import { TRIMS, STIFFENERS } from '../core/trims.js';
+import { TRIMS, STIFFENERS, ZIPPER_TYPES, ZIPPER_ENDS, ZIPPER_SLIDERS, ZIPPER_PULLERS, EDGE_TREATMENTS, zipperSpec } from '../core/trims.js';
+import { LEGWEAR_TYPES, LEGWEAR_YARNS, LEGWEAR_PATTERNS, DENIER } from '../core/legwear.js';
 import { DYES, PRINT_METHODS, PAINTS } from '../core/color.js';
 import { INSULATION } from '../core/materials.js';
 import { SIZE_CHARTS } from '../core/sizes.js';
@@ -77,8 +78,17 @@ export function bom(project) {
   }
   for (const [k, m] of Object.entries(thr)) rows.push({ cat: k.startsWith('(no thread)') ? 'Bonding / welding' : 'Thread', item: k.replace('(no thread) ', ''), spec: k.startsWith('(no') ? 'tape / film / energy' : 'Tex per factory', perUnit: `${r1(m)} m`, total: `${Math.ceil(m * qty * 1.1)} m (+10%)`, note: '' });
   const trims = {};
-  for (const t of project.trims) { const d = TRIMS[t.type]; if (!d || d.internal) continue; const k = `${d.name}|${t.size || d.size}|${t.color || d.color}`; trims[k] = (trims[k] || 0) + 1; }
-  for (const [k, n] of Object.entries(trims)) { const [name, size, color] = k.split('|'); rows.push({ cat: 'Trim', item: name, spec: `${size} mm, ${color}`, perUnit: n, total: `${Math.ceil(n * qty * 1.03)} (+3% spares)`, note: '' }); }
+  for (const t of project.trims) {
+    const d = TRIMS[t.type]; if (!d || d.internal) continue;
+    let k;
+    if (t.type.startsWith('zipper')) { const z = zipperSpec(t.zip); const len = t.at && t.to ? Math.round(Math.hypot(t.to[0] - t.at[0], t.to[1] - t.at[1])) : '?'; k = `Zipper: ${ZIPPER_TYPES[z.type]?.name} ${z.size}, ${len} cm|${ZIPPER_ENDS[z.end]}, ${ZIPPER_SLIDERS[z.slider]}, ${ZIPPER_PULLERS[z.puller]}|tape ${z.tape}`; }
+    else if (t.type === 'edge-trim') k = `${EDGE_TREATMENTS[t.treatment]?.name} (${t.edge})|${t.path?.length ? 'along edge' : ''}|${t.color || 'self'}`;
+    else if (t.type === 'lacing') k = `Lacing: ${t.eyelets || 8} pairs of eyelets + cord (${t.style})|${t.width || 5} cm wide|${t.color || '#111111'}`;
+    else k = `${d.name}|${t.size || d.size} mm|${t.color || d.color}`;
+    trims[k] = (trims[k] || 0) + 1;
+  }
+  for (const [k, n] of Object.entries(trims)) { const [name, size, color] = k.split('|'); rows.push({ cat: 'Trim', item: name, spec: `${size}, ${color}`, perUnit: n, total: `${Math.ceil(n * qty * 1.03)} (+3% spares)`, note: '' }); }
+  for (const g of project.garments || []) if (g.generator === 'legwear') { const o = g.options; rows.push({ cat: 'Hosiery', item: `${LEGWEAR_TYPES[o.type]?.name}`, spec: `${DENIER[o.denier] || ''} ${LEGWEAR_YARNS[o.yarn]?.name}, ${LEGWEAR_PATTERNS[o.pattern]?.name}, top: ${o.topBand}, toe: ${o.toe}, heel: ${o.heel}${o.cushion !== 'none' ? `, ${o.cushion}` : ''}`, perUnit: '1 pair', total: `${qty} pairs`, note: 'Circular knit (hosiery 400-needle; socks 144-200 needle); cotton gusset for tights; linked seamless toe recommended' }); }
   const fills = {};
   for (const p of project.panels) if (p.insulation) { const k = `${INSULATION[p.insulation.fill]?.name}|${p.insulation.weight}|${p.insulation.quilting}`; fills[k] = (fills[k] || 0) + polyArea(p.points) / 1e4; }
   for (const [k, m2] of Object.entries(fills)) { const [name, w, q] = k.split('|'); rows.push({ cat: 'Insulation', item: name, spec: `${w} g/m², ${q} quilting`, perUnit: `${r1(m2 * w)} g`, total: `${r1((m2 * w * qty) / 1000)} kg`, note: INSULATION[Object.keys(INSULATION).find((x) => INSULATION[x].name === name)]?.cert || '' }); }
