@@ -64,6 +64,33 @@ function weave(g, pattern, base, look) {
       for (let k = 0; k < 6000; k++) { g.fillStyle = r() > 0.5 ? dark : light; g.fillRect(r() * SIZE, r() * SIZE, 2 + r() * 4, 1 + r() * 2); }
       for (let k = 0; k < 300; k++) { g.fillStyle = css(['#c94b2b', '#2f6b3a', '#e0c35a', '#ffffff'][(r() * 4) | 0], 0.6); g.fillRect(r() * SIZE, r() * SIZE, 2, 2); }
       break;
+    case 'croc': { // rounded-square belly tiles with dark creases between
+      g.fillStyle = dark; g.fillRect(0, 0, SIZE, SIZE);
+      for (let y = 0; y < SIZE; y += 26) for (let x = (Math.floor(y / 26) % 2) * 15; x < SIZE + 30; x += 30) { const w = 25 + r() * 3; const hh = 21 + r() * 3; const gr = g.createRadialGradient(x - 3, y - 3, 2, x, y, w * 0.7); gr.addColorStop(0, light); gr.addColorStop(0.75, base); gr.addColorStop(1, dark); g.fillStyle = gr; g.beginPath(); g.roundRect(x - w / 2, y - hh / 2, w, hh, 7); g.fill(); g.fillStyle = dark; g.beginPath(); g.arc(x + w * 0.22, y + hh * 0.18, 0.9, 0, 7); g.fill(); }
+      break;
+    }
+    case 'scales': { // overlapping pointed scales in offset rows
+      g.fillStyle = dark; g.fillRect(0, 0, SIZE, SIZE);
+      for (let y = -8; y < SIZE + 8; y += 12) for (let x = (Math.floor(y / 12) % 2) * 8; x < SIZE + 16; x += 16) { const gr = g.createLinearGradient(x, y - 8, x, y + 8); gr.addColorStop(0, light); gr.addColorStop(1, base); g.fillStyle = (Math.floor(x / 48) + Math.floor(y / 36)) % 3 === 0 ? dark : gr; g.beginPath(); g.moveTo(x - 8, y - 5); g.quadraticCurveTo(x, y - 9, x + 8, y - 5); g.quadraticCurveTo(x + 6, y + 6, x, y + 9); g.quadraticCurveTo(x - 6, y + 6, x - 8, y - 5); g.fill(); g.strokeStyle = dark; g.lineWidth = 0.8; g.stroke(); }
+      break;
+    }
+    case 'ostrich': { // quill bumps on a fine grain
+      for (let k = 0; k < 2200; k++) { g.fillStyle = r() > 0.5 ? dark : light; g.fillRect(r() * SIZE, r() * SIZE, 1.5, 1.5); }
+      for (let k = 0; k < 46; k++) { const x = r() * SIZE; const y = r() * SIZE; const rad = 5 + r() * 3; const gr = g.createRadialGradient(x - 1.5, y - 1.5, 0.5, x, y, rad); gr.addColorStop(0, light); gr.addColorStop(0.6, base); gr.addColorStop(1, dark); g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, 7); g.fill(); }
+      break;
+    }
+    case 'pebble': // tumbled pebble grain
+      for (let k = 0; k < 900; k++) { const x = r() * SIZE; const y = r() * SIZE; const rad = 3 + r() * 4; const gr = g.createRadialGradient(x - 1, y - 1, 0.5, x, y, rad); gr.addColorStop(0, light); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, rad, 0, 7); g.fill(); g.strokeStyle = dark; g.lineWidth = 0.5; g.beginPath(); g.arc(x, y, rad, 0.6, 2.6); g.stroke(); }
+      break;
+    case 'saffiano': // pressed diagonal cross-hatch
+      g.strokeStyle = dark; g.lineWidth = 1; for (let i = -SIZE; i < SIZE * 2; i += 5) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + SIZE, SIZE); g.stroke(); g.beginPath(); g.moveTo(i + SIZE, 0); g.lineTo(i, SIZE); g.stroke(); }
+      break;
+    case 'fur': // hair lying one way, with tipped guard hairs
+      for (let k = 0; k < 5200; k++) { const x = r() * SIZE; const y = r() * SIZE; const l = 10 + r() * 22; g.strokeStyle = r() > 0.72 ? light : r() > 0.4 ? base : dark; g.globalAlpha = 0.5 + r() * 0.5; g.lineWidth = 0.7 + r() * 0.6; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + (r() - 0.5) * 6, y + l * 0.5, x + (r() - 0.5) * 9, y + l); g.stroke(); }
+      g.globalAlpha = 1; break;
+    case 'curly': // looped wool curls (shearling, sherpa, teddy)
+      for (let k = 0; k < 1900; k++) { const x = r() * SIZE; const y = r() * SIZE; const rad = 2 + r() * 4; g.strokeStyle = r() > 0.6 ? light : r() > 0.3 ? base : dark; g.lineWidth = 1 + r(); g.beginPath(); g.arc(x, y, rad, r() * 6, r() * 6 + 3 + r() * 3); g.stroke(); }
+      break;
     case 'velvet': case 'leather':
       for (let k = 0; k < (pattern === 'leather' ? 2500 : 5000); k++) { g.fillStyle = r() > 0.5 ? dark : light; const s = pattern === 'leather' ? 2 + r() * 5 : 1; g.beginPath(); g.arc(r() * SIZE, r() * SIZE, s, 0, Math.PI * 2); g.fill(); }
       break;

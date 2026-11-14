@@ -12,6 +12,8 @@
  * rec: industry-default construction for this family (used for guidance).
  */
 
+import { addLeatherFamilies } from './fabrics-leather.js';
+
 const F = {};
 const FAMILIES = {};
 
@@ -285,8 +287,10 @@ family('vegan-leather', 'Vegan Leather (PU on fabric)', 'Coated', 'Polyurethane 
 
 export const FABRICS = F;
 export const FABRIC_FAMILIES = FAMILIES;
+addLeatherFamilies(family, LEATHER, WOVEN);
+
 export const FABRIC_CATEGORIES = [...new Set(Object.values(FAMILIES).map((f) => f.category))];
-export const PATTERNS = ['plain', 'twill', 'denim', 'knit', 'rib', 'satin', 'canvas', 'tweed', 'velvet', 'leather', 'plaid', 'lace', 'waffle', 'ripstop', 'corduroy', 'mesh', 'sequin', 'pinstripe', 'herringbone'];
+export const PATTERNS = ['croc', 'scales', 'ostrich', 'pebble', 'saffiano', 'fur', 'curly', 'plain', 'twill', 'denim', 'knit', 'rib', 'satin', 'canvas', 'tweed', 'velvet', 'leather', 'plaid', 'lace', 'waffle', 'ripstop', 'corduroy', 'mesh', 'sequin', 'pinstripe', 'herringbone'];
 export const FX = ['distressed', 'faded', 'slub', 'mottled', 'selvedge', 'waxed', 'quilted', 'crushed', 'fuzzy', 'crinkle'];
 
 /** Resolve a fabric id (preset or custom) + overrides into a full definition. */
@@ -320,7 +324,11 @@ const MECH = [
   [/mesh|lace|net/, { emt: 20, G: 0.3, B: 0.01, mu: 0.25 }],
   [/denim/, { emt: 3, G: 3, B: 0.45, mu: 0.35 }],
   [/canvas|duck|cordura|ballistic|webbing/, { emt: 2, G: 5, B: 1.2, mu: 0.38 }],
-  [/shearling|fur/, { emt: 3, G: 4, B: 3, mu: 0.45 }],
+  [/shearling|mongolian|astrakhan/, { emt: 5, G: 3, B: 1.4, mu: 0.45 }],
+  [/fur-faux|faux-fur|faux-shearling|faux-teddy|faux-mongolian/, { emt: 12, G: 1.2, B: 0.35, mu: 0.45 }],
+  [/fur/, { emt: 5, G: 2.5, B: 0.9, mu: 0.45 }],
+  [/veg|bridle|harness|sole|rawhide|holster/, { emt: 2, G: 12, B: 9, mu: 0.5 }],
+  [/lamb|nappa|kidskin|goat|deer|buckskin|peccary|kangaroo|faux-pu|faux-suede/, { emt: 9, G: 2.5, B: 0.5, mu: 0.5 }],
   [/leather|suede/, { emt: 5, G: 6, B: 2.2, mu: 0.5 }],
   [/felt|straw|buckram/, { emt: 1, G: 8, B: 4, mu: 0.4 }],
   [/tweed|melton|coating|boiled|duffle|loden/, { emt: 5, G: 1.2, B: 0.5, mu: 0.36 }],
@@ -348,7 +356,7 @@ for (const fab of Object.values(F)) {
   // the default is weight / typical bulk density of the construction (e.g. polar fleece measures
   // ~1.05 mm at 230 g/m2 = 0.22 g/cm3). Treat it as an estimate: confirm with a thickness gauge
   // (ASTM D1777) and override it per project if your fabric differs.
-  if (!/leather|suede|shearling|fur|felt|straw|foam|neoprene/.test(`${fab.id} ${fab.family}`)) {
+  if (!/leather|suede|shearling|fur|felt|straw|foam|neoprene|faux|astrakhan|mongolian|kidskin/.test(`${fab.id} ${fab.family}`)) {
     const rho = /fleece|terry|sweat|velour|sherpa|pile/.test(tag) ? 0.2 : /rib|interlock|pique|ponte|knit|jersey|mesh|lace/.test(tag) ? 0.3 : /tweed|melton|flannel|boiled|coating|corduroy|velvet|moleskin/.test(tag) ? 0.38 : /chiffon|georgette|organza|voile|tulle|satin|silk|lining/.test(tag) ? 0.45 : /denim|canvas|duck|twill|chino|gabardine|drill/.test(tag) ? 0.55 : /nylon|polyester|ripstop|waterproof|shell|taffeta/.test(tag) ? 0.65 : 0.5;
     fab.thicknessMm = Math.round((fab.weightGsm / (1000 * rho)) * 100) / 100;
     fab.thicknessSource = 'estimated from weight and construction';

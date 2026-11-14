@@ -186,7 +186,7 @@ export class Viewer {
     if (this.simAwake && this.sim) {
       if (this._grab) { // hold the pinched cloth at the pointer (limited reach so it cannot be torn off the body)
         const g = this._grab; const P = this.sim.pos; const Q = this.sim.prev;
-        g.ids.forEach((i, k) => { const x = g.target.x + g.off[k].x; const y = Math.max(0.01, g.target.y + g.off[k].y); const z = g.target.z + g.off[k].z; this.sim.inv[i] = 0; P[i * 3] += (x - P[i * 3]) * 0.35; P[i * 3 + 1] += (y - P[i * 3 + 1]) * 0.35; P[i * 3 + 2] += (z - P[i * 3 + 2]) * 0.35; Q[i * 3] = P[i * 3]; Q[i * 3 + 1] = P[i * 3 + 1]; Q[i * 3 + 2] = P[i * 3 + 2]; });
+        g.ids.forEach((i, k) => { const x = g.target.x + g.off[k].x; const y = Math.max(0.01, g.target.y + g.off[k].y); const z = g.target.z + g.off[k].z; this.sim.inv[i] = 0; P[i * 3] += (x - P[i * 3]) * g.gain; P[i * 3 + 1] += (y - P[i * 3 + 1]) * g.gain; P[i * 3 + 2] += (z - P[i * 3 + 2]) * g.gain; Q[i * 3] = P[i * 3]; Q[i * 3 + 1] = P[i * 3 + 1]; Q[i * 3 + 2] = P[i * 3 + 2]; });
       }
       const mv = this.sim.step(1 / 60);
       this.onStep?.(mv);
@@ -1200,12 +1200,16 @@ export class Viewer {
       // pinch the three corners of the triangle under the pointer
       const ids = [hit.face.a, hit.face.b, hit.face.c].map((i) => i + pan.offset);
       const P = this.sim.pos;
-      this._grab = { ids, inv: ids.map((i) => this.sim.inv[i]), off: ids.map((i) => new THREE.Vector3(P[i * 3] - hit.point.x, P[i * 3 + 1] - hit.point.y, P[i * 3 + 2] - hit.point.z)), dist: hit.distance, target: hit.point.clone(), id: e.pointerId };
+      const fab = pan.fab || {}; const emt = fab.mech?.emt ?? 6; const gsm = fab.weightGsm || 200; const stiff = fab.mech?.B ?? 0.1;
+      // how readily the pinched cloth follows the hand, and how far it can be drawn before it resists
+      const gain = Math.max(0.07, Math.min(0.6, 0.42 * Math.sqrt(160 / gsm) / (1 + stiff * 0.5)));
+      const reach = Math.max(0.035, Math.min(0.3, 0.03 + emt * 0.0042 + 0.02 * Math.sqrt(160 / gsm)));
+      this._grab = { gain, reach, anchor: hit.point.clone(), ids, inv: ids.map((i) => this.sim.inv[i]), off: ids.map((i) => new THREE.Vector3(P[i * 3] - hit.point.x, P[i * 3 + 1] - hit.point.y, P[i * 3 + 2] - hit.point.z)), dist: hit.distance, target: hit.point.clone(), id: e.pointerId };
       this.controls.enabled = false;
       el.setPointerCapture?.(e.pointerId);
       e.stopPropagation();
     }, true);
-    el.addEventListener('pointermove', (e) => { if (!this._grab || e.pointerId !== this._grab.id) return; ray(e); this._grab.target.copy(rc.ray.origin).addScaledVector(rc.ray.direction, this._grab.dist); this.simAwake = true; this._simFrames = Math.min(this._simFrames || 0, 500); this._still = 0; });
+    el.addEventListener('pointermove', (e) => { if (!this._grab || e.pointerId !== this._grab.id) return; ray(e); this._grab.target.copy(rc.ray.origin).addScaledVector(rc.ray.direction, this._grab.dist); { const g2 = this._grab; const off = g2.target.clone().sub(g2.anchor); const l = off.length(); if (l > g2.reach) g2.target.copy(g2.anchor).addScaledVector(off, (g2.reach + (l - g2.reach) * 0.12) / l); } this.simAwake = true; this._simFrames = Math.min(this._simFrames || 0, 500); this._still = 0; });
     const end = (e) => { if (!this._grab || e.pointerId !== this._grab.id) return; this._grab.ids.forEach((i, k) => { this.sim.inv[i] = this._grab.inv[k]; }); this._grab = null; this.controls.enabled = true; this.simAwake = true; this._simFrames = Math.min(this._simFrames || 0, 420); this._still = 0; };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
   }

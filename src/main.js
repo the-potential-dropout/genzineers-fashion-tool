@@ -30,6 +30,7 @@ import { printTileCanvas, printTileCm, DISTRESS } from './render/textures.js';
 import { designBitmap } from './make/embroidery.js';
 import { collection, kindOf } from './app/collection.js';
 import { POCKETS, POCKET_CLOSURES } from './core/pockets.js';
+import { TANNING, LEATHER_FINISHES, LEATHER_COLOURS, LEATHER_USE, leatherFit } from './core/leather.js';
 import { STITCH_TYPES, FONTS, THREADS_EMB, MOTIFS_EMB, rasterizeDesign, digitize, writeDST, embroiderySheet, loadArtwork } from './make/embroidery.js';
 import { LAYER_NAMES } from './core/project.js';
 import { layerOf } from './sim/cloth.js';
@@ -479,6 +480,23 @@ function cMaterials(el, p) {
   const cur = tgtPanel(p); if (!cur) return;
   const fab = resolveFabric(p, cur.fabric, cur.fabricOverrides);
   const rec = recommendFor(cur.fabric, p);
+  // ---- leather & fur guide: is it right for this product, how it is tanned and finished, real colours ----
+  if (/leather|suede|shearling|fur|faux|astrakhan|mongolian|kidskin|vegan/.test(`${fab.id} ${fab.family}`)) {
+    const gsel = (p.garments || []).find((x) => x.id === ui.garment) || (p.garments || [])[0];
+    const use = { top: 'jacket', bottom: 'trousers', skirt: 'trousers', hat: 'hat', bag: 'bag', belt: 'belt', wallet: 'wallet', holster: 'holster', shoe: 'shoe-upper' }[gsel?.generator] || 'jacket';
+    const fit = leatherFit(fab, use); const U = LEATHER_USE[use];
+    const isFur = /fur|shearling|mongolian|astrakhan|teddy|sherpa/.test(`${fab.id} ${fab.family}`);
+    const ov = (tgtPanel(p)?.fabricOverrides) || {};
+    el.append(h('div', { class: 'sec' }, h('h3', {}, isFur ? 'Fur guide' : 'Leather guide'),
+      h('div', { class: 'check' }, h('span', { class: fit === 'good' ? 'ok' : fit === 'avoid' ? 'warn' : 'info' }, fit === 'good' ? '✓' : fit === 'avoid' ? '✕' : '•'), h('span', {}, h('b', {}, fit === 'good' ? `A good choice for ${U.name.toLowerCase()}. ` : fit === 'avoid' ? `Not the right leather for ${U.name.toLowerCase()}. ` : `Workable for ${U.name.toLowerCase()}. `), `${U.why} Typical thickness ${U.mm[0]}-${U.mm[1]} mm (this one: ${fab.thicknessMm} mm).`)),
+      h('details', {}, h('summary', {}, 'Which leather for which product'), h('div', { class: 'list' }, Object.values(LEATHER_USE).map((u) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${u.name} · ${u.mm[0]}-${u.mm[1]} mm`), h('div', { class: 's' }, u.why)))))),
+      isFur ? null : field('Tanning (how the hide was made into leather)', sel(ov.tanning || '', [{ value: '', label: 'Not specified' }, ...Object.entries(TANNING).map(([k, t]) => ({ value: k, label: `${t.name} · ${t.price}` }))], (v) => store.dispatch({ type: 'set_fabric', ...tgt(), overrides: { tanning: v || undefined } }))),
+      !isFur && ov.tanning && TANNING[ov.tanning] ? h('div', { class: 'tip' }, h('b', {}, `${TANNING[ov.tanning].name}: `), `${TANNING[ov.tanning].feel}. Used for: ${TANNING[ov.tanning].uses}. Pros: ${TANNING[ov.tanning].pros}. Cons: ${TANNING[ov.tanning].cons}.${TANNING[ov.tanning].not ? ` Not for: ${TANNING[ov.tanning].not}.` : ''}`) : null,
+      isFur ? null : field('Finish / treatment (changes look, feel and price)', sel(ov.treatment || '', [{ value: '', label: 'As supplied' }, ...Object.entries(LEATHER_FINISHES).map(([k, t]) => ({ value: k, label: `${t.name} · ${t.price}` }))], (v) => { const t = LEATHER_FINISHES[v]; store.dispatch({ type: 'set_fabric', ...tgt(), overrides: { treatment: v || undefined, look: t ? { roughness: t.look.roughness, ...(t.look.metalness ? { metalness: t.look.metalness } : { metalness: 0 }), ...(t.look.sheen != null ? { sheen: t.look.sheen } : {}), ...(v === 'suede' || v === 'nubuck' ? { pattern: 'velvet' } : {}) } : {} } }); })),
+      !isFur && ov.treatment && LEATHER_FINISHES[ov.treatment] ? h('div', { class: 'tip' }, h('b', {}, `${LEATHER_FINISHES[ov.treatment].name}: `), `${LEATHER_FINISHES[ov.treatment].desc} Used for: ${LEATHER_FINISHES[ov.treatment].uses}. Pros: ${LEATHER_FINISHES[ov.treatment].pros}. Cons: ${LEATHER_FINISHES[ov.treatment].cons}. Relative price ${LEATHER_FINISHES[ov.treatment].price}.`) : null,
+      isFur ? null : field('Realistic leather colours (hover for how each is achieved)', h('div', { class: 'chips' }, LEATHER_COLOURS.map(([c, n, how]) => h('button', { class: 'chip', title: `${n}: ${how}`, 'aria-label': n, style: `background:${c};width:26px;height:26px;padding:0;border:2px solid var(--line)`, onclick: () => { store.dispatch({ type: 'set_finish', ...tgt(), color: c }); toast(`${n}: ${how}`, 6000); } })))),
+    ));
+  }
   // physical properties of this material in this project (defaults per material, all editable)
   { const num = (label, key, step, unit) => field(`${label} (${unit})`, h('input', { type: 'number', step, min: 0, value: fab[key], onchange: (e) => { const v = Number(e.target.value); if (v > 0) store.dispatch({ type: 'set_fabric', ...tgt(), overrides: { [key]: v } }); } }));
     el.append(h('details', {}, h('summary', {}, `Material properties: ${fab.thicknessMm} mm thick · ${fab.weightGsm} g/m²`), h('div', {},
