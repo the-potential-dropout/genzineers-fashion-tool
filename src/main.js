@@ -22,6 +22,9 @@ import { techPackHTML, patternSVG, patternDXF, tiledPrintHTML, bomCSV, GUIDE, rf
 import { parseDXF, parseSVG, piecesToActions, MODEL_EXT, readAs } from './io/import.js';
 import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitChartSVG } from './core/knit.js';
 import { invoke } from './io/tauri.js';
+import { collection, kindOf } from './app/collection.js';
+import { LAYER_NAMES } from './core/project.js';
+import { layerOf } from './sim/cloth.js';
 
 const LINKS_OUT = {
   genzineers: 'https://genzineers.com/?utm_source=fashion-tool&utm_medium=app&utm_campaign=gft',
@@ -129,6 +132,7 @@ function renderTop() {
     h('button', { class: 'btn ghost icon', title: 'Undo (Ctrl+Z)', 'aria-label': 'Undo', disabled: !store.canUndo(), onclick: () => store.undo() }, '↶'),
     h('button', { class: 'btn ghost icon', title: 'Redo (Ctrl+Shift+Z)', 'aria-label': 'Redo', disabled: !store.canRedo(), onclick: () => store.redo() }, '↷'),
     h('button', { class: `btn desk-only ${ui.pattern !== 'off' ? 'primary' : ''}`, onclick: () => { ui.pattern = ui.pattern === 'off' ? 'split' : ui.pattern === 'split' ? 'only' : 'off'; applyPatternMode(); renderTop(); }, title: 'Show the 2D pattern editor' }, ui.pattern === 'off' ? 'Pattern' : ui.pattern === 'split' ? 'Pattern: split' : 'Pattern: full'),
+    h('button', { class: 'btn', onclick: () => openCollection(), title: 'My collection: everything you have saved (Ctrl+S saves)' }, '♡ ', h('span', { class: 'full' }, 'Collection')),
     h('button', { class: 'btn', onclick: () => toggleAI(true), title: 'AI assistant & image tools' }, '✦ AI'),
     h('button', { class: 'btn primary', onclick: () => { ui.step = 'make'; renderPanel(); } }, 'Make it →'),
     h('button', { class: 'btn ghost icon', 'aria-label': 'Menu', onclick: (e) => { e.stopPropagation(); openMenu(); } }, '⋯'),
@@ -150,6 +154,8 @@ function openMenu() {
   const item = (label, fn) => h('button', { onclick: () => { menuEl.remove(); fn(); } }, label);
   menuEl = h('div', { class: 'menu', role: 'menu' },
     item('Open / import file… (project, DXF, SVG, STL, OBJ, GLB, STEP…)', () => fileInput.click()),
+    item('Save to my collection (Ctrl+S)', () => saveToCollection()),
+    item('My collection…', () => openCollection()),
     item('Save project (.json)', () => download(`${p.name}.gft.json`, JSON.stringify(p, null, 1), 'application/json')),
     item('Export 3D model (GLB)', async () => download(`${p.name}.glb`, await viewer.exportModel('glb'))),
     item('Export 3D model (OBJ)', async () => download(`${p.name}.obj`, await viewer.exportModel('obj'))),
@@ -241,6 +247,8 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && ui.placing) { ui.placing = null; renderPanel(); renderPlaceHint(); }
   if (mod && e.key.toLowerCase() === 'z' && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) { e.preventDefault(); e.shiftKey ? store.redo() : store.undo(); }
   if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); store.redo(); }
+  if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveToCollection(); }
+  if (e.key === 'Escape' && collEl) closeCollection();
 });
 function renderPlaceHint() {
   placeHint.classList.toggle('hide', !ui.placing);
@@ -315,8 +323,16 @@ function cStyle(el, p) {
     h('div', { class: 'chips' }, Object.keys(chart.sizes).map((s) => h('button', { class: `chip ${!p.customBody && p.size === s ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'set_size', size: s }) }, s))),
     field('Mannequin', sel(p.mannequin || 'auto', [{ value: 'auto', label: 'Match size chart' }, { value: 'female', label: 'Female body' }, { value: 'male', label: 'Male body' }], (v) => store.dispatch({ type: 'set_size', mannequin: v }))),
     bodyEditor(p, chart),  ));
-  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Outfit'), field('Add another garment (e.g. trousers to make a suit)', sel('', [{ value: '', label: 'Choose…' }, ...TEMPLATE_GROUPS.map((gr) => ({ group: gr, items: Object.entries(TEMPLATES).filter(([, v]) => v.group === gr).map(([id, v]) => ({ value: id, label: v.name })) }))], (v) => v && store.dispatch({ type: 'add_garment', template: v }))),
-    gs.length > 1 ? h('div', { class: 'list' }, gs.map((x) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${x.id}: ${GENERATORS[x.generator].label}`)), h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_garment', garment: x.id }) }, 'Remove')))) : null));
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Outfit (wear several pieces together)'),
+    h('div', { class: 'chips', style: 'margin-bottom:8px' },
+      h('button', { class: 'btn sm primary', onclick: () => openCollection({ pick: true }) }, '♡ Add from my collection'),
+      h('button', { class: 'btn sm', onclick: () => saveToCollection() }, 'Save to collection')),
+    field('Or add a new piece from a template', sel('', [{ value: '', label: 'Choose…' }, ...TEMPLATE_GROUPS.map((gr) => ({ group: gr, items: Object.entries(TEMPLATES).filter(([, v]) => v.group === gr).map(([id, v]) => ({ value: id, label: v.name })) }))], (v) => v && store.dispatch({ type: 'add_garment', template: v }))),
+    gs.length > 1 ? h('div', { class: 'tip' }, 'Pieces are layered inside-out: underwear, base, knits, jackets, coats. Change a layer if something should sit over or under another.') : null,
+    gs.length > 1 ? h('div', { class: 'list' }, [...gs].sort((a, b) => layerOf(p, { garment: a.id }) - layerOf(p, { garment: b.id })).map((x) => h('div', { class: 'row' },
+      h('div', { class: 'grow' }, h('div', { class: 't' }, x.name || GENERATORS[x.generator].label.split(' /')[0]), h('div', { class: 's' }, x.layer == null ? `Layer: ${LAYER_NAMES[layerOf(p, { garment: x.id })]} (auto)` : `Layer: ${LAYER_NAMES[x.layer]}`)),
+      sel(x.layer == null ? 'auto' : String(x.layer), [{ value: 'auto', label: 'Auto layer' }, ...LAYER_NAMES.map((n, i) => ({ value: String(i), label: n }))], (v) => store.dispatch({ type: 'set_layer', garment: x.id, layer: v === 'auto' ? null : Number(v) })),
+      h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_garment', garment: x.id }) }, 'Remove')))) : null));
   el.append(next('Next: materials →', 'materials'));
 }
 
@@ -414,6 +430,7 @@ function cMaterials(el, p) {
     h('div', { class: 'grid2' },
       field('Method', sel(fin.print?.method || '', [{ value: '', label: 'No print' }, ...Object.entries(PRINT_METHODS).map(([id, m]) => ({ value: id, label: `${m.name}${id === rec.print ? ' ★' : ''}${compatible(m, fab).ok ? '' : ' (not for this fibre)'}` }))], (v) => store.dispatch({ type: 'set_finish', ...tgt(), print: v ? { ...(fin.print || { design: 'stripes', colors: ['#111111', '#ffffff', '#c0392b'] }), method: v } : null }))),
       field('Design', sel(fin.print?.design || 'stripes', PRINT_DESIGNS.map((d) => ({ value: d, label: pretty(d) })), (v) => store.dispatch({ type: 'set_finish', ...tgt(), print: { method: fin.print?.method || rec.print, colors: fin.print?.colors || ['#111111', '#ffffff', '#c0392b'], ...(fin.print || {}), design: v } })))),
+    fin.print && fin.print.design !== 'solid' ? field('Print size', h('input', { type: 'range', min: 0.25, max: 3, step: 0.05, value: fin.print.scale || 1, oninput: (e) => (e.target.closest('label').querySelector('b').textContent = `${Math.round(e.target.value * 100)}%`), onchange: (e) => store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, scale: Number(e.target.value) } }) }), h('b', {}, `${Math.round((fin.print.scale || 1) * 100)}%`)) : null,
     fin.print ? h('div', { class: 'grid2' }, [0, 1, 2].map((i) => field(`Print colour ${i + 1}`, h('input', { type: 'color', value: fin.print.colors?.[i] || '#111111', onchange: (e) => { const c = [...(fin.print.colors || ['#111111', '#ffffff', '#c0392b'])]; c[i] = e.target.value; store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, colors: c } }); } }))), field('Artwork image', h('input', { type: 'file', accept: 'image/*', onchange: async (e) => { const f = e.target.files[0]; if (f) store.dispatch({ type: 'set_finish', ...tgt(), print: { ...fin.print, design: 'image', image: await readAs(f, 'readAsDataURL') } }); } }))) : null,
     h('h3', { style: 'margin-top:12px' }, 'Paint'),
     h('div', { class: 'grid2' },
@@ -743,6 +760,73 @@ function showAbout() {
     h('ol', { class: 'steps-list' }, h('li', {}, h('b', {}, 'Style: '), 'pick a template, customise it, choose a size.'), h('li', {}, h('b', {}, 'Materials: '), 'fabric quality, blends, colour, dye, print, fill.'), h('li', {}, h('b', {}, 'Details: '), 'stitching, threads, buttons, trims, decorations.'), h('li', {}, h('b', {}, 'Make it: '), 'tech pack, patterns, BOM, supplier guide and RFQ emails.')),
     h('p', { class: 's', style: 'color:var(--muted)' }, 'Free for personal, educational and non-commercial use. Commercial use, including modified versions, requires a licence from Genzineers. © 2026 Genzineers. All rights reserved.'),
     h('div', { class: 'chips' }, h('a', { class: 'btn sm', href: LINKS_OUT.genzineers, target: '_blank', rel: 'noopener' }, 'genzineers.com'), h('a', { class: 'btn sm', href: LINKS_OUT.tpd, target: '_blank', rel: 'noopener' }, 'thepotentialdropout.com'), h('a', { class: 'btn sm', href: LINKS_OUT.pd, target: '_blank', rel: 'noopener' }, 'potentialdropout.com'), h('a', { class: 'btn sm', href: LINKS_OUT.licence, target: '_blank', rel: 'noopener' }, 'Commercial licence'), h('a', { class: 'btn sm', href: LINKS_OUT.repo, target: '_blank', rel: 'noopener' }, 'Source code'))));
+}
+
+// ---------- my collection ----------
+function thumbOf() {
+  return new Promise((res) => {
+    try {
+      const img = new Image();
+      img.onload = () => { const W = 320; const c = document.createElement('canvas'); c.width = W; c.height = Math.round((W * img.height) / img.width) || W; const g = c.getContext('2d'); g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--stage').trim() || '#eceae6'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.78)); };
+      img.onerror = () => res('');
+      img.src = viewer.snapshot(640);
+    } catch { res(''); }
+  });
+}
+async function saveToCollection({ asNew = false } = {}) {
+  const p = store.get();
+  try {
+    const it = await collection.save(p, await thumbOf(), { id: asNew ? undefined : ui.savedId, name: p.name });
+    ui.savedId = it.id;
+    toast(`Saved "${it.name}" to your collection`);
+    if (collEl) renderCollection();
+  } catch (e) { toast(`Could not save: ${e.message}`, 5000); }
+}
+let collEl = null;
+const coll = { filter: 'all', q: '', pick: false };
+function openCollection({ pick = false } = {}) {
+  coll.pick = pick;
+  collEl?.remove();
+  collEl = h('div', { class: 'modal-back', onclick: (e) => e.target === collEl && closeCollection() }, h('div', { class: 'modal wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'My collection' }));
+  document.body.append(collEl);
+  renderCollection();
+}
+function closeCollection() { collEl?.remove(); collEl = null; }
+async function renderCollection() {
+  if (!collEl) return;
+  const box = collEl.firstChild;
+  const p = store.get();
+  const items = await collection.list();
+  const shown = items.filter((it) => (coll.filter === 'all' || it.kind === coll.filter) && (!coll.pick || it.kind !== 'jewelry') && (!coll.q || it.name.toLowerCase().includes(coll.q.toLowerCase())));
+  const importer = h('input', { type: 'file', class: 'hide', accept: '.json', onchange: async (e) => { const f = e.target.files[0]; if (!f) return; try { const n = await collection.importAll(await readAs(f, 'readAsText')); toast(`Imported ${n} design(s)`); renderCollection(); } catch (err) { toast(`Import failed: ${err.message}`, 5000); } } });
+  const act = (label, fn, cls = 'btn sm') => h('button', { class: cls, onclick: async (e) => { e.stopPropagation(); await fn(); } }, label);
+  const card = (it) => h('div', { class: 'card' },
+    h('div', { class: 'thumb', style: it.thumb ? `background-image:url(${it.thumb})` : '' }, h('span', { class: 'badge' }, it.kind === 'outfit' ? `Outfit · ${(it.project.garments || []).length}` : it.kind === 'jewelry' ? 'Jewelry' : 'Garment')),
+    h('div', { class: 't', title: it.name }, it.name),
+    h('div', { class: 's' }, new Date(it.updated).toLocaleDateString()),
+    h('div', { class: 'chips' },
+      coll.pick || (p.mode !== 'jewelry' && it.kind !== 'jewelry')
+        ? act(coll.pick ? 'Wear it' : 'Add to outfit', () => { const r = store.dispatch({ type: 'add_design', design: it.project }); if (r[0]?.ok) { toast(`Added "${it.name}" to the outfit`); closeCollection(); ui.step = 'style'; renderPanel(); } else toast(r[0]?.error || 'Could not add', 5000); }, `btn sm ${coll.pick ? 'primary' : ''}`) : null,
+      coll.pick ? null : act('Open', () => { store.replace(it.project, 'collection'); ui.savedId = it.id; toast(`Opened "${it.name}"`); closeCollection(); }, 'btn sm primary'),
+      coll.pick ? null : act('Rename', async () => { const n = prompt('Name', it.name); if (n && n.trim()) { await collection.put({ ...it, name: n.trim(), project: { ...it.project, name: n.trim() } }); renderCollection(); } }),
+      coll.pick ? null : act('Duplicate', async () => { await collection.duplicate(it.id); renderCollection(); }),
+      coll.pick ? null : act('Delete', async () => { if (confirm(`Delete "${it.name}" from your collection? This cannot be undone.`)) { await collection.remove(it.id); if (ui.savedId === it.id) ui.savedId = null; renderCollection(); } })));
+  box.replaceChildren(
+    h('div', { class: 'coll-head' },
+      h('h2', {}, coll.pick ? 'Add a saved piece to this outfit' : 'My collection'),
+      h('div', { class: 'spacer' }),
+      h('button', { class: 'btn ghost icon', 'aria-label': 'Close', onclick: closeCollection }, '✕')),
+    h('p', { class: 's', style: 'color:var(--muted);margin:0 0 10px' }, coll.pick ? 'Pick a garment or outfit you saved. It is put on the mannequin with all its fabrics, colours, prints and trims, layered with what is already worn.' : `${items.length} saved design(s), stored on this device. Export to back up or move them to another device.`),
+    coll.pick ? null : h('div', { class: 'chips', style: 'margin-bottom:8px' },
+      act(ui.savedId ? 'Save changes' : 'Save current design', () => saveToCollection(), 'btn sm primary'),
+      ui.savedId ? act('Save as new', () => saveToCollection({ asNew: true })) : null,
+      act('Export all', async () => download('my-collection.gft-collection.json', await collection.exportAll(), 'application/json')),
+      act('Import', () => importer.click()), importer),
+    h('div', { class: 'coll-tools' },
+      h('div', { class: 'seg' }, [['all', 'All'], ['garment', 'Garments'], ['outfit', 'Outfits'], ...(coll.pick ? [] : [['jewelry', 'Jewelry']])].map(([k, l]) => h('button', { class: coll.filter === k ? 'on' : '', onclick: () => { coll.filter = k; renderCollection(); } }, l))),
+      h('input', { type: 'search', placeholder: 'Search…', value: coll.q, oninput: (e) => { coll.q = e.target.value; clearTimeout(coll.t); coll.t = setTimeout(() => { renderCollection().then(() => { const i = collEl?.querySelector('input[type=search]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }); }, 150); } })),
+    shown.length ? h('div', { class: 'coll-grid' }, shown.map(card)) : h('div', { class: 'empty' }, items.length ? 'Nothing matches.' : 'Nothing saved yet. Design something, then press "Save current design" (or Ctrl+S). Saved pieces can be worn together as an outfit.'),
+  );
 }
 
 // ---------- boot ----------

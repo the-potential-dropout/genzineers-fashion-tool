@@ -133,3 +133,49 @@ export function summarizeProject(p) {
     production: p.production,
   };
 }
+
+const LAYER_NAMES = ['Underwear', 'Base layer', 'Mid layer (knits)', 'Jacket', 'Coat', 'Accessory'];
+export { LAYER_NAMES };
+
+/**
+ * Add the garments of a saved design (from the collection) to this project,
+ * keeping everything that was designed: edited points, fabrics, knits,
+ * colours, prints, trims, zippers, edges and lacing. Ids are remapped so
+ * nothing collides. If the saved design was made for another size/body it is
+ * re-drafted for this project's body (materials are kept).
+ */
+export function addDesign(p, src) {
+  if (!src || src.mode === 'jewelry') throw new Error('only clothing designs can be added to an outfit');
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  src = clone(src);
+  p.garments = p.garments || [];
+  const used = new Set(p.garments.map((g) => g.id));
+  const next = () => { let i = 0; while (used.has(`g${i}`)) i++; used.add(`g${i}`); return `g${i}`; };
+  const pmap = {};
+  const added = [];
+  const bodyKey = (x) => JSON.stringify([x.sizeChart || 'unisex', x.size || 'M', x.customBody || null, x.mannequin || 'auto', x.bodyShape || null]);
+  const regrade = bodyKey(src) !== bodyKey(p);
+  for (const g of src.garments || []) {
+    const n = next();
+    const oldPre = g.prefix || `${g.id}-`;
+    const newPre = `${n}-`;
+    for (const pan of src.panels.filter((x) => x.garment === g.id)) {
+      const nid = pan.id.startsWith(oldPre) ? newPre + pan.id.slice(oldPre.length) : newPre + pan.id;
+      pmap[pan.id] = nid;
+      const fab = pan.fabric === `knit-${g.id}` ? `knit-${n}` : pan.fabric;
+      p.panels.push({ ...pan, id: nid, garment: n, fabric: fab });
+    }
+    if (src.customFabrics?.[`knit-${g.id}`]) p.customFabrics = { ...(p.customFabrics || {}), [`knit-${n}`]: { ...src.customFabrics[`knit-${g.id}`], id: `knit-${n}` } };
+    const spec = { ...g, id: n, prefix: newPre, name: g.name || ((src.garments || []).length === 1 ? src.name : undefined), ...(g.fabric === `knit-${g.id}` ? { fabric: `knit-${n}` } : {}) };
+    p.garments.push(spec);
+    p.garmentForms = { ...(p.garmentForms || {}), [n]: src.garmentForms?.[g.id] || { colliders: [], display: {}, meta: {}, shells: [] } };
+    added.push(spec);
+  }
+  for (const [id, f] of Object.entries(src.customFabrics || {})) if (!id.startsWith('knit-') && !p.customFabrics?.[id]) p.customFabrics = { ...(p.customFabrics || {}), [id]: f };
+  for (const s of src.seams || []) if (pmap[s.a.panel] && pmap[s.b.panel]) p.seams.push({ ...s, id: uid('seam'), a: { ...s.a, panel: pmap[s.a.panel] }, b: { ...s.b, panel: pmap[s.b.panel] } });
+  for (const t of src.trims || []) if (pmap[t.panel]) p.trims.push({ ...t, id: uid('trim'), panel: pmap[t.panel] });
+  for (const o of src.overlays || []) if (pmap[o.panel]) p.overlays.push({ ...o, id: uid('ov'), panel: pmap[o.panel] });
+  if (regrade) for (const g of added) mergeGarment(p, g);
+  syncForms(p);
+  return added;
+}

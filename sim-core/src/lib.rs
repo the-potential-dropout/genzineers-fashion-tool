@@ -82,12 +82,14 @@ pub unsafe extern "C" fn step(
     s: usize, si: *const u32, srest: *mut f32, sk: *const f32,
     c: usize, col: *const f32, nb: usize, bstart: *const u32, bidx: *const u32, by0: f32, binv: f32,
     substeps: u32, dt: f32, gravity: f32, damping: f32,
-    sew_rate: f32, sew_min: f32, thickness: f32, compress: f32,
+    sew_rate: f32, sew_min: f32, thk: *const f32, compress: f32,
 ) -> f32 {
     let pos = from_raw_parts_mut(pos, n * 3);
     let prev = from_raw_parts_mut(prev, n * 3);
     let inv = from_raw_parts(inv, n);
     let fric = from_raw_parts(fric, n);
+    // thk[0..n] = collision margin, thk[n..2n] = max distance outside the body (inner outfit layers; 0 = free)
+    let thk = from_raw_parts(thk, n * 2);
     let ci = from_raw_parts(ci, m * 2);
     let rest = from_raw_parts(rest, m);
     let kc = from_raw_parts(kc, m);
@@ -133,13 +135,16 @@ pub unsafe extern "C" fn step(
             let b = p * 3;
             let (mut x, mut y, mut z) = (pos[b], pos[b + 1], pos[b + 2]);
             let mut hit = false;
+            let mout = thk[n + p];
+            let mut best = f32::MAX;
+            let mut bv = (0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 1f32, 1f32, 0f32);
             // only colliders overlapping this particle's height bin
             let bi = (((y - by0) * binv) as isize).clamp(0, nb as isize - 1) as usize;
             for kk in bstart[bi]..bstart[bi + 1] {
                 let k = bidx[kk as usize] as usize;
                 // collider: [ax,ay,az,bx,by,bz,r,zs,ys] -> elliptical capsule
                 let o = k * 9;
-                let r = col[o + 6] + thickness;
+                let r = col[o + 6] + thk[p];
                 // cheap AABB reject (world space) before any maths
                 let zs = col[o + 7];
                 let ys = col[o + 8];
@@ -149,7 +154,7 @@ pub unsafe extern "C" fn step(
                 let (lx0, lx1) = if col[o] < col[o + 3] { (col[o], col[o + 3]) } else { (col[o + 3], col[o]) };
                 let (ly0, ly1) = if col[o + 1] < col[o + 4] { (col[o + 1], col[o + 4]) } else { (col[o + 4], col[o + 1]) };
                 let (lz0, lz1) = if col[o + 2] < col[o + 5] { (col[o + 2], col[o + 5]) } else { (col[o + 5], col[o + 2]) };
-                if x < lx0 - ex_ || x > lx1 + ex_ || y < ly0 - ey_ || y > ly1 + ey_ || z < lz0 - ez_ || z > lz1 + ez_ {
+                if mout <= 0.0 && (x < lx0 - ex_ || x > lx1 + ex_ || y < ly0 - ey_ || y > ly1 + ey_ || z < lz0 - ez_ || z > lz1 + ez_) {
                     continue;
                 }
                 let (ax, ay, az) = (col[o], col[o + 1] / ys, col[o + 2] / zs);
@@ -166,6 +171,13 @@ pub unsafe extern "C" fn step(
                 let (cx, cy, cz) = (ax + ex * t, ay + ey * t, az + ez * t);
                 let (dx, dy, dz) = (x - cx, qy - cy, qz - cz);
                 let d2 = dx * dx + dy * dy + dz * dz;
+                if mout > 0.0 && d2 > 1e-12 {
+                    let sd = d2.sqrt() - r;
+                    if sd < best {
+                        best = sd;
+                        bv = (cx, cy, cz, dx, dy, dz, ys, zs, d2.sqrt());
+                    }
+                }
                 if d2 < r * r && d2 > 1e-12 {
                     let d = d2.sqrt();
                     let f = r / d;
@@ -175,9 +187,28 @@ pub unsafe extern "C" fn step(
                     hit = true;
                 }
             }
-            if y < thickness {
-                y = thickness;
+            // inner outfit layer: stay close to the body so it never pokes through the layer above
+            let mut pulled = false;
+            if mout > 0.0 && !hit && best > mout && best < 0.25 {
+                let (cx, cy, cz, dx, dy, dz, ys, zs, d) = bv;
+                let f = (d - (best - mout)) / d;
+                x = cx + dx * f;
+                y = (cy + dy * f) * ys;
+                z = (cz + dz * f) * zs;
+                pulled = true;
+            }
+            if y < thk[p] {
+                y = thk[p];
                 hit = true;
+            }
+            if pulled && !hit {
+                let (dx, dy, dz) = (x - pos[b], y - pos[b + 1], z - pos[b + 2]);
+                pos[b] = x;
+                pos[b + 1] = y;
+                pos[b + 2] = z;
+                prev[b] += dx;
+                prev[b + 1] += dy;
+                prev[b + 2] += dz;
             }
             if hit {
                 // Position-only response: the push itself adds no velocity

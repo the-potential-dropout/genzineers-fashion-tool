@@ -109,6 +109,8 @@ export function buildCloth(project) {
   const local = []; // panel-local cm (flat)
   const inv = [];
   const fric = [];
+  const gar = []; // garment of each particle
+  const thk = []; // per-particle collision margin: outer garment layers rest over inner ones
   const C = []; // constraint pairs
   const R = []; // rest lengths
   const K = []; // stiffness per substep
@@ -147,6 +149,8 @@ export function buildCloth(project) {
         UV.push(x / 10, y / 10);
         inv.push(1 / mass);
         fric.push(Math.min(0.95, fab.friction * 0.6));
+        thk.push(0.006 + layerRank(project, panel) * 0.007);
+        gar.push(panel.garment);
       }
       return grid[k];
     };
@@ -317,12 +321,30 @@ export function buildCloth(project) {
     o += pan.tris.length;
   }
 
+  // Outfits: an inner layer covered by an outer one is held close to the body (just inside the
+  // outer layer's margin) so it can never poke through. Costs nothing for a single garment.
+  const rankOf = {}; for (const g of project.garments || []) rankOf[g.id] = layerRank(project, { garment: g.id });
+  const boxes = {};
+  for (let i = 0; i < n; i++) {
+    const g = gar[i]; const bx = boxes[g] || (boxes[g] = [1e9, 1e9, 1e9, -1e9, -1e9, -1e9]);
+    for (let a = 0; a < 3; a++) { bx[a] = Math.min(bx[a], P[i * 3 + a]); bx[a + 3] = Math.max(bx[a + 3], P[i * 3 + a]); }
+  }
+  const outer = Object.keys(boxes).filter((g) => rankOf[g] > 0);
+  for (let i = 0; i < n; i++) {
+    const r = rankOf[gar[i]] ?? 0; let out = 0;
+    for (const g of outer) {
+      if (rankOf[g] <= r) continue;
+      const bx = boxes[g]; const e = 0.03;
+      if (P[i * 3] > bx[0] - e && P[i * 3] < bx[3] + e && P[i * 3 + 1] > bx[1] - e && P[i * 3 + 1] < bx[4] + e && P[i * 3 + 2] > bx[2] - e && P[i * 3 + 2] < bx[5] + e) { out = thk[i] + 0.004; break; }
+    }
+    thk.push(out);
+  }
   const body = project.display?.avatar === false ? [] : buildAvatar(bodyFor(project));
   const colliders = packColliders([...body, ...(project.colliders || [])]);
   const bins = binColliders(colliders);
   const damping = n ? Math.min(0.2, (dampSum / n) / Math.sqrt(substeps)) : 0.02;
   const sim = makeBackend({
-    n, P, inv, fric, C, R, K, L, S, tack, tackNow, bins, SR, SK, colliders, allTris,
+    n, P, inv, fric, thk, C, R, K, L, S, tack, tackNow, bins, SR, SK, colliders, allTris,
     substeps, gravity: project.sim.gravity, damping,
     sewRate: project.sim.sewSpeed,
     thickness: 0.006,
@@ -409,7 +431,7 @@ function makeBackend(d) {
     const F = (len) => { const p = x.alloc_f32(len); allocs.push(['f', p, len]); return p; };
     const U = (len) => { const p = x.alloc_u32(len); allocs.push(['u', p, len]); return p; };
     const ptr = {
-      pos: F(n * 3), prev: F(n * 3), inv: F(n), fric: F(n), nor: F(n * 3),
+      pos: F(n * 3), prev: F(n * 3), inv: F(n), fric: F(n), thk: F(n * 2), nor: F(n * 3),
       ci: U(m * 2), rest: F(m), kc: F(m), lim: F(m), si: U(s * 2), srest: F(s), sk: F(s),
       col: F(c * 9), tri: U(t * 3), bst: U(d.bins.nb + 1), bix: U(d.bins.idx.length),
     };
@@ -418,7 +440,7 @@ function makeBackend(d) {
     const f32 = (p, len) => new Float32Array(buf, p, len);
     const u32 = (p, len) => new Uint32Array(buf, p, len);
     views = {
-      pos: f32(ptr.pos, n * 3), prev: f32(ptr.prev, n * 3), inv: f32(ptr.inv, n), fric: f32(ptr.fric, n),
+      pos: f32(ptr.pos, n * 3), prev: f32(ptr.prev, n * 3), inv: f32(ptr.inv, n), fric: f32(ptr.fric, n), thk: f32(ptr.thk, n * 2),
       nor: f32(ptr.nor, n * 3), ci: u32(ptr.ci, m * 2), rest: f32(ptr.rest, m), kc: f32(ptr.kc, m), lim: f32(ptr.lim, m),
       si: u32(ptr.si, s * 2), srest: f32(ptr.srest, s), sk: f32(ptr.sk, s), col: f32(ptr.col, c * 9), tri: u32(ptr.tri, t * 3), bst: u32(ptr.bst, d.bins.nb + 1), bix: u32(ptr.bix, d.bins.idx.length),
     };
@@ -428,7 +450,7 @@ function makeBackend(d) {
       kind: 'rust/wasm',
       step(dt) {
         const mv = x.step(n, ptr.pos, ptr.prev, ptr.inv, ptr.fric, m, ptr.ci, ptr.rest, ptr.kc, ptr.lim, s, ptr.si, ptr.srest, ptr.sk,
-          c, ptr.col, d.bins.nb, ptr.bst, ptr.bix, d.bins.y0, d.bins.inv, d.substeps, dt, gravityNow(views.pos, views.si, dt, views.inv), d.damping, d.sewRate, 0.0015, d.thickness, 0.25);
+          c, ptr.col, d.bins.nb, ptr.bst, ptr.bix, d.bins.y0, d.bins.inv, d.substeps, dt, gravityNow(views.pos, views.si, dt, views.inv), d.damping, d.sewRate, 0.0015, ptr.thk, 0.25);
         if (!(mv < 2)) { views.pos.set(d.P); views.prev.set(d.P); views.srest.set(d.SR); views.inv.set(d.inv); sewn = false; tacked = false; simTime = 0; d.diverged = true; }
         x.normals(n, ptr.pos, t, ptr.tri, ptr.nor);
         return mv;
@@ -443,7 +465,7 @@ function makeBackend(d) {
   }
 
   views = {
-    pos: new Float32Array(n * 3), prev: new Float32Array(n * 3), inv: new Float32Array(n), fric: new Float32Array(n),
+    pos: new Float32Array(n * 3), prev: new Float32Array(n * 3), inv: new Float32Array(n), fric: new Float32Array(n), thk: new Float32Array(n * 2),
     nor: new Float32Array(n * 3), ci: new Uint32Array(m * 2), rest: new Float32Array(m), kc: new Float32Array(m), lim: new Float32Array(m),
     si: new Uint32Array(s * 2), srest: new Float32Array(s), sk: new Float32Array(s), col: new Float32Array(c * 9), tri: new Uint32Array(t * 3), bst: new Uint32Array(d.bins.nb + 1), bix: new Uint32Array(d.bins.idx.length),
   };
@@ -453,7 +475,7 @@ function makeBackend(d) {
     ...views,
     kind: 'js',
     step(dt) {
-      const mv = jsStep(v, n, m, s, c, d.bins, d.substeps, dt, gravityNow(v.pos, v.si, dt, v.inv), d.damping, d.sewRate, 0.0015, d.thickness, 0.25);
+      const mv = jsStep(v, n, m, s, c, d.bins, d.substeps, dt, gravityNow(v.pos, v.si, dt, v.inv), d.damping, d.sewRate, 0.0015, v.thk, 0.25);
       if (!(mv < 2)) { v.pos.set(d.P); v.prev.set(d.P); v.srest.set(d.SR); v.inv.set(d.inv); sewn = false; tacked = false; simTime = 0; d.diverged = true; }
       jsNormals(v, n, t);
       return mv;
@@ -469,6 +491,7 @@ function fill(v, d) {
   v.prev.set(d.P);
   v.inv.set(d.inv);
   v.fric.set(d.fric);
+  v.thk.set(d.thk);
   v.ci.set(d.C);
   v.rest.set(d.R);
   v.kc.set(d.K);
@@ -505,7 +528,7 @@ function dist(pos, inv, i, j, rest, k, compress, limit) {
   pos[j3] -= dx * sc * wj; pos[j3 + 1] -= dy * sc * wj; pos[j3 + 2] -= dz * sc * wj;
 }
 
-function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, sewMin, thick, compress) {
+function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, sewMin, thkArr, compress) {
   const { pos, prev, inv, fric, ci, rest, kc, lim, si, srest, sk, col } = v;
   const h = dt / substeps;
   const g = -gravity * h * h;
@@ -528,6 +551,9 @@ function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, se
       const b = p * 3;
       let x = pos[b]; let y = pos[b + 1]; let z = pos[b + 2];
       let hit = false;
+      const thick = thkArr[p];
+      const mout = thkArr[n + p];
+      let best = 1e9; let bcx = 0; let bcy = 0; let bcz = 0; let bdx = 0; let bdy = 0; let bdz = 0; let bys = 1; let bzs = 1; let bd = 0;
       let bi = Math.floor((y - bins.y0) * bins.inv); bi = bi < 0 ? 0 : bi >= bins.nb ? bins.nb - 1 : bi;
       for (let kk = bins.start[bi]; kk < bins.start[bi + 1]; kk++) {
         const k = bins.idx[kk];
@@ -535,7 +561,7 @@ function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, se
         const r = col[o + 6] + thick;
         const zs = col[o + 7]; const ys = col[o + 8];
         const ex_ = r; const ey_ = r * ys; const ez_ = r * zs;
-        if (x < Math.min(col[o], col[o + 3]) - ex_ || x > Math.max(col[o], col[o + 3]) + ex_ || y < Math.min(col[o + 1], col[o + 4]) - ey_ || y > Math.max(col[o + 1], col[o + 4]) + ey_ || z < Math.min(col[o + 2], col[o + 5]) - ez_ || z > Math.max(col[o + 2], col[o + 5]) + ez_) continue;
+        if (mout <= 0 && (x < Math.min(col[o], col[o + 3]) - ex_ || x > Math.max(col[o], col[o + 3]) + ex_ || y < Math.min(col[o + 1], col[o + 4]) - ey_ || y > Math.max(col[o + 1], col[o + 4]) + ey_ || z < Math.min(col[o + 2], col[o + 5]) - ez_ || z > Math.max(col[o + 2], col[o + 5]) + ez_)) continue;
         const ax = col[o]; const ay = col[o + 1] / ys; const az = col[o + 2] / zs;
         const ex = col[o + 3] - ax; const ey = col[o + 4] / ys - ay; const ez = col[o + 5] / zs - az;
         const qy = y / ys; const qz = z / zs;
@@ -545,13 +571,17 @@ function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, se
         const cx = ax + ex * t; const cy = ay + ey * t; const cz = az + ez * t;
         const dx = x - cx; const dy = qy - cy; const dz = qz - cz;
         const d2 = dx * dx + dy * dy + dz * dz;
+        if (mout > 0 && d2 > 1e-12) { const dd = Math.sqrt(d2); if (dd - r < best) { best = dd - r; bcx = cx; bcy = cy; bcz = cz; bdx = dx; bdy = dy; bdz = dz; bys = ys; bzs = zs; bd = dd; } }
         if (d2 < r * r && d2 > 1e-12) {
           const f = r / Math.sqrt(d2);
           x = cx + dx * f; y = (cy + dy * f) * ys; z = (cz + dz * f) * zs;
           hit = true;
         }
       }
+      let pulled = false;
+      if (mout > 0 && !hit && best > mout && best < 0.25) { const f = (bd - (best - mout)) / bd; x = bcx + bdx * f; y = (bcy + bdy * f) * bys; z = (bcz + bdz * f) * bzs; pulled = true; }
       if (y < thick) { y = thick; hit = true; }
+      if (pulled && !hit) { prev[b] += x - pos[b]; prev[b + 1] += y - pos[b + 1]; prev[b + 2] += z - pos[b + 2]; pos[b] = x; pos[b + 1] = y; pos[b + 2] = z; }
       if (hit) {
         const ox = pos[b]; const oy = pos[b + 1]; const oz = pos[b + 2];
         const px = x - ox; const py = y - oy; const pz = z - oz;
@@ -625,4 +655,27 @@ export function panelAnchor(sim, panelId, x, y) {
   // all remaining weight sits on missing corners: share equally among existing ones
   if (tw < 1e-6) return { ids: kept, w: kept.map(() => 1 / kept.length) };
   return { ids: kept, w: w.filter((_, k) => ok[k]).map((wi) => wi / tw) };
+}
+
+/** Garment layer: 0 underwear, 1 base (tees, shirts, trousers), 2 mid (knits), 3 jackets, 4 coats, 5 accessories. */
+export function layerOf(project, panel) {
+  const g = (project.garments || []).find((x) => x.id === panel.garment);
+  if (!g) return 1;
+  if (g.layer != null) return g.layer;
+  if (g.generator === 'brief' || g.generator === 'bra') return 0;
+  if (g.generator === 'scarf' || g.generator === 'tie') return 5;
+  if (g.generator === 'top') {
+    if (g.knit) return 2;
+    const o = g.options || {};
+    if (o.length > 90 && o.sleeve === 'long' && o.closure !== 'none') return 4;
+    if (o.closure && !['none', 'placket', 'henley'].includes(o.closure) && o.sleeve === 'long') return 3;
+    if (o.insulation && o.insulation !== 'none') return 3;
+  }
+  return 1;
+}
+
+/** Rank of a panel's layer among the layers actually worn (0 when worn alone), so a solo garment drapes exactly as before. */
+export function layerRank(project, panel) {
+  const worn = [...new Set((project.garments || []).map((g) => layerOf(project, { garment: g.id })))].sort((a, b) => a - b);
+  return Math.max(0, worn.indexOf(layerOf(project, panel)));
 }

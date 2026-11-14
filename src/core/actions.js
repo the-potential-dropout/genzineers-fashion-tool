@@ -14,7 +14,7 @@ import { GENERATORS } from './blocks.js';
 import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS } from './color.js';
 import { recommendFor } from './guidance.js';
 import { BLENDS, FIBERS, INSULATION, QUILTING, WATERPROOF, blendFabric } from './materials.js';
-import { createProject, mergeGarment, regradeProject, syncForms, uid, validateProject, summarizeProject } from './project.js';
+import { createProject, mergeGarment, regradeProject, syncForms, uid, validateProject, summarizeProject, addDesign, LAYER_NAMES } from './project.js';
 import { SIZE_CHARTS, REF_BODY } from './sizes.js';
 import { BODY_SHAPES } from '../sim/avatar.js';
 import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitDefaults } from './knit.js';
@@ -24,6 +24,8 @@ export const ACTION_DOCS = {
   new_garment: '{ template } replace the project with a template (see catalog.templates)',
   add_garment: '{ template } add another garment (e.g. trousers to a jacket = suit)',
   remove_garment: '{ garment: "g0" }',
+  add_design: '{ design: <saved project> } put a saved design from the collection on as part of the outfit (keeps all its materials and details)',
+  set_layer: '{ garment: "g0", layer: 0-5 | null } outfit layering order: 0 underwear, 1 base, 2 mid/knit, 3 jacket, 4 coat, 5 accessory (null = automatic)',
   set_option: '{ garment: "g0", key, value } or { garment, options: {key: value} } change a template option (fit, length, sleeve, cuff, collar, lapel, closure, inseam, leg, style, ...; see catalog.generators)',
   rename: '{ name }',
   set_fabric: '{ panel: "<panel id>"|"all", garment?: "g0", fabric: "<fabric id>", overrides?: { stretch?, bend?, weightGsm?, look?: { color?, roughness?, sheen?, pattern?, fx? } } }',
@@ -131,6 +133,12 @@ function targetsPanels(p, a) {
 }
 
 /** Apply one action. Returns { project, result }. Input is not mutated. */
+export function nextGarmentId(p) {
+  const used = new Set((p.garments || []).map((g) => g.id));
+  let i = 0; while (used.has(`g${i}`)) i++;
+  return `g${i}`;
+}
+
 export function applyAction(project, action) {
   if (!action || typeof action.type !== 'string') throw new Error('action must have a string "type"');
   const p = clone(project);
@@ -147,15 +155,27 @@ export function applyAction(project, action) {
     }
     case 'add_garment': {
       if (!TEMPLATES[a.template]) throw new Error(`unknown template "${a.template}"`);
-      const n = (p.garments || []).length;
-      for (const [i, g] of templateGarments(a.template).entries()) {
-        const gid = `g${n + i}`;
+      for (const g of templateGarments(a.template)) {
+        const gid = nextGarmentId(p);
         const spec = { ...g, id: gid, prefix: `${gid}-` };
         p.garments.push(spec);
         mergeGarment(p, spec);
       }
       p.name = `${p.name} + ${TEMPLATES[a.template].name}`;
       result = `added ${TEMPLATES[a.template].name}`;
+      break;
+    }
+    case 'add_design': {
+      if (p.mode === 'jewelry') throw new Error('switch to clothing first');
+      const added = addDesign(p, a.design);
+      result = `added ${added.length} garment(s) from "${a.design?.name || 'design'}"`;
+      break;
+    }
+    case 'set_layer': {
+      const g = garmentOf(p, a.garment);
+      if (a.layer == null || a.layer === 'auto') delete g.layer;
+      else { const l = Math.round(Number(a.layer)); if (!(l >= 0 && l <= 5)) throw new Error('layer must be 0-5'); g.layer = l; }
+      result = `layer: ${g.layer == null ? 'automatic' : LAYER_NAMES[g.layer]}`;
       break;
     }
     case 'remove_garment': {

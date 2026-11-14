@@ -1,6 +1,6 @@
 [package]
 name = "genzineers-fashion-tool"
-version = "0.4.0"
+version = "0.5.0"
 description = "Genzineers Fashion Tool desktop app"
 authors = ["Genzineers <https://genzineers.com>"]
 license-file = "../LICENSE"

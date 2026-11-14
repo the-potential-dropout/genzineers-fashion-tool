@@ -191,6 +191,7 @@ function dyeEffect(g, effect, color) {
 }
 
 function printDesign(g, design, colors = [], opacity = 1) {
+  void design;
   const [c1 = '#111111', c2 = '#ffffff', c3 = '#c0392b'] = colors;
   const r = rng(31);
   g.globalAlpha = opacity;
@@ -202,9 +203,37 @@ function printDesign(g, design, colors = [], opacity = 1) {
     case 'checkerboard': for (let y = 0; y < SIZE; y += 32) for (let x = 0; x < SIZE; x += 32) if (((x + y) / 32) % 2 === 0) { g.fillStyle = c1; g.fillRect(x, y, 32, 32); } break;
     case 'polka': for (let y = 0; y < SIZE; y += 32) for (let x = (y / 32) % 2 ? 16 : 0; x < SIZE; x += 32) { g.fillStyle = c1; g.beginPath(); g.arc(x + 8, y + 8, 6, 0, Math.PI * 2); g.fill(); } break;
     case 'camo': for (let k = 0; k < 40; k++) { g.fillStyle = [c1, c2, c3, '#4b5320'][k % 4]; g.beginPath(); const x = r() * SIZE; const y = r() * SIZE; for (let a = 0; a < 6.3; a += 0.7) g.lineTo(x + Math.cos(a) * (10 + r() * 30), y + Math.sin(a) * (10 + r() * 30)); g.fill(); } break;
-    case 'leopard': for (let k = 0; k < 70; k++) { const x = r() * SIZE; const y = r() * SIZE; g.fillStyle = c3; g.beginPath(); g.ellipse(x, y, 7, 5, r() * 3, 0, 6.3); g.fill(); g.strokeStyle = c1; g.lineWidth = 2.5; g.beginPath(); g.arc(x, y, 9, r() * 3, r() * 3 + 3.5); g.stroke(); } break;
+    case 'leopard': g.fillStyle = c2 === '#ffffff' ? '#d6a35c' : c2; g.fillRect(0, 0, SIZE, SIZE); for (let k = 0; k < 70; k++) { const x = r() * SIZE; const y = r() * SIZE; g.fillStyle = c3 === '#c0392b' ? '#9a5a22' : c3; g.beginPath(); g.ellipse(x, y, 7, 5, r() * 3, 0, 6.3); g.fill(); g.strokeStyle = c1; g.lineWidth = 2.5; g.beginPath(); g.arc(x, y, 9, r() * 3, r() * 3 + 3.5); g.stroke(); } break;
     case 'floral': for (let k = 0; k < 18; k++) { const x = r() * SIZE; const y = r() * SIZE; for (let p = 0; p < 5; p++) { g.fillStyle = c3; g.beginPath(); g.ellipse(x + Math.cos(p * 1.26) * 7, y + Math.sin(p * 1.26) * 7, 6, 3.5, p * 1.26, 0, 6.3); g.fill(); } g.fillStyle = c2; g.beginPath(); g.arc(x, y, 3, 0, 6.3); g.fill(); } break;
     case 'paisley': for (let k = 0; k < 14; k++) { const x = r() * SIZE; const y = r() * SIZE; g.strokeStyle = c1; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.bezierCurveTo(x + 22, y - 20, x + 30, y + 14, x, y + 18); g.bezierCurveTo(x - 8, y + 10, x - 4, y + 2, x, y); g.stroke(); } break;
+    case 'cheetah': // solid round spots on tawny
+      g.fillStyle = c2 === '#ffffff' ? '#d9a75a' : c2; g.fillRect(0, 0, SIZE, SIZE);
+      for (let k = 0; k < 160; k++) { g.fillStyle = c1; g.beginPath(); g.ellipse(r() * SIZE, r() * SIZE, 3 + r() * 3, 2.5 + r() * 2.5, r() * 3, 0, 6.3); g.fill(); }
+      break;
+    case 'tiger': { // orange with tapering black stripes
+      g.fillStyle = c2 === '#ffffff' ? '#e07a1f' : c2; g.fillRect(0, 0, SIZE, SIZE);
+      const wg = g.createLinearGradient(0, 0, SIZE, 0); wg.addColorStop(0, 'rgba(255,255,255,0.25)'); wg.addColorStop(0.5, 'rgba(255,255,255,0)'); wg.addColorStop(1, 'rgba(255,255,255,0.25)'); g.fillStyle = wg; g.fillRect(0, 0, SIZE, SIZE);
+      g.fillStyle = c1;
+      for (let k = 0; k < 16; k++) { const y = k * 16 + r() * 6; const x0 = r() * 60; const len = 90 + r() * 120; g.beginPath(); g.moveTo(x0, y); for (let x = x0; x <= x0 + len; x += 8) g.lineTo(x, y + Math.sin(x * 0.04 + k) * 6 - ((x - x0) / len) * 2); for (let x = x0 + len; x >= x0; x -= 8) g.lineTo(x, y + 2 + 6 * Math.sin(((x - x0) / len) * Math.PI) + Math.sin(x * 0.04 + k) * 6); g.fill(); }
+      break;
+    }
+    case 'cougar': { // tawny plain fur with soft shading
+      g.fillStyle = c2 === '#ffffff' ? '#b98a57' : c2; g.fillRect(0, 0, SIZE, SIZE);
+      for (let k = 0; k < 2500; k++) { g.fillStyle = `rgba(${r() > 0.5 ? '255,235,200' : '80,50,25'},${0.04 + r() * 0.06})`; g.fillRect(r() * SIZE, r() * SIZE, 1, 3 + r() * 4); }
+      break;
+    }
+    case 'jaguar': case 'snow-leopard': { // rosettes with inner dots
+      const snow = design === 'snow-leopard';
+      g.fillStyle = snow ? '#e9e6df' : (c2 === '#ffffff' ? '#d39a4a' : c2); g.fillRect(0, 0, SIZE, SIZE);
+      for (let k = 0; k < (snow ? 26 : 34); k++) {
+        const x = r() * SIZE; const y = r() * SIZE; const rr = 8 + r() * 6;
+        g.fillStyle = snow ? '#b8b4ab' : '#a8641f'; g.beginPath(); g.ellipse(x, y, rr * 0.75, rr * 0.6, r() * 3, 0, 6.3); g.fill();
+        g.strokeStyle = snow ? '#3b3a38' : c1; g.lineWidth = 3;
+        for (let a = 0; a < 6.2; a += 1.1 + r() * 0.4) { g.beginPath(); g.arc(x, y, rr, a, a + 0.7); g.stroke(); }
+        if (!snow) for (let d = 0; d < 3; d++) { g.fillStyle = c1; g.beginPath(); g.arc(x + (r() - 0.5) * rr * 0.6, y + (r() - 0.5) * rr * 0.6, 1.6, 0, 6.3); g.fill(); }
+      }
+      break;
+    }
     case 'zebra': for (let k = 0; k < 14; k++) { g.fillStyle = c1; g.beginPath(); const y = k * 20 + r() * 8; g.moveTo(0, y); for (let x = 0; x <= SIZE; x += 16) g.lineTo(x, y + Math.sin(x * 0.05 + k) * 8); for (let x = SIZE; x >= 0; x -= 16) g.lineTo(x, y + 8 + Math.sin(x * 0.05 + k) * 6 + r() * 3); g.fill(); } break;
     case 'snakeskin': for (let y = 0; y < SIZE; y += 14) for (let x = (y / 14) % 2 ? 9 : 0; x < SIZE; x += 18) { g.fillStyle = css(c1, 0.35 + r() * 0.4); g.beginPath(); g.moveTo(x, y); g.lineTo(x + 9, y + 7); g.lineTo(x, y + 14); g.lineTo(x - 9, y + 7); g.closePath(); g.fill(); g.strokeStyle = css(c3, 0.5); g.lineWidth = 1; g.stroke(); } break;
     case 'ditsy-floral': for (let k = 0; k < 70; k++) { const x = r() * SIZE; const y = r() * SIZE; for (let p2 = 0; p2 < 5; p2++) { g.fillStyle = [c3, c1][k % 2]; g.beginPath(); g.arc(x + Math.cos(p2 * 1.26) * 3, y + Math.sin(p2 * 1.26) * 3, 2.2, 0, 6.3); g.fill(); } } break;
@@ -238,22 +267,45 @@ function loadImage(src, onload) {
  * Build (or fetch cached) map + bump textures for a resolved fabric and finish.
  * onUpdate is called when an async print image finishes loading.
  */
-export function fabricTextures(fab, finish = {}, dyeEffectKey, onUpdate) {
+/** Natural repeat of a print design, in cm (before the user's print size multiplier). */
+export function printTileCm(design) {
+  if (['leopard', 'cheetah', 'tiger', 'cougar', 'jaguar', 'snow-leopard', 'zebra', 'camo'].includes(design)) return 36;
+  if (['snakeskin', 'houndstooth', 'pinstripe', 'gingham', 'checkerboard', 'ditsy-floral'].includes(design)) return 10;
+  if (['stripes', 'breton', 'polka', 'hearts', 'stars', 'triangles', 'zigzag', 'chevron'].includes(design)) return 14;
+  return 28; // florals, paisley, tartan, argyle, ikat, waves, gradient, logo, image
+}
+
+export function fabricTextures(fab, finish = {}, dyeEffectKey, onUpdate, repeatOverride) {
   const look = fab.look;
   const color = finish.color || look.color;
-  const key = JSON.stringify([look.pattern, look.motif, look.ribW, look.fx, color, look.patternColors, dyeEffectKey, finish.print?.design, finish.print?.colors, finish.print?.image?.slice(0, 64), finish.paint?.design, finish.paint?.colors]);
+  const p = finish.print;
+  const printed = (p?.design && p.design !== 'solid') || finish.paint?.design;
+  // Prints get their own real-world repeat (a leopard rosette is cm-sized, a weave is mm-sized):
+  // the canvas then holds k weave tiles under one print tile.
+  const rep = repeatOverride || look.patternScale || 6;
+  const tileCm = printed ? printTileCm(p?.design || finish.paint.design) * (Number(p?.scale) || 1) : 0;
+  const k = printed ? Math.max(1, Math.round((tileCm * rep) / 10)) : 1;
+  const key = JSON.stringify([look.pattern, look.motif, look.ribW, look.fx, color, look.patternColors, dyeEffectKey, p?.design, p?.colors, p?.image?.slice(0, 64), p?.scale, finish.paint?.design, finish.paint?.colors, k]);
   if (cache.has(key)) return cache.get(key);
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = SIZE;
-  const g = cv.getContext('2d');
-  weave(g, look.pattern, color, look);
-  if (look.fx) applyFx(g, look.fx, color);
-  if (dyeEffectKey && dyeEffectKey !== 'solid') dyeEffect(g, dyeEffectKey, color);
+  const tile = document.createElement('canvas');
+  tile.width = tile.height = SIZE;
+  const tg = tile.getContext('2d');
+  weave(tg, look.pattern, color, look);
+  if (look.fx) applyFx(tg, look.fx, color);
+  if (dyeEffectKey && dyeEffectKey !== 'solid') dyeEffect(tg, dyeEffectKey, color);
+  let cv = tile; let g = tg;
+  if (k > 1) {
+    const BIG = 1024;
+    cv = document.createElement('canvas'); cv.width = cv.height = BIG;
+    g = cv.getContext('2d');
+    const w = BIG / k;
+    for (let y = 0; y < k; y++) for (let x = 0; x < k; x++) g.drawImage(tile, x * w, y * w, w, w);
+    g.setTransform(BIG / SIZE, 0, 0, BIG / SIZE, 0, 0); // print designs draw in SIZE units
+  }
   const map = new THREE.CanvasTexture(cv);
   map.colorSpace = THREE.SRGBColorSpace;
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.anisotropy = 4;
-  const p = finish.print;
   if (p?.design && p.design !== 'image' && p.design !== 'solid') printDesign(g, p.design, p.colors, 0.92);
   if (finish.paint?.design) printDesign(g, finish.paint.design, finish.paint.colors, 0.8);
   if (p?.image) {
@@ -263,7 +315,8 @@ export function fabricTextures(fab, finish = {}, dyeEffectKey, onUpdate) {
   // bump from luminance of the weave only
   const bump = new THREE.CanvasTexture(cv);
   bump.wrapS = bump.wrapT = THREE.RepeatWrapping;
-  const out = { map, bump };
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const out = { map, bump, k };
   if (cache.size > 120) cache.clear();
   cache.set(key, out);
   return out;

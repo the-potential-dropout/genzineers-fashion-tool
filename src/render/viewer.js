@@ -212,8 +212,9 @@ export class Viewer {
         sg.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
         sg.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2));
         const look = rg.look;
-        const tex = fabricTextures({ look }, look.print ? { print: { design: look.print, colors: look.patternColors } } : {}, null, () => this.addShells(this.project, body));
-        const map = tex.map.clone(); map.repeat.set(look.patternScale || 8, look.patternScale || 8); map.needsUpdate = true;
+        const tex = fabricTextures({ look }, look.print ? { print: { design: look.print, colors: look.patternColors, scale: 0.15 } } : {}, null, () => this.addShells(this.project, body), look.patternScale || 8);
+        const srep = (look.patternScale || 8) / (tex.k || 1);
+        const map = tex.map.clone(); map.repeat.set(srep, srep); map.needsUpdate = true;
         const cutout = look.pattern === 'fishnet' || look.pattern === 'lace';
         const mat = new THREE.MeshPhysicalMaterial({ map, color: '#ffffff', roughness: look.roughness, sheen: look.sheen, sheenColor: new THREE.Color(look.sheenColor || '#fff'), metalness: look.metalness || 0, transparent: look.opacity < 1 || cutout, opacity: look.opacity, alphaTest: cutout ? 0.35 : 0, depthWrite: look.opacity >= 0.9, side: THREE.DoubleSide });
         const mesh = new THREE.Mesh(sg, mat);
@@ -335,7 +336,7 @@ export class Viewer {
     const dyeFx = finish.dye ? DYES[finish.dye]?.effect : null;
     const tex = fabricTextures(fab, finish, dyeFx, () => this.refreshLooks(this.project));
     const map = tex.map.clone(); const bump = tex.bump.clone();
-    const rep = fab.look.patternScale || 6;
+    const rep = (fab.look.patternScale || 6) / (tex.k || 1);
     map.repeat.set(rep, rep); bump.repeat.set(rep, rep);
     map.needsUpdate = true; bump.needsUpdate = true;
     const metallicPrint = finish.print?.method && ['foil', 'glitter', 'reflective'].includes(finish.print.method);
