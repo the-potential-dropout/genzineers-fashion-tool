@@ -85,7 +85,8 @@ export function buildLegwear(o, prefix = '') {
     },
     backSeam: Boolean(pat.backSeam),
     bands: [],
-    thickness: sock ? 0.0025 : 0.0012,
+    // knit thickness: terry-cushioned socks are several mm thick, sheer hosiery a fraction of a mm
+    thickness: sock ? (o.cushion === 'full-terry' ? 0.0045 : o.cushion === 'sole-terry' ? 0.0035 : 0.0028) : 0.0012,
   };
   const bandLook = (pattern, extra = {}) => ({ ...shell.look, opacity: 1, pattern, ...extra });
   if (o.topBand === 'lace' || o.topBand === 'silicone-lace') shell.bands.push({ from: -0.08, to: 0, look: bandLook('lace', { patternScale: 3 }) });

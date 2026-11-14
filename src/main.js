@@ -118,7 +118,7 @@ let rebuildTimer;
 function rebuild(info = {}) {
   const p = store.get();
   if (p.mode === 'jewelry') { sim?.dispose?.(); sim = null; viewer.setProject(p, null); simStatus = { text: 'Jewelry preview', live: false }; renderHud(); return; }
-  if (!p.panels.length) { clearTimeout(rebuildTimer); sim?.dispose?.(); sim = null; viewer.setProject(p, null); simStatus = { text: 'Blank design: draw pieces on the flat pattern', live: false }; renderHud(); return; }
+  if (!p.panels.length) { clearTimeout(rebuildTimer); sim?.dispose?.(); sim = null; viewer.setProject(p, null); simStatus = { text: (p.shells || []).length ? 'Fitted to the body' : 'Blank design: draw pieces on the flat pattern', live: false }; renderHud(); return; }
   if (info.lookOnly && sim) { viewer.refreshLooks(p); return; }
   clearTimeout(rebuildTimer);
   rebuildTimer = setTimeout(async () => {

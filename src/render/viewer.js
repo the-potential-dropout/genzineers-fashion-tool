@@ -191,11 +191,13 @@ export class Viewer {
       this.onStep?.(mv);
       this.updateGarment();
       this._simFrames = (this._simFrames || 0) + 1;
+      if (this._simFrames % 10 === 1) this.coverBody();
       if (mv < 6e-5) this._still = (this._still || 0) + 1; else this._still = 0;
       // sleep when settled (or after 12 s): zero CPU/GPU while idle
       if (!this._grab && ((this._still > 40 && this.sim.settled?.()) || this._simFrames > 720)) {
         this.simAwake = false;
         if (this.project?.shells?.length && this._mannequinMesh && !this._shellMeshes?.length) this.addShells(this.project, bodyFor(this.project));
+        this.coverBody();
         this.onSleep?.();
       }
       this.dirty = true;
@@ -211,6 +213,7 @@ export class Viewer {
   clearGarment() {
     for (const o of [...this.garment.children]) { this.garment.remove(o); o.traverse?.((c) => { c.geometry?.dispose?.(); }); }
     this.panelMeshes = []; this.overlays = []; this.trimObjs = []; this.stitchLines = [];
+    if (!this.sim) this.coverBody?.();
   }
 
   showAvatar(project) {
@@ -253,7 +256,7 @@ export class Viewer {
     this._shellMeshes = [];
     const base = this._mannequinMesh;
     if (!base || !project?.shells?.length) return;
-    const g = base.geometry; const ref = g.userData.ref; const pos = g.attributes.position; const nor = g.attributes.normal; const idx = g.index;
+    const g = base.geometry; const ref = g.userData.ref; const pos = g.userData.restAttr || g.attributes.position; const nor = g.userData.restNor || g.attributes.normal; const idx = g.index;
     const L = MANNEQUINS[body.mannequin].landmarks;
     const triCount = idx ? idx.count / 3 : pos.count / 3;
     const vi = (t, k) => (idx ? idx.getX(t * 3 + k) : t * 3 + k);
@@ -262,6 +265,48 @@ export class Viewer {
     for (let i = 0; i < pos.count; i++) if (ref[i * 3 + 1] < 0.05) { toeZ = Math.max(toeZ, ref[i * 3 + 2]); heelZ = Math.min(heelZ, ref[i * 3 + 2]); }
     for (const sh of project.shells) {
       const top = legwearTop(sh.type, body.mannequin);
+      // The foot of a sock or stocking is one smooth pouch: it bridges the gaps between the toes
+      // instead of following each toe. The toe area is relaxed like stretched knit, then kept
+      // outside the foot by the fabric thickness.
+      const mitt = new Map(); const caps = []; let capZ = 9; // capZ: forward of this (reference frame) the toe cap replaces the per-toe surface
+      if (!sh.footless) {
+        // envelope of the forefoot: for every slice along the foot and every direction round it,
+        // the furthest the foot reaches. The sock lies on that envelope, bridging between the toes.
+        const z0 = toeZ - 0.085; const SL = 0.004; const NA = 20;
+        for (const sd of [1, -1]) {
+          const vs = []; for (let i = 0; i < pos.count; i++) if (ref[i * 3 + 1] < 0.085 && ref[i * 3 + 2] > z0 && Math.sign(ref[i * 3] || 1) === sd) vs.push(i);
+          if (!vs.length) continue;
+          const zmin = Math.min(...vs.map((i) => pos.getZ(i))); const nz = Math.ceil((Math.max(...vs.map((i) => pos.getZ(i))) - zmin) / SL) + 1;
+          const cx = new Float32Array(nz); const cy = new Float32Array(nz); const cn = new Float32Array(nz);
+          const zi = (i) => Math.min(nz - 1, Math.max(0, Math.round((pos.getZ(i) - zmin) / SL)));
+          for (const i of vs) { const k = zi(i); cx[k] += pos.getX(i); cy[k] += pos.getY(i); cn[k]++; }
+          let lx = 0; let ly = 0.03; for (let k = 0; k < nz; k++) { if (cn[k]) { cx[k] /= cn[k]; cy[k] /= cn[k]; lx = cx[k]; ly = cy[k]; } else { cx[k] = lx; cy[k] = ly; } }
+          for (let it = 0; it < 3; it++) for (let k = 1; k < nz - 1; k++) { cx[k] = (cx[k - 1] + 2 * cx[k] + cx[k + 1]) / 4; cy[k] = (cy[k - 1] + 2 * cy[k] + cy[k + 1]) / 4; }
+          const R = new Float32Array(nz * NA);
+          const ai = (i, k) => (Math.round(((Math.atan2(pos.getY(i) - cy[k], pos.getX(i) - cx[k]) + Math.PI) / (2 * Math.PI)) * NA) % NA + NA) % NA;
+          for (const i of vs) { const k = zi(i); const a = ai(i, k); const r = Math.hypot(pos.getX(i) - cx[k], pos.getY(i) - cy[k]); if (r > R[k * NA + a]) R[k * NA + a] = r; }
+          // close the gaps: each direction takes at least the average of its neighbours (round the foot and along it)
+          for (let it = 0; it < 6; it++) for (let k = 0; k < nz; k++) for (let a = 0; a < NA; a++) {
+            const l = R[k * NA + (a + NA - 1) % NA]; const r = R[k * NA + (a + 1) % NA]; const f = R[Math.max(0, k - 1) * NA + a]; const g2 = R[Math.min(nz - 1, k + 1) * NA + a];
+            R[k * NA + a] = Math.max(R[k * NA + a], (l + r) / 2, (f + g2) / 2 * 0.98);
+          }
+          for (let it = 0; it < 14; it++) for (let k = 0; k < nz; k++) for (let a = 0; a < NA; a++) { // fill directions no toe reaches, then soften
+            const l = R[k * NA + (a + NA - 1) % NA]; const r = R[k * NA + (a + 1) % NA];
+            R[k * NA + a] = Math.max(R[k * NA + a], (l + r) / 2 * 0.985);
+          }
+          // a clean knitted toe: one smooth cap swept from the ball of the foot to the tip
+          const k0 = Math.max(0, Math.round((z0 + 0.012 - zmin) / SL)); const pad = sh.thickness + 0.0016;
+          const ring = (k, sc) => { const out = []; for (let a = 0; a < NA; a++) { const th = (a / NA) * 2 * Math.PI - Math.PI; const rr = (R[k * NA + a] + pad) * sc; out.push([cx[k] + Math.cos(th) * rr, Math.max(0.0012, cy[k] + Math.sin(th) * rr), zmin + k * SL + (sc < 1 ? (1 - sc) * 0.006 : 0)]); } return out; };
+          const rings = []; for (let k = k0; k < nz; k++) rings.push(ring(k, 1));
+          rings.push(ring(nz - 1, 0.72), ring(nz - 1, 0.36)); const tip = [cx[nz - 1], cy[nz - 1], zmin + (nz - 1) * SL + 0.0075];
+          const tri = [];
+          for (let q = 0; q + 1 < rings.length; q++) for (let a = 0; a < NA; a++) { const b2 = (a + 1) % NA; tri.push(rings[q][a], rings[q + 1][a], rings[q][b2], rings[q][b2], rings[q + 1][a], rings[q + 1][b2]); }
+          const lastR = rings[rings.length - 1]; for (let a = 0; a < NA; a++) tri.push(lastR[a], tip, lastR[(a + 1) % NA]);
+          caps.push({ tri, cx, cy, zmin, SL, nz });
+          capZ = Math.min(capZ, z0 + 0.02);
+        }
+        this._shellField = bodyField(body);
+      }
       const regions = [{ from: sh.footless ? 0.07 : -1, to: top, look: sh.look, off: sh.thickness }];
       for (const b of sh.bands || []) regions.push({ from: top + b.from, to: top + b.to, look: b.look, off: sh.thickness * 1.6 });
       if (sh.toe) regions.push({ from: -1, to: 0.06, zMin: toeZ - 0.06, look: sh.toe.look, off: sh.thickness * 1.4 });
@@ -278,16 +323,23 @@ export class Viewer {
             if (rg.zMin != null && z < rg.zMin) { ok = false; break; }
             if (rg.zMax != null && z > rg.zMax) { ok = false; break; }
           }
+          if (ok && caps.length && ids.every((i) => ref[i * 3 + 2] > capZ && ref[i * 3 + 1] < 0.085)) ok = false;
           if (!ok) continue;
           for (const i of ids) {
             const x = ref[i * 3]; const y = ref[i * 3 + 1]; const z = ref[i * 3 + 2];
             const cx = y < L.crotchY ? Math.sign(x || 1) * L.legX : 0;
             const ang = Math.atan2(z, x - cx);
-            P.push(pos.getX(i) + nor.getX(i) * rg.off, pos.getY(i) + nor.getY(i) * rg.off, pos.getZ(i) + nor.getZ(i) * rg.off);
-            N.push(nor.getX(i), nor.getY(i), nor.getZ(i));
+            const mp = mitt.get(i); const extra = rg.off - sh.thickness;
+            if (mp) P.push(mp[0] + nor.getX(i) * extra, mp[1] + nor.getY(i) * extra, mp[2] + nor.getZ(i) * extra);
+            else P.push(pos.getX(i) + nor.getX(i) * rg.off, pos.getY(i) + nor.getY(i) * rg.off, pos.getZ(i) + nor.getZ(i) * rg.off);
+            // smooth shading over the toe pouch: use the direction away from the foot, not the toe's own normal
+            const fN = mp && this._shellField && sampleField(this._shellField, mp[0], mp[1], mp[2], this._o4 ||= [0, 0, 0, 0]) ? this._o4 : null;
+            const gl = fN ? Math.hypot(fN[1], fN[2], fN[3]) : 0;
+            if (gl > 1e-7) N.push(fN[1] / gl, fN[2] / gl, fN[3] / gl); else N.push(nor.getX(i), nor.getY(i), nor.getZ(i));
             UV.push((ang * 0.07) / 0.1, y / 0.1);
           }
         }
+        if (rg === regions[0]) for (const c of caps) for (const q of c.tri) { const k = Math.min(c.nz - 1, Math.max(0, Math.round((q[2] - c.zmin) / c.SL))); let nx = q[0] - c.cx[k]; let ny = q[1] - c.cy[k]; const nl = Math.hypot(nx, ny) || 1; P.push(q[0], q[1], q[2]); N.push(nx / nl * 0.94, ny / nl * 0.94, 0.34); UV.push((Math.atan2(ny, nx) * 0.07) / 0.1, q[1] / 0.1); }
         if (!P.length) continue;
         const sg = new THREE.BufferGeometry();
         sg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
@@ -317,6 +369,7 @@ export class Viewer {
         }
       }
     }
+    this.coverBody(); // the body is tucked in under socks and hosiery too
     this.dirty = true;
   }
 
@@ -997,6 +1050,39 @@ export class Viewer {
     const hit = rc.intersectObjects(this.panelMeshes, false)[0];
     if (!hit || !hit.uv) return null;
     return { panelId: hit.object.userData.panelId, local: [hit.uv.x * 10, hit.uv.y * 10], point: hit.point };
+  }
+
+  /**
+   * Skin never shows through fabric. Cloth triangles are larger than small body features (nipples,
+   * toes, fingers, collar bones), so wherever fabric lies over the body the body surface is drawn
+   * slightly inside itself. It is only tucked in under cloth, with a smooth fall-off at openings,
+   * so necklines, cuffs and hems still meet the skin naturally.
+   */
+  coverBody() {
+    const mesh = this.avatarGroup.children.find((c) => c.isMesh && (c === this._mannequinMesh || c === this._customMesh));
+    if (!mesh) return;
+    const g = mesh.geometry; const pos = g.attributes.position;
+    if (!g.userData.restAttr || g.userData.restAttr.count !== pos.count) { g.userData.restAttr = pos.clone(); g.computeVertexNormals(); g.userData.restNor = g.attributes.normal.clone(); }
+    const rest = g.userData.restAttr; const nor = g.userData.restNor;
+    // everything that covers skin: cloth particles and hosiery / sock shells
+    const pts = [];
+    if (this.sim && this.project?.mode !== 'jewelry') { const P = this.sim.pos; for (let i = 0; i < P.length; i += 3) pts.push(P[i], P[i + 1], P[i + 2]); }
+    for (const m of this._shellMeshes || []) { const p = m.geometry?.attributes?.position; if (!p || !m.isMesh) continue; for (let i = 0; i < p.count; i += 2) pts.push(p.getX(i), p.getY(i), p.getZ(i)); }
+    if (!pts.length) { if (g.userData.covered) { pos.copy(rest); pos.needsUpdate = true; g.userData.covered = false; this.dirty = true; } return; }
+    const R = 0.032; const inv = 1 / R; const hash = new Map();
+    const key = (x, y, z) => (x + 512) + (y + 512) * 1024 + (z + 512) * 1048576;
+    for (let i = 0; i < pts.length; i += 3) { const k = key(Math.floor(pts[i] * inv), Math.floor(pts[i + 1] * inv), Math.floor(pts[i + 2] * inv)); const a = hash.get(k); if (a) a.push(i); else hash.set(k, [i]); }
+    const maxIn = 0.011;
+    for (let v = 0; v < rest.count; v++) {
+      const x = rest.getX(v); const y = rest.getY(v); const z = rest.getZ(v);
+      const cx = Math.floor(x * inv); const cy = Math.floor(y * inv); const cz = Math.floor(z * inv);
+      let d2 = R * R;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) { const list = hash.get(key(cx + a, cy + b, cz + c)); if (!list) continue; for (const i of list) { const dx = pts[i] - x; const dy = pts[i + 1] - y; const dz = pts[i + 2] - z; const q = dx * dx + dy * dy + dz * dz; if (q < d2) d2 = q; } }
+      const u = 1 - Math.sqrt(d2) / R; // 1 = fabric right on the skin, 0 = none within reach
+      const k = u <= 0 ? 0 : maxIn * Math.min(1, u * 1.8) * Math.min(1, u * 1.8) * (3 - 2 * Math.min(1, u * 1.8));
+      pos.setXYZ(v, x - nor.getX(v) * k, y - nor.getY(v) * k, z - nor.getZ(v) * k);
+    }
+    pos.needsUpdate = true; g.userData.covered = true; this.dirty = true;
   }
 
   /** Press a polyline onto the body surface (distance field of the real mannequin) at `lift` above the skin. */
