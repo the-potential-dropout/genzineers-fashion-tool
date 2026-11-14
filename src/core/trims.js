@@ -57,6 +57,16 @@ export const TRIMS = {
   'zipper-invisible': t('Fasteners', 'Zip (invisible / concealed)', 'linear', 3, '#222222', 0, 0.5, 'Dresses, skirts', { line: true, zip: 'invisible' }),
   'zipper-waterproof': t('Fasteners', 'Zip (water-resistant, coated)', 'linear', 6, '#111111', 0.1, 0.2, 'Shell jackets', { line: true, zip: 'coil' }),
   'zipper-vislon': t('Fasteners', 'Zip (moulded plastic / Vislon type)', 'linear', 7, '#e5e5e5', 0, 0.4, 'Parkas, sportswear', { line: true, zip: 'moulded' }),
+  // ---------------- Lingerie hardware & elastics ----------------
+  'underwire': t('Lingerie', 'Underwire (steel / nylon-coated)', 'linear', 3, '#cfcfcf', 0.6, 0.4, 'Cup support; sewn into a channelling casing', { line: true }),
+  'bra-hook-eye': t('Lingerie', 'Bra hook & eye (3x2)', 'label', 30, '#e8d6cc', 0.3, 0.5, 'Back or front band closure, 3 rows of eyes for adjustment', {}),
+  'strap-slider': t('Lingerie', 'Strap slider (8-shape)', 'ring', 14, '#d8c3b4', 0.5, 0.3, 'Adjusts strap length (metal or nylon-coated)', {}),
+  'strap-ring': t('Lingerie', 'Strap ring (O-ring)', 'ring', 12, '#d8c3b4', 0.5, 0.3, 'Joins strap to cup / band', {}),
+  'picot-elastic': t('Lingerie', 'Picot elastic (8-12 mm)', 'linear', 4, '#f2e6dc', 0, 0.7, 'Decorative edge elastic for bands and leg openings', { line: true, tape: true }),
+  'plush-elastic': t('Lingerie', 'Plush-back elastic (strap / band)', 'linear', 12, '#f2e6dc', 0, 0.7, 'Soft brushed back against the skin', { line: true, tape: true }),
+  'fold-over-elastic': t('Lingerie', 'Fold-over elastic (FOE)', 'linear', 15, '#111111', 0, 0.6, 'Binds raw edges in one step', { line: true, tape: true }),
+  'jacquard-waistband': t('Lingerie', 'Jacquard waistband elastic (branded)', 'linear', 35, '#111111', 0, 0.6, 'Exposed logo waistband for boxer briefs / trunks', { line: true, tape: true }),
+  'bra-gore-bow': t('Lingerie', 'Centre gore bow', 'bow', 14, '#f2e6dc', 0, 0.6, 'Classic small bow at the centre front', {}),
   // ---------------- Decorations ----------------
   'stud-cone': t('Decorations', 'Cone stud', 'stud-cone', 10, '#c8c8c8', 1.0, 0.2, 'Punk / rock leather', {}),
   'stud-pyramid': t('Decorations', 'Pyramid stud', 'stud-pyramid', 10, '#c8c8c8', 1.0, 0.2, 'Belts, jackets, bags', {}),
@@ -95,7 +105,7 @@ export const TRIMS = {
   'snapback-strap': t('Hidden', 'Snapback closure', 'label', 40, '#1a1a1a', 0, 0.5, '', {}),
 };
 
-export const TRIM_GROUPS = ['Buttons', 'Fasteners', 'Decorations', 'Labels', 'Bags'];
+export const TRIM_GROUPS = ['Buttons', 'Fasteners', 'Decorations', 'Lingerie', 'Labels', 'Bags'];
 
 export function resolveTrim(id) {
   return TRIMS[id] || TRIMS['button-4hole'];

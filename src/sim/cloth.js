@@ -286,10 +286,11 @@ export function buildCloth(project) {
 
   // ---- tacks: waistbands / hat bands held in place once sewing completes ----
   const tack = [];
+  const tackNow = []; // pieces that must hold the moment sewing ends (bags on a hook)
   for (const pan of panels) {
     const t = pan.panel?.tack;
     if (!t) continue;
-    for (let q = pan.offset; q < pan.offset + pan.count; q++) { const x = local[q * 2]; const y = local[q * 2 + 1]; if (y >= t.y0 && y <= t.y1 && (t.x0 == null || (x >= t.x0 && x <= t.x1))) tack.push(q); }
+    for (let q = pan.offset; q < pan.offset + pan.count; q++) { const x = local[q * 2]; const y = local[q * 2 + 1]; if (y >= t.y0 && y <= t.y1 && (t.x0 == null || (x >= t.x0 && x <= t.x1))) (t.now ? tackNow : tack).push(q); }
   }
 
   // ---- pins (fixed points, e.g. tie knot) and rigid parts (stiffened brims) ----
@@ -321,7 +322,7 @@ export function buildCloth(project) {
   const bins = binColliders(colliders);
   const damping = n ? Math.min(0.2, (dampSum / n) / Math.sqrt(substeps)) : 0.02;
   const sim = makeBackend({
-    n, P, inv, fric, C, R, K, L, S, tack, bins, SR, SK, colliders, allTris,
+    n, P, inv, fric, C, R, K, L, S, tack, tackNow, bins, SR, SK, colliders, allTris,
     substeps, gravity: project.sim.gravity, damping,
     sewRate: project.sim.sewSpeed,
     thickness: 0.006,
@@ -383,7 +384,8 @@ function makeBackend(d) {
   // actually closed (measured gap, not target), or after 3 s at the latest.
   let simTime = 0;
   let sewn = s === 0;
-  if (sewn) for (const q of d.tack || []) d.inv[q] = 0; // nothing to sew: tack immediately
+  let tacked = false;
+  if (sewn) for (const q of [...(d.tack || []), ...(d.tackNow || [])]) d.inv[q] = 0; // nothing to sew: tack immediately
   const gravityNow = (pos, si, dt, invView) => {
     simTime += dt;
     if (!sewn) {
@@ -394,12 +396,11 @@ function makeBackend(d) {
         const dx = pos[a] - pos[b]; const dy = pos[a + 1] - pos[b + 1]; const dz = pos[a + 2] - pos[b + 2];
         if (dx * dx + dy * dy + dz * dz > 0.0004) open++;
       }
-      if (open <= s * 0.05 || simTime > 3) {
-        sewn = true; simTime = 0;
-        for (const q of d.tack || []) invView[q] = 0; // waistband / hat band now holds
-      }
+      if (open <= s * 0.05 || simTime > 3) { sewn = true; simTime = 0; for (const q of d.tackNow || []) invView[q] = 0; }
       return 0;
     }
+    // let the last stitches settle, then the waistband / hat band holds
+    if (!tacked && simTime > 0.35) { tacked = true; for (const q of d.tack || []) invView[q] = 0; }
     return d.gravity * Math.min(1, simTime / 0.5);
   };
 
@@ -428,7 +429,7 @@ function makeBackend(d) {
       step(dt) {
         const mv = x.step(n, ptr.pos, ptr.prev, ptr.inv, ptr.fric, m, ptr.ci, ptr.rest, ptr.kc, ptr.lim, s, ptr.si, ptr.srest, ptr.sk,
           c, ptr.col, d.bins.nb, ptr.bst, ptr.bix, d.bins.y0, d.bins.inv, d.substeps, dt, gravityNow(views.pos, views.si, dt, views.inv), d.damping, d.sewRate, 0.0015, d.thickness, 0.25);
-        if (!(mv < 2)) { views.pos.set(d.P); views.prev.set(d.P); views.srest.set(d.SR); views.inv.set(d.inv); sewn = false; simTime = 0; d.diverged = true; }
+        if (!(mv < 2)) { views.pos.set(d.P); views.prev.set(d.P); views.srest.set(d.SR); views.inv.set(d.inv); sewn = false; tacked = false; simTime = 0; d.diverged = true; }
         x.normals(n, ptr.pos, t, ptr.tri, ptr.nor);
         return mv;
       },
@@ -453,7 +454,7 @@ function makeBackend(d) {
     kind: 'js',
     step(dt) {
       const mv = jsStep(v, n, m, s, c, d.bins, d.substeps, dt, gravityNow(v.pos, v.si, dt, v.inv), d.damping, d.sewRate, 0.0015, d.thickness, 0.25);
-      if (!(mv < 2)) { v.pos.set(d.P); v.prev.set(d.P); v.srest.set(d.SR); v.inv.set(d.inv); sewn = false; simTime = 0; d.diverged = true; }
+      if (!(mv < 2)) { v.pos.set(d.P); v.prev.set(d.P); v.srest.set(d.SR); v.inv.set(d.inv); sewn = false; tacked = false; simTime = 0; d.diverged = true; }
       jsNormals(v, n, t);
       return mv;
     },

@@ -238,7 +238,20 @@ family('tulle', 'Tulle', 'Sheer', 'Nylon', [20, 0.8, 0.4, 0.08, 0.06, 0.25, 0.1]
 family('lace', 'Lace (Chantilly)', 'Sheer', 'Nylon / cotton', [90, 0.7, 0.4, 0.05, 0.03, 0.3, 0.4], { color: '#fbf7f0', roughness: 0.7, sheen: 0.4, pattern: 'lace', patternScale: 3 }, WOVEN({ stitch: 'zigzag-304', finish: 'lapped', uses: 'Lingerie, overlays, bridal' }), [
   ['lace-guipure', 'Lace (guipure)', { gsm: 200, bend: 0.25, scale: 2 }],
   ['lace-corded', 'Lace (corded / re-embroidered)', { gsm: 140, bend: 0.12 }],
+  ['lace-stretch', 'Stretch lace (Leavers-style / raschel)', { gsm: 110, stretch: 0.35, bend: 0.03 }, 'Elastic lace for bralettes and briefs; scalloped edges are used as hems.'],
 ]);
+
+// ---------------- Intimates / lingerie ----------------
+family('microfiber-jersey', 'Microfibre Jersey (nylon / elastane 80/20)', 'Knit', 'Nylon / elastane', [180, 0.25, 0.25, 0.03, 0.015, 0.3, 0.4], { color: '#e9c9b5', roughness: 0.45, sheen: 0.7, pattern: 'knit', patternScale: 16 }, KNIT({ stitch: 'flatlock-607', hem: 'laser-cut', thread: 'nylon-textured', needle: 'Ball point 70/10', uses: 'Briefs, bras, bodysuits, seamless intimates' }), [
+  ['microfiber-recycled', 'Microfibre Jersey (recycled nylon)', {}, 'Recycled nylon 6 / 6.6; ask for GRS.'],
+  ['microfiber-poly', 'Microfibre Jersey (polyester / elastane)', { gsm: 170 }, 'Cheaper, sublimation-printable.'],
+  ['cotton-elastane-jersey', 'Cotton-elastane jersey (95/5)', { gsm: 190, rough: 0.9, sheen: 0.3, color: '#f2f0ea', pattern: 'knit', scale: 10 }, 'Classic cotton briefs and boxer briefs.'],
+  ['modal-elastane', 'Modal-elastane jersey (92/8)', { gsm: 170, rough: 0.55, sheen: 0.6, color: '#2b2f36' }, 'Softest everyday underwear; premium trunks.'],
+  ['merino-underwear', 'Merino-elastane (sports underwear)', { gsm: 160, rough: 0.85, color: '#3b3f46' }, 'Odour resistant, warm; outdoor base layers.'],
+]);
+family('power-mesh', 'Power Mesh', 'Sheer', 'Nylon / elastane', [130, 0.2, 0.2, 0.02, 0.03, 0.3, 0.3], { color: '#f2d6cf', roughness: 0.6, sheen: 0.4, opacity: 0.7, pattern: 'mesh', patternScale: 16 }, KNIT({ stitch: 'zigzag-304', thread: 'nylon-textured', uses: 'Bra wings, shapewear, sheer panels' }));
+family('bra-foam', 'Bra Cup Foam (laminated spacer)', 'Technical', 'Polyurethane foam + tricot', [250, 0.85, 0.7, 0.55, 0.04, 0.4, 3], { color: '#f0d8cc', roughness: 0.6, sheen: 0.4, pattern: 'knit', patternScale: 18 }, WOVEN({ stitch: 'zigzag-304', finish: 'bias-binding', uses: 'Moulded / T-shirt bra cups (heat-moulded)' }));
+family('stretch-satin', 'Stretch Satin (charmeuse / elastane)', 'Woven', 'Polyester / elastane', [120, 0.7, 0.4, 0.06, 0.015, 0.2, 0.25], { color: '#b0234b', roughness: 0.25, sheen: 1.0, sheenColor: '#ffd1de', pattern: 'satin', patternScale: 14 }, WOVEN({ stitch: 'zigzag-304', finish: 'picot-edge', uses: 'Lingerie, slips, camisoles' }));
 
 // ---------------- Millinery ----------------
 family('wool-felt', 'Wool Felt (hat body)', 'Non-woven', 'Wool', [450, 1.0, 0.95, 0.75, 0.03, 0.7, 2.0], { color: '#3a3330', roughness: 0.95, sheen: 0.3, pattern: 'plain', patternScale: 8, fx: 'fuzzy' }, WOVEN({ stitch: 'lockstitch-301', finish: 'raw', press: 'Steam and block on a hat block', uses: 'Fedoras, trilbies, berets' }), [

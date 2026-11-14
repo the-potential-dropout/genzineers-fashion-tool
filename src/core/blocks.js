@@ -694,7 +694,7 @@ export function buildBag(o, prefix = '', fabric = 'canvas') {
   };
   const f = mk(); const b = mk();
   const cy = 0.85; // display height of bag bottom (m)
-  const topBand = o.shape === 'crescent' ? { y0: H * 0.55, y1: H * 1.2 } : { y0: H - 2, y1: H + 1 }; // hangs from its top (handles) on the display
+  const topBand = o.shape === 'crescent' ? { y0: H * 0.55, y1: H * 1.2, now: true } : { y0: H - 2, y1: H + 1, now: true }; // hangs from its top (handles) on the display
   const zd = D / 200 + 0.004;
   const panels = [
     { id: id('front'), name: 'Front', role: 'bag', points: f.pts, tack: topBand, placement: { position: [0, cy, zd], rotationY: 0 }, fabric },
@@ -745,6 +745,147 @@ export function buildBag(o, prefix = '', fabric = 'canvas') {
   return { panels, seams, trims, overlays, colliders, display: { avatar: false }, meta: { base: o.base, bagBoard: o.base === 'structured' } };
 }
 
+// =====================================================================
+// UNDERWEAR: briefs (bottoms) and bras (tops)
+// =====================================================================
+export const BRIEF_OPTIONS = {
+  style: { label: 'Style', type: 'select', values: ['brief', 'bikini', 'hipster', 'high-waist', 'boyshort', 'thong', 'trunk'], default: 'brief' },
+  rise: { label: 'Rise (cm, crotch to waist)', type: 'range', min: 14, max: 36, step: 0.5, default: 24 },
+  legCut: { label: 'Leg cut height at side (cm)', type: 'range', min: 3, max: 22, step: 0.5, default: 9 },
+  waistband: { label: 'Waistband', type: 'select', values: ['exposed-elastic', 'fold-over', 'picot', 'covered', 'laser-cut'], default: 'exposed-elastic' },
+  pouch: { label: 'Front pouch (men)', type: 'select', values: ['none', 'contour', 'fly'], default: 'none' },
+  gusset: { label: 'Gusset', type: 'select', values: ['cotton', 'self', 'none'], default: 'cotton' },
+};
+export function buildBrief(o, prefix = '', fabric = 'microfiber-jersey') {
+  const BODY = bodyOf(o);
+  const id = (s) => `${prefix}${s}`;
+  const hipQ = (BODY.hip * 0.94) / 4; // negative ease: stretch fabrics hug the body
+  const waistY0 = BODY.waistY - (o.style === 'high-waist' ? -0.04 : o.style === 'bikini' ? 0.07 : 0.02);
+  // rise adapts to the body so the crotch seam always starts below the crotch
+  const H = Math.max(o.style === 'trunk' ? o.rise + 8 : o.style === 'boyshort' ? o.rise + 6 : o.rise, (waistY0 - (BODY.crotchY - 0.045)) * 100);
+  const side = o.style === 'trunk' || o.style === 'boyshort' ? H * 0.75 : o.style === 'high-waist' ? Math.max(o.legCut, 14) : o.legCut;
+  const crotchW = 4.5;
+  const mk = (back) => {
+    const p = new Poly();
+    const cw = back && o.style === 'thong' ? 1.5 : back ? crotchW + 2.5 : crotchW;
+    const seatW = back && o.style === 'thong' ? 3 : hipQ;
+    p.add(-cw, 0, 'crotch');
+    p.add(cw, 0, 'leg-r');
+    if (o.style !== 'trunk' && o.style !== 'boyshort') p.add(back && o.style === 'thong' ? 2 : hipQ * 0.55, H - side - (back ? 4 : 6), 'leg-r');
+    p.add(back && o.style === 'thong' ? seatW : hipQ, H - side, 'side-r');
+    p.add(hipQ, H, 'waist');
+    p.add(-hipQ, H, 'side-l');
+    p.add(back && o.style === 'thong' ? -seatW : -hipQ, H - side, 'leg-l');
+    if (o.style !== 'trunk' && o.style !== 'boyshort') p.add(back && o.style === 'thong' ? -2 : -hipQ * 0.55, H - side - (back ? 4 : 6), 'leg-l');
+    return p;
+  };
+  const f = mk(false); const b = mk(true);
+  const y = waistY0 - H / 100;
+  const R = 0.16;
+  const panels = [
+    { id: id('front'), name: 'Front', role: 'brief', points: f.pts, tack: { y0: H - 2.5, y1: H + 1 }, placement: { position: [0, y, R], rotationY: 0, wrap: R, wrapMax: 1.5 }, fabric },
+    { id: id('back'), name: 'Back', role: 'brief', points: b.pts, tack: { y0: H - 2.5, y1: H + 1 }, placement: { position: [0, y, -R], rotationY: Math.PI, wrap: R, wrapMax: 1.5 }, fabric },
+  ];
+  const st = o.__stitch || 'flatlock-607';
+  const seams = [
+    seam(id('front'), f, 'side-r', id('back'), b, 'side-l', st),
+    seam(id('front'), f, 'side-l', id('back'), b, 'side-r', st),
+    seam(id('front'), f, 'crotch', id('back'), b, 'crotch', st),
+  ];
+  const overlays = []; const trims = [];
+  for (const pid of ['front', 'back']) {
+    if (o.waistband !== 'laser-cut') overlays.push({ kind: 'waistband', style: o.waistband, panel: id(pid), points: rect(-hipQ, H - (o.waistband === 'exposed-elastic' ? 3.5 : 1.2), hipQ, H), color: o.waistband === 'exposed-elastic' ? '#111111' : undefined });
+  }
+  if (o.gusset !== 'none') overlays.push({ kind: 'gusset', style: o.gusset, panel: id('front'), points: rect(-crotchW, 0, crotchW, 9), fabric: o.gusset === 'cotton' ? 'cotton-jersey' : undefined });
+  if (o.pouch !== 'none') overlays.push({ kind: 'pouch', style: o.pouch, panel: id('front'), points: [[-6, 2], [6, 2], [8, H * 0.55], [0, H * 0.7], [-8, H * 0.55]] });
+  if (o.pouch === 'fly') trims.push({ type: 'button-2hole', panel: id('front'), at: [0, H * 0.55], size: 9 });
+  if (o.waistband === 'exposed-elastic') trims.push({ type: 'label', panel: id('front'), at: [0, H - 1.8], size: 40, color: '#ffffff' });
+  if (o.waistband === 'picot') for (const pid of ['front', 'back']) trims.push({ type: 'picot-elastic', panel: id(pid), at: [-hipQ, H - 0.3], to: [hipQ, H - 0.3] });
+  return { panels, seams, trims, overlays };
+}
+
+export const BRA_OPTIONS = {
+  style: { label: 'Style', type: 'select', values: ['triangle', 'balconette', 'sports', 'bandeau'], default: 'triangle' },
+  band: { label: 'Band (underbust, cm)', type: 'range', min: 60, max: 120, step: 1, default: 74 },
+  cup: { label: 'Cup', type: 'select', values: ['AA', 'A', 'B', 'C', 'D', 'DD', 'E', 'F', 'G'], default: 'B' },
+  straps: { label: 'Straps', type: 'select', values: ['standard', 'racer', 'halter', 'convertible', 'strapless'], default: 'standard' },
+  strapWidth: { label: 'Strap width (mm)', type: 'range', min: 6, max: 30, step: 1, default: 10 },
+  closure: { label: 'Closure', type: 'select', values: ['back-hook', 'front-hook', 'pullover'], default: 'back-hook' },
+  wire: { label: 'Underwire', type: 'select', values: ['none', 'underwire'], default: 'none' },
+  padding: { label: 'Padding / cup', type: 'select', values: ['unlined', 'lined', 'removable-pads', 'molded-foam'], default: 'unlined' },
+  bandHeight: { label: 'Underband height (cm)', type: 'range', min: 1.5, max: 10, step: 0.5, default: 3 },
+};
+const CUP_INDEX = { AA: 0, A: 1, B: 2, C: 3, D: 4, DD: 5, E: 5, F: 6, G: 7 };
+export function buildBra(o, prefix = '', fabric = 'microfiber-jersey') {
+  const BODY = bodyOf(o);
+  const id = (s) => `${prefix}${s}`;
+  const sports = o.style === 'sports';
+  const bandQ = (o.band * 0.92) / 4; // negative ease on the band (it carries the support)
+  const bh = sports ? Math.max(o.bandHeight, 6) : o.bandHeight;
+  const ci = CUP_INDEX[o.cup] ?? 2;
+  const cupH = sports ? 16 : o.style === 'bandeau' ? 0 : 12 + ci * 1.6;
+  const cupW = 15 + ci * 1.2;
+  const bandY = BODY.armY - 0.22 * BODY.hs; // underbust line
+  const R = 0.135 * BODY.gs;
+  const bandPoly = () => { const p = new Poly(); p.add(-bandQ, 0, 'bottom').add(bandQ, 0, 'side-r').add(bandQ, bh, 'top').add(-bandQ, bh, 'side-l'); return p; };
+  const fB = bandPoly(); const bB = bandPoly();
+  const panels = [
+    { id: id('band-front'), name: o.style === 'bandeau' ? 'Bandeau front' : 'Underband front', role: 'bra', points: fB.pts, tack: { y0: -1, y1: 1.5 }, placement: { position: [0, bandY, R], rotationY: 0, wrap: R, wrapMax: 1.55 }, fabric },
+    { id: id('band-back'), name: 'Back band', role: 'bra', points: bB.pts, tack: { y0: -1, y1: 1.5 }, placement: { position: [0, bandY, -R], rotationY: Math.PI, wrap: R, wrapMax: 1.55 }, fabric },
+  ];
+  const st = o.__stitch || 'zigzag-304';
+  const seams = [seam(id('band-front'), fB, 'side-r', id('band-back'), bB, 'side-l', st), seam(id('band-front'), fB, 'side-l', id('band-back'), bB, 'side-r', st)];
+  const trims = []; const overlays = [];
+  if (o.style === 'bandeau') {
+    fB.pts[2][1] = fB.pts[3][1] = bh + 12;
+    panels[0].points = fB.pts;
+  } else {
+    for (const s of [1, -1]) {
+      // cup: shaped triangle (sports = wider, higher coverage)
+      const p = new Poly();
+      const inner = sports ? 0.5 : 1;
+      p.add(s * inner, 0, 'base');
+      p.add(s * (inner + cupW), 0, 'outer');
+      if (sports) p.add(s * (inner + cupW - 2), cupH * 0.7, 'outer');
+      p.add(s * (inner + cupW * (sports ? 0.45 : 0.55)), cupH, 'inner');
+      if (sports) p.add(s * inner, cupH * 0.75, 'inner');
+      const pts = s > 0 ? p.pts : p.pts.slice().reverse();
+      const poly = new Poly();
+      if (s > 0) p.pts.forEach((q, i) => poly.add(q[0], q[1], p.tags[i]));
+      else { const n = p.pts.length; for (let k = 0; k < n; k++) { const i = (n - k) % n; poly.add(p.pts[i][0], p.pts[i][1], p.tags[(i - 1 + n) % n]); } }
+      void pts;
+      const cid = id(s > 0 ? 'cup-r' : 'cup-l');
+      panels.push({ id: cid, name: s > 0 ? 'Cup (right)' : 'Cup (left)', role: 'bra', points: poly.pts, tack: { y0: cupH - 2, y1: cupH + 1 }, placement: { position: [0, bandY + bh / 100 + 0.005, R + 0.02], rotationY: 0, wrap: R + 0.02, wrapMax: 1.2 }, fabric: o.padding === 'molded-foam' ? 'bra-foam' : fabric });
+      // cup base sewn to the top of the front underband
+      const bandSeg = new Poly();
+      void bandSeg;
+      seams.push({ a: { panel: cid, ...poly.range('base') }, b: { panel: id('band-front'), edge: 2, to: 2 }, stitch: st, half: s });
+      const apex = [s * (inner + cupW * (sports ? 0.45 : 0.55)), cupH - 0.5];
+      if (o.straps !== 'strapless') {
+        const backX = o.straps === 'racer' ? 0 : o.straps === 'halter' ? null : s * -bandQ * 0.45;
+        if (o.straps === 'halter') trims.push({ type: 'strap', panel: cid, at: apex, to: [0, cupH + 18], arch: 0.06, size: o.strapWidth * 3 });
+        else trims.push({ type: 'strap', panel: cid, at: apex, toPanel: id('band-back'), to: [backX, bh], arch: 0.2, size: o.strapWidth * 3 });
+        if (o.straps !== 'racer') trims.push({ type: 'strap-slider', panel: cid, at: [apex[0], apex[1] - 0.5], size: o.strapWidth + 4 });
+      }
+      if (o.wire === 'underwire') trims.push({ type: 'underwire', panel: cid, at: [s * (inner + 0.5), 0.6], to: [s * (inner + cupW - 0.5), 0.6] });
+      if (o.padding !== 'unlined' && o.padding !== 'molded-foam') overlays.push({ kind: 'lining', style: o.padding, panel: cid, points: poly.pts.map(([x, y]) => [x * 0.95, y * 0.95]) });
+    }
+    // a seam per cup joins half of the band top; split the band top edge in two
+    const ft = fB.pts; // [-q,0],[q,0],[q,bh],[-q,bh]  -> insert centre point on the top edge
+    ft.splice(3, 0, [0, bh]);
+    panels[0].points = ft;
+    for (const sm of seams) if (sm.half) { sm.b = { panel: id('band-front'), edge: sm.half > 0 ? 2 : 3, to: sm.half > 0 ? 2 : 3 }; delete sm.half; }
+    // after the insert, side-l edge index shifts from 3 to 4
+    seams[1] = { a: { panel: id('band-front'), edge: 4, to: 4 }, b: seams[1].b, stitch: st };
+  }
+  if (o.closure === 'back-hook') trims.push({ type: 'bra-hook-eye', panel: id('band-back'), at: [0, bh / 2], size: 30 });
+  if (o.closure === 'front-hook') trims.push({ type: 'bra-hook-eye', panel: id('band-front'), at: [0, bh / 2], size: 22 });
+  trims.push({ type: 'picot-elastic', panel: id('band-front'), at: [-bandQ, 0.2], to: [bandQ, 0.2] });
+  trims.push({ type: 'picot-elastic', panel: id('band-back'), at: [-bandQ, 0.2], to: [bandQ, 0.2] });
+  if (!sports && o.style !== 'bandeau') trims.push({ type: 'bow', panel: id('band-front'), at: [0, bh], size: 18 });
+  return { panels, seams, trims, overlays };
+}
+
 function rect(x0, y0, x1, y1) {
   return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
 }
@@ -757,6 +898,8 @@ export const GENERATORS = {
   tie: { label: 'Tie', options: TIE_OPTIONS, build: buildTie },
   hat: { label: 'Hat / cap', options: HAT_OPTIONS, build: buildHat },
   bag: { label: 'Bag', options: BAG_OPTIONS, build: buildBag },
+  brief: { label: 'Underwear bottoms', options: BRIEF_OPTIONS, build: buildBrief },
+  bra: { label: 'Bra / bralette', options: BRA_OPTIONS, build: buildBra },
 };
 
 export function defaultOptions(gen) {

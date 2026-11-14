@@ -309,9 +309,12 @@ export class Viewer {
       const mat = new THREE.MeshPhysicalMaterial({ color, metalness: def.metalness, roughness: def.roughness, clearcoat: def.metalness > 0.5 ? 0.4 : 0.2, transmission: def.shape === 'crystal' ? 0.9 : 0, ior: 1.7, thickness: 0.003, iridescence: def.iridescent ? 0.8 : 0 });
       const s = (t.size || def.size) / 1000;
       if (def.line && t.to) {
-        const n = Math.max(2, Math.round(Math.hypot(t.to[0] - t.at[0], t.to[1] - t.at[1]) / (def.strap ? 2 : 0.6)));
         const anchors = [];
-        for (let k = 0; k <= n; k++) anchors.push(panelAnchor(sim, t.panel, t.at[0] + ((t.to[0] - t.at[0]) * k) / n, t.at[1] + ((t.to[1] - t.at[1]) * k) / n));
+        if (t.toPanel) anchors.push(panelAnchor(sim, t.panel, t.at[0], t.at[1]), panelAnchor(sim, t.toPanel, t.to[0], t.to[1]));
+        else {
+          const n = Math.max(2, Math.round(Math.hypot(t.to[0] - t.at[0], t.to[1] - t.at[1]) / (def.strap ? 2 : 0.6)));
+          for (let k = 0; k <= n; k++) anchors.push(panelAnchor(sim, t.panel, t.at[0] + ((t.to[0] - t.at[0]) * k) / n, t.at[1] + ((t.to[1] - t.at[1]) * k) / n));
+        }
         if (anchors.some((a) => !a)) continue;
         let obj;
         if (def.strap) obj = new THREE.Mesh(new THREE.BufferGeometry(), mat);
