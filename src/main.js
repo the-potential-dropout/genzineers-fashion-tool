@@ -248,6 +248,7 @@ function renderHud() {
     p.mode !== 'jewelry' ? h('button', { class: 'pill', onclick: () => rebuild({ keepCamera: true }) }, '↻ Re-drape') : null,
     h('button', { class: 'pill', onclick: () => (p.mode === 'jewelry' ? viewer.setProject(p) : viewer.frameGarment()) }, '⤢ Fit'),
     h('button', { class: 'pill', onclick: () => { viewer.setAutoOrbit(!viewer.autoOrbit); settings.set('orbit', viewer.autoOrbit); renderHud(); } }, viewer.autoOrbit ? '⟳ Orbit on' : '⟳ Orbit off'),
+    p.mode !== 'jewelry' ? h('button', { class: `pill ${viewer.grabMode ? 'on' : ''}`, title: 'Pull mode: drag the cloth itself to pinch and tug it; it falls back naturally when you let go', onclick: () => { viewer.setGrab(!viewer.grabMode); renderHud(); toast(viewer.grabMode ? 'Pull mode: drag the cloth. Tap again to go back to orbiting.' : 'Orbit mode'); } }, viewer.grabMode ? '✋ Pulling' : '✋ Pull') : null,
     p.mode !== 'jewelry' ? h('button', { class: `pill ${viewer.fitMap ? 'on' : ''}`, title: 'Colour the cloth by tension: red = tight, blue = loose', onclick: () => { viewer.setFitMap(!viewer.fitMap); renderHud(); } }, viewer.fitMap ? '◐ Fit map on' : '◐ Fit map') : null,
     p.mode !== 'jewelry' ? h('span', { class: 'pill' }, `Size ${p.customBody ? 'custom' : p.size} · ${SIZE_CHARTS[p.sizeChart || 'unisex'].label}`) : null,
     h('button', { class: 'pill', onclick: () => { ui.aiTab = 'images'; ui.useRef = true; toggleAI(true); } }, '✦ AI render'),
@@ -255,8 +256,29 @@ function renderHud() {
 }
 
 // ---------- placing trims by clicking the garment ----------
+// click a zipper to run it up or down, click a button to do it up or undo it (a long press does the same on touch)
+let downAt = null;
+viewEl.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+function fastenAt(e) {
+  const p = store.get(); if (p.mode === 'jewelry' || viewer.grabMode) return false;
+  const t = viewer.pickTrim(e.clientX, e.clientY); if (!t) return false;
+  const garment = p.panels.find((x) => x.id === t.trim.panel)?.garment; if (!garment) return false;
+  const g = p.garments.find((x) => x.id === garment);
+  if (t.kind === 'button' && t.trim.btn != null) { store.dispatch({ type: 'set_wear', garment, toggleButton: t.trim.btn }); toast(t.trim.undone ? 'Buttoned' : 'Unbuttoned'); return true; }
+  if (t.kind === 'zipper' && t.trim.fly) { store.dispatch({ type: 'set_wear', garment, fly: g.wear?.fly === 'open' ? 'closed' : 'open' }); toast(g.wear?.fly === 'open' ? 'Fly zipped' : 'Fly unzipped'); return true; }
+  if (t.kind === 'zipper' && t.trim.to && Math.abs(t.trim.at[0]) < 1) {
+    const hit = viewer.pick(e.clientX, e.clientY);
+    const y0 = t.trim.at[1]; const y1 = t.trim.to[1];
+    const f = hit ? Math.max(0, Math.min(1, (hit.local[1] - y0) / (y1 - y0 || 1))) : (g.wear?.open ? 1 : 0.4);
+    const open = f > 0.93 ? 0 : Math.round((1 - f) * 20) / 20;
+    store.dispatch({ type: 'set_wear', garment, open }); toast(open ? `Unzipped ${Math.round(open * 100)}%` : 'Zipped up');
+    return true;
+  }
+  return false;
+}
 viewEl.addEventListener('click', (e) => {
-  if (!ui.placing) return;
+  if (downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return; // that was a drag
+  if (!ui.placing) { fastenAt(e); return; }
   const hit = viewer.pick(e.clientX, e.clientY);
   if (!hit) return toast('Click on the garment');
   if (ui.placing === 'embroidery') {
@@ -343,6 +365,25 @@ function cStyle(el, p) {
       keys.map(opt),
       h('details', {}, h('summary', {}, 'All options'), h('div', {}, Object.keys(schema).filter((k) => !keys.includes(k) && !/Adj$/.test(k)).map(opt))),
     ));
+    // ---- how it is worn right now ----
+    {
+      const w = g.wear || {}; const o = g.options; const W = (patch) => store.dispatch({ type: 'set_wear', garment: g.id, ...patch });
+      const openable = g.generator === 'top' && o.closure && !['none', 'half-zip', 'lace-up-front', 'lace-up-back'].includes(o.closure);
+      const zip = openable && ['zip', 'two-way-zip', 'asymmetric-zip'].includes(o.closure);
+      const rows = [];
+      if (openable) rows.push(field(zip ? 'Zip (drag, or click the zipper on the garment)' : 'Front open from the top (or click single buttons on the garment)', h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: w.open || 0, oninput: (e) => (e.target.closest('label').querySelector('b').textContent = `${Math.round(e.target.value * 100)}% open`), onchange: (e) => W({ open: Number(e.target.value) }) }), h('b', {}, `${Math.round((w.open || 0) * 100)}% open`)));
+      const chips = [];
+      if (openable) chips.push(h('button', { class: 'chip', onclick: () => W({ buttons: 'all', open: 0 }) }, zip ? 'Zip up' : 'Button up'), h('button', { class: 'chip', onclick: () => W(zip ? { open: 1 } : { buttons: 'none' }) }, zip ? 'Unzip fully' : 'Wear open'));
+      if (g.generator === 'top' && o.collar === 'hood') chips.push(h('button', { class: `chip ${w.hood === 'up' ? 'on' : ''}`, onclick: () => W({ hood: w.hood === 'up' ? 'down' : 'up' }) }, w.hood === 'up' ? 'Hood up ✓' : 'Hood up'));
+      if (g.generator === 'top' && ['long', 'three-quarter'].includes(o.sleeve)) chips.push(h('button', { class: `chip ${w.sleeves === 'rolled' ? 'on' : ''}`, onclick: () => W({ sleeves: w.sleeves === 'rolled' ? 'down' : 'rolled' }) }, w.sleeves === 'rolled' ? 'Sleeves rolled ✓' : 'Roll up sleeves'));
+      if (g.generator === 'bottom' && o.fly !== 'none') chips.push(h('button', { class: `chip ${w.fly === 'open' ? 'on' : ''}`, onclick: () => W({ fly: w.fly === 'open' ? 'closed' : 'open' }) }, w.fly === 'open' ? 'Fly open ✓' : (o.fly === 'button' ? 'Unbutton fly' : 'Unzip fly')));
+      if (g.generator === 'bottom' && o.inseam > 30) {
+        chips.push(...[[0, 'No cuff'], [1, 'Cuff once'], [2, 'Cuff twice']].map(([n, l]) => h('button', { class: `chip ${(w.cuff || 0) === n ? 'on' : ''}`, onclick: () => W({ cuff: n }) }, l)));
+        const ankle = Math.round((bodyFor(p).crotchY * 100 - 9) * 2) / 2;
+        if (o.inseam > ankle + 1) chips.push(h('button', { class: 'chip', title: `Shorten the inseam to ${ankle} cm so the hem sits at the ankle`, onclick: () => store.dispatch([{ type: 'set_wear', garment: g.id, cuff: 0 }, { type: 'set_option', garment: g.id, key: 'inseam', value: ankle }]) }, 'Tailor: hem to the ankle'));
+      }
+      if (rows.length || chips.length) el.append(h('div', { class: 'sec' }, h('h3', {}, 'Wear it'), rows, h('div', { class: 'chips' }, chips), h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:6px' }, 'These change how the piece is worn, not the pattern that is cut. Use ✋ Pull under the 3D view to tug the cloth by hand.')));
+    }
     const adj = Object.keys(schema).filter((k) => /Adj$/.test(k) || ['length', 'inseam', 'flare'].includes(k));
     if (adj.length) el.append(h('details', { open: ui.tailorOpen }, h('summary', { onclick: () => (ui.tailorOpen = !ui.tailorOpen) }, '✂ Tailor the fit'), h('div', {},
       h('div', { class: 'tip' }, 'Quick alterations like a tailor: take in / let out, lengthen / shorten. Turn on ', h('b', {}, 'Fit map'), ' (bottom of the 3D view) to see tight (red) and loose (blue) areas.'),

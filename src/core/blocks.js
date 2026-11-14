@@ -246,6 +246,11 @@ function sleevePanel(o, t, side) {
 }
 
 export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
+  // how the piece is worn right now (does not change the pattern that is cut)
+  const wear = o.__wear || {};
+  const drafted = o;
+  if (wear.sleeves === 'rolled' && ['long', 'three-quarter'].includes(o.sleeve)) o = { ...o, sleeve: 'elbow', cuff: 'rolled', sleeveAdj: (o.sleeveAdj || 0) - 3 };
+  void drafted;
   const BODY = bodyOf(o);
   const t = topPanels(o);
   const id = (s) => `${prefix}${s}`;
@@ -280,7 +285,7 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
     const top = t.lapel ? t.breakY : o.collar === 'hood' || ['zip', 'two-way-zip'].includes(o.closure) ? t.H - t.frontDrop : t.H - t.frontDrop - 1;
     // tailored jackets fasten at the buttons and fall open below the last one
     const bottom = t.lapel && o.closure !== 'double-breasted' ? Math.max(6, t.breakY - Math.max(1, o.buttons - 1) * 10 - 9) : 0;
-    if (t.ext === 0) seams.push({ ...seam(id('front-r'), t.fr, 'cf', id('front-l'), t.fl, 'cf', 'lockstitch-301'), closure: true });
+    if (t.ext === 0) seams.push({ ...seam(id('front-r'), t.fr, 'cf', id('front-l'), t.fl, 'cf', 'lockstitch-301'), closure: true, open: Math.max(0, Math.min(1, wear.open || 0)) });
     else {
       // overlapping fronts: fastened along the centre line through both layers
       const pts = []; for (let y = bottom; y <= top; y += 2.5) pts.push([0, y]);
@@ -340,6 +345,7 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   if (o.closure === 'lace-up-front' || o.closure === 'lace-up-back') trims.push({ type: 'lacing', panel: id(o.closure === 'lace-up-front' ? 'front' : 'back'), at: [0, Math.max(3, t.H * 0.25)], to: [0, t.H - 12], width: 5, eyelets: 8, style: 'corset' });
   // zipper defaults by garment type
   const zipKind = /leather/.test(fabric) ? 'leather' : o.length > 80 ? 'parka' : /waterproof|tpu|pvc/.test(fabric) ? 'shell' : 'jacket';
+  for (const tr of trims) if (tr.type === 'zipper' && tr.panel === id('front') && Math.abs(tr.at[0]) < 1 && wear.open) tr.slider = 1 - wear.open;
   for (const tr of trims) if (tr.type === 'zipper' && !tr.zip) tr.zip = { ...ZIPPER_DEFAULTS[zipKind], ...(o.closure === 'two-way-zip' ? { end: 'two-way' } : {}), ...(o.closure === 'half-zip' ? { end: 'closed' } : {}) };
 
   // lapels / collars (overlays on the front)
@@ -398,7 +404,7 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   const tailored = t.split && t.lapel;
   if (tailored && o.lapel !== 'shawl') collars.push({ kind: 'collar', style: 'tailored', stand: 2.6, fall: 4.4, point: 5.2, spread: 0, paths: neckPaths(Math.hypot(t.neckW + t.ext, t.H - breakY) * 0.2) });
   else if (o.lapel === 'biker') collars.push({ kind: 'collar', style: 'biker', stand: 1.2, fall: 7.5, point: 10, spread: 6, flat: 1, paths: neckPaths() });
-  else if (COLLARS[o.collar]) collars.push({ kind: COLLARS[o.collar].hood ? 'hood' : 'collar', style: o.collar, ...COLLARS[o.collar], hoodStyle: o.hood || 'three-panel', paths: neckPaths() });
+  else if (COLLARS[o.collar]) collars.push({ kind: COLLARS[o.collar].hood ? 'hood' : 'collar', style: o.collar, ...COLLARS[o.collar], hoodStyle: o.hood || 'three-panel', up: wear.hood === 'up', paths: neckPaths() });
   else if (o.neckline === 'mock') collars.push({ kind: 'collar', style: 'mock', stand: 5, fabric: /knit|jersey|fleece|terry|rib/.test(fabric) ? 'rib-knit' : undefined, paths: neckPaths() });
   else if (!t.split && /knit|jersey|fleece|terry|rib|pique|interlock/.test(fabric) && o.shoulder !== 'strap') collars.push({ kind: 'neckband', style: 'rib-neckband', stand: o.neckline === 'henley' ? 1.6 : 2, fabric: 'rib-knit', paths: neckPaths() });
   // sleeveless knits (tanks, A-shirts, racerbacks): rib binding round each armhole
@@ -456,6 +462,19 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
   }
   if (o.sleeve === 'none') for (const pan of panels) if (pan.role === 'body') pan.tack = { y0: t.H - (o.shoulder === 'strap' ? 2 : 5), y1: t.H + 1 };
   if (o.lining && o.lining !== 'none') for (const pan of panels) if (o.lining === 'full' || pan.role === 'body') pan.lining = 'acetate-satin';
+  // fastenings: number the centre-front buttons, and unfasten whatever is worn open
+  if (t.split && panels[0].attach) {
+    const btns = trims.filter((tr) => tr.panel === id('front') && tr.at && !tr.to && /button|snap|toggle/.test(tr.type) && tr.type !== 'button-2hole' && Math.abs(tr.at[0]) < 8.5).sort((a, b) => b.at[1] - a.at[1]);
+    const rows = [...new Set(btns.map((b) => Math.round(b.at[1])))];
+    for (const b of btns) { b.btn = rows.indexOf(Math.round(b.at[1])); b.undone = wear.buttons?.[b.btn] === false || wear.buttons === 'none'; }
+    const pts = panels[0].attach[0].pts; const top = pts.length ? pts[pts.length - 1][1] : 0; const bot = pts.length ? pts[0][1] : 0;
+    panels[0].attach[0].pts = wear.buttons === 'none' ? [] : pts.filter(([, y]) => {
+      if (wear.open && y > top - wear.open * (top - bot) - 0.01) return false;
+      if (!rows.length || !wear.buttons) return true;
+      let k = 0; for (let i = 1; i < rows.length; i++) if (Math.abs(rows[i] - y) < Math.abs(rows[k] - y)) k = i;
+      return wear.buttons[k] !== false;
+    });
+  }
   // open fronts: details drafted on "the front" land on the piece they sit on
   if (t.split) {
     const fid = id('front');
@@ -495,6 +514,9 @@ export const BOTTOM_OPTIONS = {
 };
 
 export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
+  const wear = o.__wear || {};
+  // cuffed (turned-up) hems shorten the leg by the fold: one turn 4.5 cm, two turns 9 cm
+  if (wear.cuff && o.inseam > 30) o = { ...o, inseam: o.inseam - 4.5 * wear.cuff, hem: 'turn-up' };
   const BODY = bodyOf(o);
   const id = (s) => `${prefix}${s}`;
   const ease = (FIT[o.fit] ?? 14) * 0.6;
@@ -569,7 +591,8 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
   seams.push(seam(id('front-r'), front, 'in', id('back-r'), back, 'in', st));
   seams.push(seam(id('front-l'), front, 'out', id('back-l'), back, 'out', st));
   seams.push(seam(id('front-l'), front, 'in', id('back-l'), back, 'in', st));
-  seams.push(seam(id('front-r'), front, 'cf', id('front-l'), front, 'cf', 'chainstitch-401'));
+  // the fly is the top of the front rise seam: unzipped / unbuttoned, that part is left open
+  seams.push({ ...seam(id('front-r'), front, 'cf', id('front-l'), front, 'cf', 'chainstitch-401'), ...(wear.fly === 'open' && o.fly !== 'none' ? { open: Math.min(0.6, 12 / (polyLen(pathOf(front, 'cf')) || 30)), fly: true } : {}) });
   seams.push(seam(id('back-r'), back, 'cf', id('back-l'), back, 'cf', 'chainstitch-401'));
 
   const top = I + riseCm;
@@ -593,7 +616,7 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
   }
   if (o.waistband === 'button') trims.push({ type: o.pockets === 'five-pocket' ? 'jeans-button' : 'button-4hole', panel: id('front-r'), at: [-9, top - 2] });
   if (o.waistband === 'drawstring') trims.push({ type: 'grommet', panel: id('front-r'), at: [-8, top - 2] }, { type: 'grommet', panel: id('front-l'), at: [8, top - 2] });
-  if (o.fly === 'zip') { overlays.push({ kind: 'fly', panel: id('front-r'), points: rect(-10, top - 18, -7, top - 4) }); trims.push({ type: 'zipper', panel: id('front-r'), at: [-8.5, top - 17], to: [-8.5, top - 5], zip: { ...ZIPPER_DEFAULTS[/denim/.test(fabric) ? 'jeans' : 'pocket'], end: 'closed', slider: 'auto-lock' } }); }
+  if (o.fly === 'zip') { overlays.push({ kind: 'fly', panel: id('front-r'), points: rect(-10, top - 18, -7, top - 4) }); trims.push({ type: 'zipper', panel: id('front-r'), at: [-8.5, top - 17], to: [-8.5, top - 5], zip: { ...ZIPPER_DEFAULTS[/denim/.test(fabric) ? 'jeans' : 'pocket'], end: 'closed', slider: 'auto-lock' }, fly: true, ...(wear.fly === 'open' ? { slider: 0 } : {}) }); }
   for (const pan of panels) pan.edges = { hem: pathOf(pan.id.endsWith('front-r') || pan.id.endsWith('back-l') ? front : back, 'hem') };
   if (o.pockets === 'five-pocket') {
     for (const pid of ['front-r', 'front-l']) {

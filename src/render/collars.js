@@ -19,7 +19,7 @@ const smooth = (u) => { const t = Math.max(0, Math.min(1, u)); return t * t * (3
  * @param stations  ordered neckline anchors [{ ids, w }] going from one front end, round the back, to the other
  * @returns { group, update(P, N) }
  */
-export function buildCollar(spec, stations, material, edgeColor, threadColor) {
+export function buildCollar(spec, stations, material, edgeColor, threadColor, head = null) {
   const n = stations.length;
   const hood = spec.kind === 'hood';
   const band = spec.kind === 'neckband';
@@ -81,6 +81,22 @@ export function buildCollar(spec, stations, material, edgeColor, threadColor) {
         // rib neckband: lies just inside the neck edge, slightly raised
         const s = spec.stand * cm;
         put(i, 0, 0.002, 0.001); put(i, 1, -s * 0.5, 0.004); put(i, 2, -s, 0.002);
+      } else if (hood && spec.up && head) {
+        // hood worn up: rises from the neck seam and closes over the crown, open round the face
+        const ap = ang[i] * (118 / 180); // the hood edge stops beside the face
+        const dx = Math.sin(ap); const dz = -Math.cos(ap);
+        const back = 0.5 + 0.5 * Math.cos(ap); // 1 at the back of the head
+        const rad = head.r * (1.2 + 0.1 * back) + 0.022;
+        const topY = head.y + head.r * 1.32 + 0.03;
+        for (let j = 0; j < rows; j++) {
+          const u = j / (rows - 1); const e = u * Math.PI * 0.5; const s = smooth(u * 2.6);
+          const hx = head.x + dx * rad; const hz = head.z + dz * rad;
+          let x = ring[i * 3] + (hx - ring[i * 3]) * s; let z = ring[i * 3 + 2] + (hz - ring[i * 3 + 2]) * s;
+          const k = Math.pow(Math.max(0, Math.cos(e)), 0.62);
+          x = head.x + (x - head.x) * k; z = head.z - 0.012 * u + (z - head.z) * k;
+          const o = (i * rows + j) * 3;
+          pos[o] = x; pos[o + 1] = ring[i * 3 + 1] + (topY - ring[i * 3 + 1]) * Math.sin(e) * (0.92 + 0.08 * back); pos[o + 2] = z;
+        }
       } else if (hood) {
         // hood worn down: a soft pouch that falls from the neck onto the upper back
         const wb = 1 - smooth(a / (amax * 0.85 || 1)); // 1 at centre back

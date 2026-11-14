@@ -32,6 +32,7 @@ export const ACTION_DOCS = {
   update_embroidery: '{ id, ...any add_embroidery field }',
   remove_embroidery: '{ id }',
   add_design: '{ design: <saved project> } put a saved design from the collection on as part of the outfit (keeps all its materials and details)',
+  set_wear: '{ garment: "g0", open?: 0..1 (how far a front zip / button front is undone from the top), buttons?: "all"|"none"|{ "0": false } (button rows, 0 = top), toggleButton?: n, hood?: "up"|"down", sleeves?: "rolled"|"down", fly?: "open"|"closed", cuff?: 0|1|2 (turn-ups on the hem) } how the garment is worn right now',
   set_layer: '{ garment: "g0", layer: 0-5 | null } outfit layering order: 0 underwear, 1 base, 2 mid/knit, 3 jacket, 4 coat, 5 accessory (null = automatic)',
   set_option: '{ garment: "g0", key, value } or { garment, options: {key: value} } change a template option (fit, length, sleeve, cuff, collar, lapel, closure, inseam, leg, style, ...; see catalog.generators)',
   rename: '{ name }',
@@ -185,6 +186,19 @@ export function applyAction(project, action) {
       if (p.mode === 'jewelry') throw new Error('switch to clothing first');
       const added = addDesign(p, a.design);
       result = `added ${added.length} garment(s) from "${a.design?.name || 'design'}"`;
+      break;
+    }
+    case 'set_wear': {
+      const g = garmentOf(p, a.garment);
+      const w = { ...(g.wear || {}) };
+      if (a.open != null) w.open = clamp(Number(a.open) || 0, 0, 1);
+      if (a.buttons === 'all') { delete w.buttons; w.open = 0; } else if (a.buttons === 'none') w.buttons = 'none'; else if (a.buttons && typeof a.buttons === 'object') w.buttons = { ...(typeof w.buttons === 'object' ? w.buttons : {}), ...a.buttons };
+      if (a.toggleButton != null) { const cur = typeof w.buttons === 'object' ? w.buttons : {}; w.buttons = { ...cur, [a.toggleButton]: cur[a.toggleButton] === false }; }
+      for (const [k, vals] of [['hood', ['up', 'down']], ['sleeves', ['rolled', 'down']], ['fly', ['open', 'closed']]]) if (a[k] != null) { if (!vals.includes(a[k])) throw new Error(`${k} must be ${vals.join(' or ')}`); w[k] = a[k]; }
+      if (a.cuff != null) w.cuff = clamp(Math.round(Number(a.cuff) || 0), 0, 2);
+      g.wear = w;
+      mergeGarment(p, g);
+      result = 'worn: ' + (Object.entries(w).map(([k, v]) => `${k} ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ') || 'default');
       break;
     }
     case 'set_layer': {

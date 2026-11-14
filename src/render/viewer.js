@@ -20,7 +20,7 @@ import { bodyFor } from '../core/sizes.js';
 import { buildAvatar, gradePoint } from '../sim/avatar.js';
 import { MANNEQUINS } from '../sim/mannequins.js';
 import { legwearTop } from '../core/legwear.js';
-import { panelAnchor } from '../sim/cloth.js';
+import { panelAnchor, layerRank } from '../sim/cloth.js';
 import { fabricTextures } from './textures.js';
 import { buildCollar } from './collars.js';
 import { designBitmap, previewCanvas, loadArtwork, STITCH_TYPES } from '../make/embroidery.js';
@@ -144,13 +144,17 @@ export class Viewer {
     const orbiting = this.controls.autoRotate;
     this.controls.update();
     if (this.simAwake && this.sim) {
+      if (this._grab) { // hold the pinched cloth at the pointer (limited reach so it cannot be torn off the body)
+        const g = this._grab; const P = this.sim.pos; const Q = this.sim.prev;
+        g.ids.forEach((i, k) => { const x = g.target.x + g.off[k].x; const y = Math.max(0.01, g.target.y + g.off[k].y); const z = g.target.z + g.off[k].z; this.sim.inv[i] = 0; P[i * 3] += (x - P[i * 3]) * 0.35; P[i * 3 + 1] += (y - P[i * 3 + 1]) * 0.35; P[i * 3 + 2] += (z - P[i * 3 + 2]) * 0.35; Q[i * 3] = P[i * 3]; Q[i * 3 + 1] = P[i * 3 + 1]; Q[i * 3 + 2] = P[i * 3 + 2]; });
+      }
       const mv = this.sim.step(1 / 60);
       this.onStep?.(mv);
       this.updateGarment();
       this._simFrames = (this._simFrames || 0) + 1;
       if (mv < 6e-5) this._still = (this._still || 0) + 1; else this._still = 0;
       // sleep when settled (or after 12 s): zero CPU/GPU while idle
-      if ((this._still > 40 && this.sim.settled?.()) || this._simFrames > 720) {
+      if (!this._grab && ((this._still > 40 && this.sim.settled?.()) || this._simFrames > 720)) {
         this.simAwake = false;
         if (this.project?.shells?.length && this._mannequinMesh && !this._shellMeshes?.length) this.addShells(this.project, bodyFor(this.project));
         this.onSleep?.();
@@ -337,7 +341,10 @@ export class Viewer {
       g.setIndex(new THREE.BufferAttribute(pan.tris, 1));
       g.computeBoundingSphere();
       const mesh = new THREE.Mesh(g, this.materialFor(project, pan.panel));
-      if (pan.panel.zBias) { mesh.material.polygonOffset = true; mesh.material.polygonOffsetFactor = -2; mesh.material.polygonOffsetUnits = -4; }
+      // outer layers always win where two layers lie close together, so an inner piece never flickers through
+      const rank = layerRank(project, pan.panel) + (pan.panel.zBias ? 0.5 : 0);
+      if (rank > 0) { mesh.material.polygonOffset = true; mesh.material.polygonOffsetFactor = -2 * rank; mesh.material.polygonOffsetUnits = -6 * rank; }
+      mesh.renderOrder = rank;
       mesh.userData.panelId = pan.id;
       mesh.frustumCulled = false;
       this.garment.add(mesh);
@@ -504,7 +511,7 @@ export class Viewer {
     tape.frustumCulled = false; grp.add(tape); grp.add(slider);
     if (z.end === 'two-way' || z.end === 'two-way-closed') { const s2 = slider.clone(); s2.rotation.z = Math.PI; grp.add(s2); grp.userData.slider2 = s2; }
     this.garment.add(grp);
-    this.trimObjs.push({ obj: grp, anchors, zipper: { teeth, tape, slider, th } });
+    this.trimObjs.push({ obj: grp, anchors, trim: t, zipper: { teeth, tape, slider, th } });
   }
 
   buildEdgeTrim(t, sim, color) {
@@ -646,7 +653,8 @@ export class Viewer {
       const mat = this.materialFor(project, panel, spec.fabric, 0.97);
       if (spec.fabric === 'rib-knit') { const f = resolveFabric(project, panel.fabric, panel.fabricOverrides); mat.color.set(panel.finish?.color || f.look.color).multiplyScalar(0.93); mat.map = null; }
       const base = new THREE.Color(panel.finish?.color || resolveFabric(project, panel.fabric, panel.fabricOverrides).look.color);
-      const col = buildCollar(spec, stations, mat, base.clone().multiplyScalar(0.45), this.threadColor(project, panel));
+      const bd = bodyFor(project);
+      const col = buildCollar(spec, stations, mat, base.clone().multiplyScalar(0.45), this.threadColor(project, panel), { x: 0, y: bd.headY, z: 0.012, r: bd.headR / 1.12 });
       this.garment.add(col.group);
       this.stitchLines.push({ line: col.group, update: col.update });
     }
@@ -741,7 +749,9 @@ export class Viewer {
           q.setFromRotationMatrix(m4);
           mtx.compose(pts[i].clone().addScaledVector(nrm[i], 0.0012), q, one); zp.tape.setMatrixAt(i, mtx);
           if (zp.teeth) { mtx.compose(pts[i].clone().addScaledVector(nrm[i], 0.0012 + zp.th), q, one); zp.teeth.setMatrixAt(i, mtx); }
-          if (i === pts.length - 1) { zp.slider.position.copy(pts[i]).addScaledVector(nrm[i], 0.003); zp.slider.quaternion.copy(q); }
+          const sIdx = Math.round((t.trim?.slider ?? 1) * (pts.length - 1));
+          if (i === sIdx) { zp.slider.position.copy(pts[i]).addScaledVector(nrm[i], 0.003); zp.slider.quaternion.copy(q); }
+          if (i > sIdx && zp.teeth) { mtx.compose(pts[i], q, new THREE.Vector3(0, 0, 0)); zp.teeth.setMatrixAt(i, mtx); } // unzipped: the two halves have parted
           if (i === 0 && t.obj.userData.slider2) { t.obj.userData.slider2.position.copy(pts[i]).addScaledVector(nrm[i], 0.003); t.obj.userData.slider2.quaternion.copy(q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI)); }
         }
         zp.tape.instanceMatrix.needsUpdate = true; if (zp.teeth) zp.teeth.instanceMatrix.needsUpdate = true;
@@ -933,6 +943,51 @@ export class Viewer {
     const hit = rc.intersectObjects(this.panelMeshes, false)[0];
     if (!hit || !hit.uv) return null;
     return { panelId: hit.object.userData.panelId, local: [hit.uv.x * 10, hit.uv.y * 10], point: hit.point };
+  }
+
+  /** What fastening is under the pointer: { kind: 'zipper'|'button', trim } or null. */
+  pickTrim(clientX, clientY) {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+    const rc = new THREE.Raycaster(); rc.setFromCamera(ndc, this.camera); rc.params.Line = { threshold: 0.004 };
+    let best = null;
+    for (const t of this.trimObjs) {
+      if (!t.trim) continue;
+      const hits = rc.intersectObject(t.obj, true);
+      if (hits.length && (!best || hits[0].distance < best.d)) best = { d: hits[0].distance, t };
+    }
+    if (!best) return null;
+    // something in front of it (another layer)? then it is not clickable
+    const cloth = rc.intersectObjects(this.panelMeshes, false)[0];
+    if (cloth && cloth.distance < best.d - 0.02) return null;
+    const type = best.t.trim.type;
+    return { kind: best.t.zipper ? 'zipper' : /button|snap|toggle/.test(type) ? 'button' : 'trim', trim: best.t.trim };
+  }
+
+  /** Pull mode: drag the cloth itself. The grabbed point follows the pointer; the rest reacts through the solver. */
+  setGrab(on) {
+    this.grabMode = on;
+    if (this._grabBound) return;
+    this._grabBound = true;
+    const el = this.renderer.domElement; const rc = new THREE.Raycaster(); const ndc = new THREE.Vector2();
+    const ray = (e) => { const r = el.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); rc.setFromCamera(ndc, this.camera); };
+    el.addEventListener('pointerdown', (e) => {
+      if (!this.grabMode || !this.sim) return;
+      ray(e);
+      const hit = rc.intersectObjects(this.panelMeshes, false)[0];
+      if (!hit || !hit.face) return;
+      const pan = this.sim.panels.find((p) => p.id === hit.object.userData.panelId); if (!pan) return;
+      // pinch the three corners of the triangle under the pointer
+      const ids = [hit.face.a, hit.face.b, hit.face.c].map((i) => i + pan.offset);
+      const P = this.sim.pos;
+      this._grab = { ids, inv: ids.map((i) => this.sim.inv[i]), off: ids.map((i) => new THREE.Vector3(P[i * 3] - hit.point.x, P[i * 3 + 1] - hit.point.y, P[i * 3 + 2] - hit.point.z)), dist: hit.distance, target: hit.point.clone(), id: e.pointerId };
+      this.controls.enabled = false;
+      el.setPointerCapture?.(e.pointerId);
+      e.stopPropagation();
+    }, true);
+    el.addEventListener('pointermove', (e) => { if (!this._grab || e.pointerId !== this._grab.id) return; ray(e); this._grab.target.copy(rc.ray.origin).addScaledVector(rc.ray.direction, this._grab.dist); this.simAwake = true; this._simFrames = Math.min(this._simFrames || 0, 500); this._still = 0; });
+    const end = (e) => { if (!this._grab || e.pointerId !== this._grab.id) return; this._grab.ids.forEach((i, k) => { this.sim.inv[i] = this._grab.inv[k]; }); this._grab = null; this.controls.enabled = true; this.simAwake = true; this._simFrames = Math.min(this._simFrames || 0, 420); this._still = 0; };
+    el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
   }
 
   snapshot(width = 1024) {

@@ -150,7 +150,7 @@ export function buildCloth(project) {
       inv.push(1 / ((fab.weightGsm / 1000) * (Math.max(area[q], h * h * 0.2) / 1e4)));
       fric.push(Math.min(0.95, fab.mech ? fab.mech.mu * 1.1 : fab.friction * 0.6));
       // collision margin: skin clearance + half the cloth thickness (thick coatings and leathers stand further off)
-      thk.push(0.0045 + Math.min(0.012, (fab.thicknessMm || 0.5) / 2000 * 2) + rank * 0.007 + (panel.zBias ? 0.0035 : 0));
+      thk.push(0.0045 + Math.min(0.012, (fab.thicknessMm || 0.5) / 2000 * 2) + rank * 0.009 + (panel.zBias ? 0.0035 : 0));
       gar.push(panel.garment);
     }
 
@@ -271,6 +271,7 @@ export function buildCloth(project) {
     const pairs = [];
     for (let s = 0; s < samples; s++) {
       const t = s / (samples - 1);
+      if (seam.open && t < seam.open) continue; // unzipped / unbuttoned part of a closure
       const tb = reverse ? 1 - t : t;
       const ia = nearest(pa, ...pathAt(ea, t), true);
       const ib = nearest(pb, ...pathAt(eb, tb), true);

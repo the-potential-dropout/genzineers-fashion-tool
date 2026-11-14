@@ -8,7 +8,7 @@
 import { ACTION_DOCS, catalog, summarizeProject } from '../core/actions.js';
 
 export const SCOPES = {
-  shape: { label: 'Shape & pattern', actions: ['new_garment', 'add_garment', 'remove_garment', 'set_layer', 'set_option', 'set_size', 'add_panel', 'update_panel', 'move_point', 'insert_point', 'delete_point', 'remove_panel'] },
+  shape: { label: 'Shape & pattern', actions: ['new_garment', 'add_garment', 'remove_garment', 'set_layer', 'set_wear', 'set_option', 'set_size', 'add_panel', 'update_panel', 'move_point', 'insert_point', 'delete_point', 'remove_panel'] },
   construction: { label: 'Stitching & assembly', actions: ['set_stitch', 'apply_recommendations', 'add_seam', 'remove_seam'] },
   materials: { label: 'Fabrics, knits, blends & fill', actions: ['set_fabric', 'create_fabric', 'create_blend', 'set_insulation', 'set_knit'] },
   color: { label: 'Colour & dyeing', actions: ['set_finish:color', 'set_finish:dye'] },

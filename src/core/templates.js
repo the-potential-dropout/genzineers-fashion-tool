@@ -232,7 +232,7 @@ export function templateGarments(templateId) {
 /** Build panels/seams/trims/overlays for one garment spec. */
 export function buildGarment(spec, body) {
   const gen = GENERATORS[spec.generator];
-  const opts = { ...spec.options, __stitch: spec.stitch, __button: spec.button, __body: body };
+  const opts = { ...spec.options, __stitch: spec.stitch, __button: spec.button, __body: body, __wear: spec.wear || {} };
   const out = gen.build(opts, spec.prefix, spec.fabric);
   if (spec.sleeveFabric) for (const p of out.panels) if (p.role === 'sleeve') p.fabric = spec.sleeveFabric;
   for (const p of out.panels) p.garment = spec.id;
