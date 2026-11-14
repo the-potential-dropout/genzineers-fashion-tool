@@ -144,5 +144,65 @@ export function buildGlove(o, prefix = '', fabric = 'leather-lambskin') {
   };
   if (o.closure === 'rib-cuff' || T.knit) shell.bands.push({ from: -Math.min(cuff, 0.07), to: 0, look: { ...shell.look, pattern: 'rib', patternScale: 9 } });
   if (o.closure === 'strap-buckle' || o.closure === 'snap') shell.bands.push({ from: -0.03, to: -0.012, look: { ...shell.look, roughness: Math.max(0.2, (shell.look.roughness || 0.6) - 0.15) } });
-  return { panels: [], seams: [], trims: [], overlays: [], shells: [shell] };
+  return { panels: [], seams: [], trims: [], overlays: [], shells: [shell], pieces: glovePieces(o, o.__body, fabric) };
+}
+
+/**
+ * The pieces a glove is actually cut from (table-cut leather glove):
+ *  - trank: the hand, back and palm in one piece folded along the index finger, with the eight
+ *    finger blades slit at the top and the thumb hole cut out of the palm
+ *  - thumb, sewn into the thumb hole (with a quirk at its base)
+ *  - fourchettes: the long strips between the fingers that give them depth (three pairs per hand)
+ *  - quirks: small diamonds at the base of the fingers for movement
+ *  - cuff binding / welt, and the lining cut to the same shapes
+ * Sizes come from the hand: length (wrist to middle fingertip) and palm girth.
+ */
+export function glovePieces(o, body, fabric) {
+  const T = GLOVE_TYPES[o.type] || GLOVE_TYPES.dress;
+  if (T.knit) return [];
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const k = (body?.hs || 1) * (body?.mannequin === 'female' ? 0.92 : 1);
+  const HL = 19 * k; const PW = (21.5 * k) / 2 + (o.lining && o.lining !== 'none' ? 0.5 : 0); // hand length, half palm girth (+ room for a lining)
+  const cuff = o.cuffLength || T.cuff; const cy = HL * 0.54; // wrist to the finger crotches
+  const arc = (x0, x1, top, n = 6) => { const out = []; const r = (x1 - x0) / 2; for (let i = 0; i <= n; i++) { const a = Math.PI - (i / n) * Math.PI; out.push([r1((x0 + x1) / 2 + Math.cos(a) * r), r1(top - r + Math.sin(a) * r)]); } return out; };
+  const pieces = [];
+  if (T.mitten) {
+    const W = PW + 1.6; const H = HL + 1.2;
+    const round = (w, h) => [[0, -cuff], [w, -cuff], [w, h - w / 2], ...arc(0, w, h).reverse()];
+    pieces.push({ name: 'Mitten back', points: round(W, H), fabric, cut: 2, note: 'One piece over the back of the hand and fingers; cut a mirrored pair.' });
+    pieces.push({ name: 'Mitten palm (upper, with thumb gusset)', points: [[0, HL * 0.3], [W * 0.45, HL * 0.3], [W * 0.5, HL * 0.42], [W, HL * 0.42], [W, H - W / 2], ...arc(0, W, H).reverse()], fabric, cut: 2, note: 'Sews to the lower palm along the thumb line; the notch forms the top of the thumb opening.' });
+    pieces.push({ name: 'Mitten palm (lower) with thumb front', points: [[0, -cuff], [W, -cuff], [W, HL * 0.42], [W * 0.5, HL * 0.42], [W * 0.45, HL * 0.3], [W * 0.4, HL * 0.3], ...arc(W * 0.02, W * 0.4, HL * 0.3 + HL * 0.36).reverse()], fabric, cut: 2, note: 'The tongue is the front of the thumb; it folds up against the thumb back.' });
+    pieces.push({ name: 'Thumb back', points: [[0, 0], [W * 0.42, 0], [W * 0.42, HL * 0.3], ...arc(0, W * 0.42, HL * 0.36 + 2).reverse()], fabric, cut: 2, note: 'Sewn round the thumb tongue, then into the thumb opening.' });
+    pieces.push({ name: 'Cuff', points: [[0, 0], [PW * 2 + 2, 0], [PW * 2 + 2, cuff + 2], [0, cuff + 2]], fabric: o.closure === 'rib-cuff' ? 'rib-knit' : fabric, cut: 2, note: 'Folded double; elastic or rib draws it in at the wrist.' });
+  } else {
+    // trank
+    const fw = [2.1, 2.4, 2.5, 2.5].map((v) => v * k); const fl = [6.0, 7.6, 8.2, 7.4].map((v) => v * k); // little, ring, middle, index
+    const W = 2 * PW + 0.6; const side = (PW + 0.3 - fw.reduce((a, b) => a + b, 0)) / 1; // ease left at the outer edge of each half
+    const pts = [[0, -cuff], [r1(W), -cuff]];
+    const blades = [];
+    let x = W - side * 0.5;
+    for (let i = 0; i < 4; i++) { blades.push([x - fw[i], x, fl[i], i === 3]); x -= fw[i]; } // palm half: little -> index (towards the fold)
+    for (let i = 3; i >= 0; i--) { blades.push([x - fw[i], x, fl[i], i === 3]); x -= fw[i]; } // back half: index -> little
+    pts.push([r1(W), r1(cy * 0.9)]);
+    blades.forEach(([x0, x1, len, isIndex], bi) => {
+      const next = blades[bi + 1];
+      const joined = isIndex && next && next[3]; // the two index blades are one piece, folded down the middle
+      if (joined) return;
+      const prev = blades[bi - 1]; const start = isIndex && prev && prev[3] ? prev[1] : x1;
+      const tips = arc(x0 + 0.1, start - 0.1, cy + len).reverse();
+      pts.push([r1(start - 0.1), r1(cy)], ...tips, [r1(x0 + 0.1), r1(cy)]);
+    });
+    pts.push([0, r1(cy * 0.9)]);
+    const hole = []; for (let i = 0; i < 18; i++) { const a = (i / 18) * Math.PI * 2; hole.push([r1(W * 0.73 + Math.cos(a) * 1.6 * k), r1(cy * 0.38 + Math.sin(a) * 2.3 * k)]); }
+    pieces.push({ name: 'Trank (back and palm, folded at the index finger)', points: pts, holes: [hole], fabric, cut: 2, note: `Cut a mirrored pair with the stretch across the hand. Slits between the finger blades take the fourchettes; the oval is the thumb hole. ${o.points === 'yes' ? 'Three rows of pointing are stitched on the back before closing. ' : ''}Side seam: ${o.seams}.` });
+    const TL = 10.4 * k;
+    pieces.push({ name: 'Thumb (with quirk)', points: [[0, 0], [1.2 * k, -1.2 * k], [2.4 * k, 0], [6.6 * k, 0], [6.6 * k, TL - 3.3 * k], ...arc(0, 6.6 * k, TL).reverse()].map(([a, b]) => [r1(a), r1(b)]), fabric, cut: 2, note: 'Folded and seamed up the inside, the rounded base is set into the thumb hole; the small V is the quirk.' });
+    const four = (len, nm) => ({ name: `Fourchette (${nm})`, points: [[0, 0], [0.8 * k, r1(len * 0.12)], [0.85 * k, r1(len * 0.8)], [0, r1(len)], [-0.85 * k, r1(len * 0.8)], [-0.8 * k, r1(len * 0.12)]].map(([a, b]) => [r1(a), b]), fabric, cut: 4, note: 'Two per gap, joined at the base into a V: they form the sides of the fingers.' });
+    pieces.push(four(fl[3] + 1.6, 'index / middle'), four(fl[2] + 1.6, 'middle / ring'), four(fl[1] + 1.4, 'ring / little'));
+    if (!/seamless/.test(o.seams || '')) pieces.push({ name: 'Quirk', points: [[0, 0], [0.6 * k, 0.8 * k], [0, 1.6 * k], [-0.6 * k, 0.8 * k]].map(([a, b]) => [r1(a), r1(b)]), fabric, cut: 6, note: 'A small diamond at the base of each fourchette pair for freedom of movement.' });
+    pieces.push({ name: o.closure === 'strap-buckle' ? 'Wrist strap' : 'Cuff binding / welt', points: [[0, 0], [r1(W + 1.5), 0], [r1(W + 1.5), 2.4], [0, 2.4]], fabric, cut: 2, note: o.closure === 'snap' ? 'Bound edge with a press stud at the wrist vent.' : 'Bound or turned and stitched.' });
+    if (T.cuff >= 10 || cuff >= 10) pieces.push({ name: 'Gauntlet cuff', points: [[0, 0], [r1(W + 6), 0], [r1(W + 1), r1(cuff)], [0, r1(cuff)]], fabric, cut: 2, note: 'Flared cuff sewn to the wrist of the trank.' });
+  }
+  if (o.lining && o.lining !== 'none') pieces.push({ name: `Lining (${GLOVE_LININGS[o.lining][0]})`, points: [[0, -cuff + 1], [r1(2 * PW + 1), -cuff + 1], [r1(2 * PW + 1), r1(HL)], [0, r1(HL)]], fabric: o.lining === 'shearling' ? 'shearling-merino' : o.lining === 'silk' ? 'silk-habotai' : 'rib-knit-wool', cut: 2, note: 'Made up as its own glove (knitted linings are seamless), turned, glued or tacked at the fingertips and closed into the cuff.' });
+  return pieces;
 }

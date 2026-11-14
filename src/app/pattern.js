@@ -224,6 +224,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
       g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
       if (!opt.allowance) { g.fillStyle = 'rgba(255,90,31,.06)'; g.fill(); }
       g.strokeStyle = opt.allowance ? muted : text; g.lineWidth = opt.allowance ? 1 : 1.3; g.setLineDash(opt.allowance ? [5, 3] : []); g.stroke(); g.setLineDash([]);
+      for (const hole of pan.holes || []) { g.strokeStyle = '#d0202e'; g.lineWidth = 1.4; g.setLineDash([]); g.beginPath(); hole.forEach((q, i) => { const [x, y] = toScreen(L, q); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); g.fillStyle = css.getPropertyValue('--surface') || '#fff'; g.fill(); g.stroke(); const [hx, hy] = toScreen(L, hole[0]); g.fillStyle = '#d0202e'; g.font = '10px sans-serif'; g.fillText('✂ cut out', hx + 4, hy); }
       // seams: coloured, lettered, notched
       if (opt.stitch) {
         const done = new Set();

@@ -270,6 +270,60 @@ function sweptChain(lk, d, curve, mat) {
   return grp;
 }
 
+/**
+ * A clasp, modelled along x with its two fixing eyes at the ends. `g` is the chain's wire gauge
+ * (mm) so the clasp is in proportion. Each end carries a jump ring turned across the eye: the
+ * last link of the chain on that side passes through it, so the clasp is physically connected.
+ * Returns { group, length (mm) }.
+ */
+export function claspGroup(id, g, mat, chainWidth = g * 3) {
+  const grp = new THREE.Group(); const mm = MM;
+  const tor = (R, r, x, rot) => { const m = new THREE.Mesh(new THREE.TorusGeometry(R * mm, r * mm, 8, 20), mat); m.position.x = x * mm; if (rot) m.rotation.set(...rot); grp.add(m); return m; };
+  const box = (w, h, d, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w * mm, h * mm, d * mm), mat); m.position.set(x * mm, y * mm, z * mm); grp.add(m); return m; };
+  const cyl = (r, l, x = 0, axis = 'x', y = 0, z = 0) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r * mm, r * mm, l * mm, 18), mat); if (axis === 'x') m.rotation.z = Math.PI / 2; if (axis === 'z') m.rotation.x = Math.PI / 2; m.position.set(x * mm, y * mm, z * mm); grp.add(m); return m; };
+  const eye = g * 0.95; const ew = Math.max(0.3, g * 0.3); // fixing eye radius / wire
+  let L;
+  switch (id) {
+    case 'spring-ring': { L = g * 5.2; tor(g * 1.9, g * 0.42, 0); box(g * 0.9, g * 0.5, g * 0.5, g * 1.3, g * 1.35, 0); tor(eye * 0.7, ew, -g * 2.5, [0, 0, 0]); break; }
+    case 'toggle': { L = g * 9; tor(g * 2.6, g * 0.5, -g * 1.6); cyl(g * 0.5, g * 6.4, g * 2.4, 'y'); tor(eye * 0.6, ew, g * 1.7, [0, 0, 0]); break; }
+    case 'cuban-box': case 'box-clasp': case 'push-button': {
+      const w = id === 'cuban-box' ? chainWidth * 1.02 : g * 3.2; const hh = id === 'cuban-box' ? g * 1.25 : g * 1.5; L = id === 'cuban-box' ? g * 6.2 : g * 5;
+      box(L * 0.62, w, hh, -L * 0.14); // the box
+      box(L * 0.3, w * 0.7, hh * 0.45, L * 0.3); // the tongue's base plate
+      box(g * 0.5, w * 0.34, hh * 1.25, L * 0.19, 0, 0); // thumb piece
+      if (id !== 'push-button') for (const sd of [1, -1]) { // figure-8 safety latches on each side
+        const m = new THREE.Mesh(new THREE.TorusGeometry(g * 0.62 * mm, g * 0.14 * mm, 6, 14), mat); m.position.set(g * 0.25 * mm, sd * (w / 2 + g * 0.2) * mm, 0); m.rotation.x = Math.PI / 2; m.scale.x = 1.9; grp.add(m);
+        const pin = new THREE.Mesh(new THREE.SphereGeometry(g * 0.22 * mm, 8, 6), mat); pin.position.set(g * 1.2 * mm, sd * (w / 2 + g * 0.2) * mm, 0); grp.add(pin);
+      } else cyl(g * 0.3, g * 0.5, -L * 0.14, 'z', 0, hh * 0.6);
+      break;
+    }
+    case 'fold-over': { L = g * 6.5; box(L * 0.92, g * 2.6, g * 0.5, 0, 0, -g * 0.2); box(L * 0.8, g * 2.4, g * 0.4, -L * 0.04, 0, g * 0.35); cyl(g * 0.28, g * 2.7, L * 0.42, 'y', 0, g * 0.1); box(g * 0.7, g * 1.1, g * 0.35, -L * 0.44, 0, g * 0.5); break; }
+    case 'magnetic': { L = g * 4.4; cyl(g * 1.3, g * 1.9, -g * 1.02); cyl(g * 1.3, g * 1.9, g * 1.02); cyl(g * 1.34, g * 0.08, 0); break; }
+    case 'barrel-screw': case 'bayonet': { L = g * 5.2; cyl(g * 0.95, g * 2.5, -g * 1.3); cyl(g * 0.95, g * 2.5, g * 1.3); for (const x of [-0.25, 0.25]) cyl(g * 1.0, g * 0.12, x * g); if (id === 'bayonet') cyl(g * 0.2, g * 0.5, g * 0.6, 'y', g * 0.9); break; }
+    case 'hook-eye': case 's-hook': case 'fish-hook': {
+      L = g * 6; const pts = []; for (let k = 0; k <= 30; k++) { const u = k / 30; pts.push(new THREE.Vector3((u - 0.5) * L * 0.72 * mm, Math.sin(u * Math.PI * 2) * g * (id === 'hook-eye' ? 0.75 : 1.15) * mm * (id === 'hook-eye' && u > 0.5 ? 0.2 : 1), 0)); }
+      grp.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, g * 0.36 * mm, 8, false), mat));
+      if (id === 'fish-hook') { const m = new THREE.Mesh(new THREE.SphereGeometry(g * 1.1 * mm, 14, 10), mat); m.scale.set(1.9, 1, 0.75); m.position.x = -L * 0.16 * mm; grp.add(m); }
+      break;
+    }
+    case 'slide-bead': case 'ball-connector': { L = g * 3; const m = new THREE.Mesh(new THREE.SphereGeometry(g * 1.5 * mm, 18, 12), mat); if (id === 'ball-connector') m.scale.set(1.5, 0.75, 0.75); grp.add(m); break; }
+    default: { // lobster claw (and swivel): teardrop body, a sprung trigger, and the claw tip closing the loop
+      L = g * 6.2; const sh = new THREE.Shape(); const a = g * 2.9; const bq = g * 1.55;
+      sh.moveTo(-a, 0); sh.bezierCurveTo(-a, bq * 1.1, a * 0.55, bq * 1.25, a, bq * 0.25); sh.lineTo(a * 0.92, 0); sh.bezierCurveTo(a * 0.6, -bq * 1.2, -a * 0.6, -bq * 1.15, -a, 0);
+      const hole = new THREE.Path(); hole.absellipse(a * 0.2, 0, a * 0.52, bq * 0.55, 0, Math.PI * 2, true); sh.holes.push(hole);
+      const geo = new THREE.ExtrudeGeometry(sh, { depth: g * 0.75, bevelEnabled: true, bevelThickness: g * 0.14, bevelSize: g * 0.12, bevelSegments: 2 }); geo.translate(0, 0, -g * 0.375); geo.scale(mm, mm, mm);
+      grp.add(new THREE.Mesh(geo, mat));
+      box(g * 0.9, g * 0.55, g * 0.5, -a * 0.2, -bq * 1.05, 0); // trigger
+      if (id === 'lobster-swivel') { cyl(g * 0.55, g * 0.9, -a - g * 0.5); L += g * 1.2; }
+      break;
+    }
+  }
+  // connection: fixing eye at each end + a jump ring turned through it that the chain's end link passes through
+  for (const sd of [-1, 1]) { tor(eye * 0.62, ew, sd * (L / 2 - eye * 0.2), [Math.PI / 2, 0, 0]); tor(eye * 0.95, ew, sd * (L / 2 + eye * 0.75), [0, 0, 0]); }
+  const length = L + eye * 3.4;
+  return { group: grp, length };
+}
+
 /** Necklace / bracelet path: a hanging loop (ellipse squashed at the back). */
 function chainCurve(lengthCm, around = 'neck') {
   const C = lengthCm * 10;
@@ -294,9 +348,13 @@ function chainMesh(spec, metalMat) {
   const pitch = L / (count * avg); // spread evenly so the loop closes on a whole link
   if (frame === 'sweep') {
     const sw = sweptChain(lk, spec.gauge || 1, curve, metalMat);
+    { const c2 = claspGroup(spec.clasp || 'lobster', spec.gauge || 1, metalMat); const back = curve.getPointAt(0.5); const tanB = curve.getTangentAt(0.5); const Nb = back.clone().setY(back.y * 0.25).normalize(); Nb.addScaledVector(tanB, -Nb.dot(tanB)).normalize(); c2.group.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(tanB, new THREE.Vector3().crossVectors(Nb, tanB).normalize(), Nb)); c2.group.position.copy(back); sw.add(c2.group); }
     sw.userData.curve = curve;
     return sw;
   }
+  const gz = spec.gauge || 1;
+  const clasp = claspGroup(spec.clasp || 'lobster', gz, metalMat, (LINK_DIMS[spec.link]?.b || 1.4) * 2 * gz + gz);
+  const half = (clasp.length / 2) * MM / curve.getLength(); // as a fraction of the chain
   const mesh = new THREE.InstancedMesh(g, metalMat, count);
   const m = new THREE.Matrix4(); const q = new THREE.Quaternion(); const up = new THREE.Vector3(0, 1, 0);
   const basis = new THREE.Matrix4(); const N = new THREE.Vector3(); const B = new THREE.Vector3();
@@ -313,7 +371,7 @@ function chainMesh(spec, metalMat) {
     q.setFromRotationMatrix(basis);
     if (frame === 'roll') q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (i % 2) * (twist || Math.PI / 2) + (lk.shape === 'helix' ? i * 0.55 : 0)));
     // leave room for the clasp at the back of the neck / wrist so it does not sit inside the links
-    const gap = Math.abs(t - 0.5) < ((spec.gauge || 1) * 3.9 * MM) / curve.getLength();
+    const gap = Math.abs(t - 0.5) < half; // the clasp takes the place of these links, its jump rings meeting the links either side
     m.compose(p, q, gap ? new THREE.Vector3(0, 0, 0) : new THREE.Vector3(s, 1, 1));
     mesh.setMatrixAt(i, m);
     u += (pitch * s * MM) / curve.getLength();
@@ -332,10 +390,9 @@ function chainMesh(spec, metalMat) {
     }
     grp.add(sm);
   }
-  // clasp at the back
-  const clasp = new THREE.Mesh(new THREE.CapsuleGeometry((spec.gauge || 1) * 1.1 * MM, (spec.gauge || 1) * 5 * MM, 4, 10), metalMat);
-  const back = curve.getPointAt(0.5); clasp.position.copy(back); clasp.rotation.z = Math.PI / 2;
-  grp.add(clasp);
+  // clasp at the back, lying along the chain, flat side out
+  { const back = curve.getPointAt(0.5); const tanB = curve.getTangentAt(0.5); const Nb = back.clone().setY(back.y * 0.25).normalize(); Nb.addScaledVector(tanB, -Nb.dot(tanB)).normalize(); const Bb = new THREE.Vector3().crossVectors(Nb, tanB).normalize();
+    clasp.group.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(tanB, Bb, Nb)); clasp.group.position.copy(back); grp.add(clasp.group); }
   grp.userData.curve = curve;
   return grp;
 }

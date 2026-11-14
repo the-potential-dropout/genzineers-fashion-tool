@@ -70,6 +70,8 @@ export function mergeGarment(p, g) {
   for (const s of out.seams) p.seams.push({ id: uid('seam'), threadColor: '#d8d2c4', thread: 'poly-corespun', ...s });
   for (const t of out.trims) p.trims.push({ id: uid('trim'), ...t });
   for (const o of out.overlays) p.overlays.push({ id: uid('ov'), ...o });
+  // pieces that are cut and made up but fitted rather than draped (glove tranks, fourchettes, thumbs...)
+  p.pieces = [...(p.pieces || []).filter((k) => k.garment !== g.id), ...(out.pieces || []).map((k, i) => ({ id: `${g.id}-pc${i}`, garment: g.id, ...k }))];
   p.garmentForms = { ...(p.garmentForms || {}), [g.id]: { colliders: out.colliders || [], display: out.display || {}, meta: out.meta || {}, shells: out.shells || [], collars: out.collars || [], props: (out.props || []).map((x) => ({ ...x, garment: g.id })) } };
   syncForms(p);
 }

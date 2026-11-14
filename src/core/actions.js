@@ -237,6 +237,7 @@ export function applyAction(project, action) {
       p.seams = p.seams.filter((s) => !ids.has(s.a.panel) && !ids.has(s.b.panel));
       p.trims = p.trims.filter((t) => !ids.has(t.panel));
       p.overlays = p.overlays.filter((o) => !ids.has(o.panel));
+      p.pieces = (p.pieces || []).filter((k) => k.garment !== g.id);
       syncForms(p);
       break;
     }
