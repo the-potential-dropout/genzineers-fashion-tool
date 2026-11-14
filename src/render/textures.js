@@ -166,7 +166,15 @@ function applyFx(g, fx, base) {
     case 'slub': for (let k = 0; k < 120; k++) { g.fillStyle = css(shade(base, 1.2), 0.25); g.fillRect(0, r() * SIZE, SIZE, 1 + r() * 2); } break;
     case 'faded': { const gr = g.createRadialGradient(SIZE / 2, SIZE / 2, 10, SIZE / 2, SIZE / 2, SIZE * 0.7); gr.addColorStop(0, 'rgba(255,255,255,0.28)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, SIZE, SIZE); break; }
     case 'mottled': for (let k = 0; k < 60; k++) { g.fillStyle = `rgba(255,255,255,${0.05 + r() * 0.12})`; g.beginPath(); g.arc(r() * SIZE, r() * SIZE, 10 + r() * 30, 0, Math.PI * 2); g.fill(); } break;
-    case 'distressed': for (let k = 0; k < 18; k++) { g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 1 + r() * 2; const x = r() * SIZE; const y = r() * SIZE; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 20 + r() * 30, y + (r() - 0.5) * 6); g.stroke(); } applyFx(g, 'faded', base); break;
+    case 'distressed': {
+      // hand-sanded fades (thighs / seat), fine vertical wear streaks, hip whiskers and small nicks
+      for (const [fx, fy, rr, al] of [[0.5, 0.3, 0.42, 0.34], [0.5, 0.78, 0.3, 0.22], [0.15, 0.55, 0.2, 0.14], [0.85, 0.5, 0.22, 0.14]]) { const gr = g.createRadialGradient(SIZE * fx, SIZE * fy, 4, SIZE * fx, SIZE * fy, SIZE * rr); gr.addColorStop(0, `rgba(255,255,255,${al})`); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, SIZE, SIZE); }
+      for (let k = 0; k < 260; k++) { g.fillStyle = `rgba(255,255,255,${0.02 + r() * 0.05})`; g.fillRect(r() * SIZE, r() * SIZE, 0.6, 4 + r() * 14); }
+      g.lineCap = 'round';
+      for (let k = 0; k < 7; k++) { const y = SIZE * (0.08 + k * 0.022); g.strokeStyle = `rgba(255,255,255,${0.05 + r() * 0.06})`; g.lineWidth = 1.6 + r(); g.beginPath(); g.moveTo(SIZE * 0.08, y + r() * 4); g.quadraticCurveTo(SIZE * 0.3, y - 5 - r() * 5, SIZE * 0.46, y + 4 + r() * 4); g.stroke(); g.beginPath(); g.moveTo(SIZE * 0.92, y + r() * 4); g.quadraticCurveTo(SIZE * 0.7, y - 5 - r() * 5, SIZE * 0.54, y + 4 + r() * 4); g.stroke(); }
+      for (let k = 0; k < 5; k++) { const x = r() * SIZE; const y = r() * SIZE; g.strokeStyle = 'rgba(255,255,255,0.4)'; g.lineWidth = 0.5; for (let t = 0; t < 3; t++) { g.beginPath(); g.moveTo(x, y + t * 1.1); g.lineTo(x + 5 + r() * 9, y + t * 1.1 + (r() - 0.5)); g.stroke(); } }
+      break;
+    }
     case 'selvedge': break;
     case 'waxed': { const gr = g.createLinearGradient(0, 0, SIZE, SIZE); gr.addColorStop(0, 'rgba(0,0,0,0.15)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.08)'); gr.addColorStop(1, 'rgba(0,0,0,0.15)'); g.fillStyle = gr; g.fillRect(0, 0, SIZE, SIZE); break; }
     case 'quilted': g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 3; for (let y = 0; y < SIZE; y += 64) { g.beginPath(); g.moveTo(0, y); g.lineTo(SIZE, y); g.stroke(); } for (let y = 32; y < SIZE; y += 64) { const gr = g.createLinearGradient(0, y - 32, 0, y + 32); gr.addColorStop(0, 'rgba(0,0,0,0.15)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.12)'); gr.addColorStop(1, 'rgba(0,0,0,0.15)'); g.fillStyle = gr; g.fillRect(0, y - 32, SIZE, 64); } break;
@@ -348,3 +356,49 @@ export function fabricTextures(fab, finish = {}, dyeEffectKey, onUpdate, repeatO
   cache.set(key, out);
   return out;
 }
+
+/**
+ * Placed wear and damage, drawn the way denim really fails: the blue warp threads break and
+ * the white weft threads stay, spanning the hole; the edge frays; the cloth round it is sanded pale.
+ * kind: 'rip' | 'shred' | 'blowout' | 'whiskers' | 'fade' | 'fray' | 'paint' | 'bleach'
+ */
+export function distressTexture(kind, base = '#3b5b8c', seed = 7, skin = '#9aa1ab') {
+  const W = 256; const H = 160; const cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d'); const r = rng(seed);
+  const hole = (cx, cy, rx, ry, threads) => {
+    const pts = []; for (let a = 0; a < 6.283; a += 0.35) pts.push([cx + Math.cos(a) * rx * (0.82 + r() * 0.3), cy + Math.sin(a) * ry * (0.75 + r() * 0.45)]);
+    // sanded halo
+    // soft and elliptical, fading out completely before the edge of the piece
+    g.save(); g.translate(cx, cy); g.scale(1, Math.min(1, (H * 0.48) / (W * 0.48))); const gr = g.createRadialGradient(0, 0, Math.min(rx, ry) * 0.5, 0, 0, W * 0.48); gr.addColorStop(0, 'rgba(255,255,255,0.5)'); gr.addColorStop(0.55, 'rgba(255,255,255,0.2)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(0, 0, W * 0.48, 0, 7); g.fill(); g.restore();
+    g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
+    g.save(); g.clip();
+    g.fillStyle = skin; g.fillRect(0, 0, W, H); // what shows through the hole
+    g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(0, 0, W, cy - ry * 0.45); // shadow under the upper edge
+    // surviving weft: white threads across the hole, slack and uneven
+    for (let k = 0; k < threads; k++) { const y = cy - ry + (k + r()) * ((2 * ry) / threads); g.strokeStyle = `rgba(250,248,240,${0.65 + r() * 0.35})`; g.lineWidth = 0.7 + r() * 0.9; g.beginPath(); g.moveTo(cx - rx * 1.3, y); g.bezierCurveTo(cx - rx * 0.4, y + (r() - 0.3) * 5, cx + rx * 0.4, y + (r() - 0.3) * 5, cx + rx * 1.3, y + (r() - 0.5) * 2); g.stroke(); if (r() > 0.75) k += 1; }
+    g.restore();
+    // frayed edge: short broken warp ends and fuzz
+    for (const [x, y] of pts) for (let k = 0; k < 7; k++) { const a = Math.atan2(y - cy, x - cx) + (r() - 0.5) * 1.2; const l = 2 + r() * 7; g.strokeStyle = r() > 0.4 ? 'rgba(250,248,240,0.9)' : base; g.lineWidth = 0.6 + r() * 0.5; g.beginPath(); g.moveTo(x + (r() - 0.5) * 5, y + (r() - 0.5) * 4); g.lineTo(x + Math.cos(a) * l * (r() > 0.5 ? 1 : -0.5), y + Math.sin(a) * l * 0.4); g.stroke(); }
+  };
+  switch (kind) {
+    case 'rip': hole(W / 2, H / 2, W * 0.34, H * 0.2, 16); break;
+    case 'blowout': hole(W / 2, H / 2, W * 0.36, H * 0.36, 26); break;
+    case 'shred': for (let k = 0; k < 4; k++) hole(W / 2 + (r() - 0.5) * 20, H * (0.16 + k * 0.23), W * (0.26 + r() * 0.1), H * 0.07, 6); break;
+    case 'whiskers': g.lineCap = 'round'; for (let k = 0; k < 6; k++) { const y = H * (0.12 + k * 0.15); g.strokeStyle = `rgba(255,255,255,${0.3 + r() * 0.2})`; g.lineWidth = 3 + r() * 3; g.filter = 'blur(1.5px)'; g.beginPath(); g.moveTo(8, y + 10); g.quadraticCurveTo(W * 0.5, y - 14 - r() * 8, W - 8, y + 8); g.stroke(); } g.filter = 'none'; break;
+    case 'fade': { g.save(); g.translate(W / 2, H / 2); g.scale(1, H / W); const gr = g.createRadialGradient(0, 0, 6, 0, 0, W * 0.49); gr.addColorStop(0, 'rgba(255,255,255,0.55)'); gr.addColorStop(0.6, 'rgba(255,255,255,0.22)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(0, 0, W * 0.49, 0, 7); g.fill(); g.restore(); break; }
+    case 'bleach': for (let k = 0; k < 26; k++) { const x = r() * W; const y = r() * H; const rr = 4 + r() * 22; const gr = g.createRadialGradient(x, y, 1, x, y, rr); gr.addColorStop(0, 'rgba(255,250,235,0.75)'); gr.addColorStop(1, 'rgba(255,250,235,0)'); g.fillStyle = gr; g.fillRect(x - rr, y - rr, rr * 2, rr * 2); } break;
+    case 'paint': for (let k = 0; k < 40; k++) { g.fillStyle = ['#f4f1ea', '#e8e2d0', '#d94f30', '#2f6bff'][Math.floor(r() * 4)]; g.beginPath(); g.arc(r() * W, r() * H, 0.8 + r() * r() * 7, 0, 7); g.fill(); } break;
+    case 'fray': for (let k = 0; k < 260; k++) { const x = r() * W; g.strokeStyle = r() > 0.35 ? 'rgba(250,248,240,0.95)' : base; g.lineWidth = 0.6 + r() * 0.6; g.beginPath(); g.moveTo(x, H * 0.5 + (r() - 0.5) * 6); g.lineTo(x + (r() - 0.5) * 7, H * 0.5 + 8 + r() * (H * 0.45)); g.stroke(); } g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(0, H * 0.42, W, H * 0.1); break;
+    default: break;
+  }
+  return cv;
+}
+export const DISTRESS = {
+  rip: { name: 'Knee rip (threads left in)', w: 13, h: 7, note: 'Slash the warp with a blade, pull out the blue threads, leave the white weft.' },
+  blowout: { name: 'Blow-out hole', w: 12, h: 11, note: 'Grind through with a rotary tool, then wash to open and fray.' },
+  shred: { name: 'Shredded ladder', w: 12, h: 16, note: 'Several parallel cuts 1.5 cm apart; pull the warp from each strip.' },
+  whiskers: { name: 'Whiskers (hip / knee creases)', w: 22, h: 14, note: 'Hand-sanded or laser-burnt crease lines over a 3D pattern board.' },
+  fade: { name: 'Sanded fade', w: 20, h: 24, note: 'Hand sanding or laser; thighs, seat and knees.' },
+  bleach: { name: 'Bleach splash', w: 18, h: 14, note: 'Sprayed or sponged hypochlorite / permanganate, then neutralised.' },
+  paint: { name: 'Paint splatter', w: 16, h: 12, note: 'Flicked pigment paint, heat-cured.' },
+  fray: { name: 'Frayed edge', w: 20, h: 5, note: 'Cut hem left raw; washing opens the fringe.' },
+};

@@ -21,7 +21,7 @@ import { buildAvatar, gradePoint } from '../sim/avatar.js';
 import { MANNEQUINS } from '../sim/mannequins.js';
 import { legwearTop } from '../core/legwear.js';
 import { panelAnchor, layerRank } from '../sim/cloth.js';
-import { fabricTextures } from './textures.js';
+import { fabricTextures, distressTexture } from './textures.js';
 import { buildCollar } from './collars.js';
 import { tieKnot, bowTie } from './neckwear.js';
 import { designBitmap, previewCanvas, loadArtwork, artworkReady, STITCH_TYPES } from '../make/embroidery.js';
@@ -531,13 +531,20 @@ export class Viewer {
       const mat = this.materialFor(project, panel, fabric, OVERLAY_TINT[ov.kind] ?? 0.95);
       if (ov.color) mat.color.set(ov.color);
       if (fabric === 'rib-knit' && !ov.color) { const f = resolveFabric(project, panel.fabric, panel.fabricOverrides); mat.color.set(panel.finish?.color || f.look.color).multiplyScalar(0.95); mat.map = null; }
+      if (ov.kind === 'distress') { // wear and damage: a decal of the damage itself over the cloth
+        const basecol = panel.finish?.color || resolveFabric(project, panel.fabric, panel.fabricOverrides).look.color;
+        const tex = new THREE.CanvasTexture(distressTexture(ov.style, basecol, (ov.id || '').length * 7 + Math.round(xs[0] * 3), project.look?.skin || '#9aa1ab')); tex.colorSpace = THREE.SRGBColorSpace;
+        const w = Math.max(...xs) - x0; const hh = Math.max(...ys) - y0;
+        tex.repeat.set(10 / w, 10 / hh); tex.offset.set(-x0 / w, -y0 / hh);
+        mat.map = tex; mat.bumpMap = null; mat.color.set('#ffffff'); mat.transparent = true; mat.alphaTest = 0.02; mat.depthWrite = false; mat.polygonOffset = true; mat.polygonOffsetFactor = -4; mat.polygonOffsetUnits = -8; mat.roughness = 0.95;
+      }
       const mesh = new THREE.Mesh(g, mat);
       mesh.frustumCulled = false;
       this.garment.add(mesh);
-      const lift = ov.kind === 'vent' || ov.kind === 'pleat' ? 0.0012 : ov.kind === 'lapel' || ov.kind === 'collar' || ov.kind === 'flap' ? 0.0045 : 0.003;
+      const lift = ov.kind === 'distress' ? 0.0014 : ov.kind === 'vent' || ov.kind === 'pleat' ? 0.0012 : ov.kind === 'lapel' || ov.kind === 'collar' || ov.kind === 'flap' ? 0.0045 : 0.003;
       this.overlays.push({ mesh, anchors, lift });
       // every sewn-on piece gets a crisp edge and its topstitching
-      if (ov.kind !== 'pleat' && !ov.hidden) {
+      if (ov.kind !== 'pleat' && ov.kind !== 'distress' && !ov.hidden) {
         const base = new THREE.Color(ov.color || panel.finish?.color || resolveFabric(project, fabric || panel.fabric, fabric ? {} : panel.fabricOverrides).look.color);
         this.addPathLine(sim, ov.panel, [...pts, pts[0]], lift + 0.0007, base.clone().multiplyScalar(0.45), false);
         if (!['vent', 'yoke-line'].includes(ov.kind)) { const ins = insetPoly(pts, ov.kind === 'waistband' || ov.kind === 'band' || ov.kind === 'cuff' ? 0.5 : 0.35); if (ins) this.addPathLine(sim, ov.panel, [...ins, ins[0]], lift + 0.0009, this.threadColor(project, panel), true); }

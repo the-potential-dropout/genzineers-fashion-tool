@@ -45,7 +45,7 @@ export function cutList(project) {
   const pieces = project.panels.map((p) => ({ id: p.id, name: p.name, points: p.points, fabric: p.fabric, qty: 1, kind: 'panel', panel: p }));
   const seen = {};
   for (const o of project.overlays || []) {
-    if (['vent', 'pleat', 'pinch'].includes(o.kind)) continue;
+    if (['vent', 'pleat', 'pinch', 'distress'].includes(o.kind) || o.hidden && false) continue;
     const key = `${o.kind}-${o.style || ''}-${JSON.stringify(o.points.map((p) => [Math.abs(p[0]).toFixed(0), p[1].toFixed(0)]))}`;
     if (seen[key]) { seen[key].qty++; continue; }
     const host = project.panels.find((p) => p.id === o.panel);

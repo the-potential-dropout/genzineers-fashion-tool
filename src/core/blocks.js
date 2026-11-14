@@ -557,6 +557,7 @@ export const BOTTOM_OPTIONS = {
   pockets: { label: 'Pockets', type: 'select', values: ['five-pocket', 'slant', 'side-seam', 'cargo', 'welt-back', 'none'], default: 'slant' },
   pleats: { label: 'Pleats', type: 'select', values: ['flat', 'single', 'double'], default: 'flat' },
   beltLoops: { label: 'Belt loops', type: 'select', values: ['yes', 'no'], default: 'yes' },
+  distress: { label: 'Distressing', type: 'select', values: ['none', 'knee-rips', 'one-knee', 'shredded', 'thigh-blowout', 'worn-fades'], default: 'none' },
   waistAdj: { label: 'Tailor: waist (cm)', type: 'range', min: -10, max: 12, step: 0.5, default: 0 },
   hipAdj: { label: 'Tailor: seat / hips (cm)', type: 'range', min: -10, max: 14, step: 0.5, default: 0 },
   thighAdj: { label: 'Tailor: thigh (cm)', type: 'range', min: -8, max: 10, step: 0.5, default: 0 },
@@ -684,6 +685,16 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
   if (o.pockets === 'slant') for (const pid of ['front-r', 'front-l']) { const s = pid === 'front-r' ? 1 : -1; overlays.push({ kind: 'pocket', style: 'slant', panel: id(pid), points: [[s * (waistQ - 9), top - 4], [s * (waistQ - 8.5), top - 18], [s * (waistQ - 13), top - 4]] }); }
   if (o.pockets === 'cargo') for (const pid of ['front-r', 'front-l']) { const s = pid === 'front-r' ? 1 : -1; overlays.push({ kind: 'pocket', style: 'bellows', panel: id(pid), points: rect(s > 0 ? 6 : -19, I - 6, s > 0 ? 19 : -6, I + 12) }); overlays.push({ kind: 'flap', panel: id(pid), points: rect(s > 0 ? 5.5 : -19.5, I + 10, s > 0 ? 19.5 : -5.5, I + 15) }); trims.push({ type: 'snap', panel: id(pid), at: [s * 12.5, I + 11.5] }); }
   if (o.pockets === 'welt-back' || o.pockets === 'slant') for (const pid of ['back-r', 'back-l']) overlays.push({ kind: 'pocket', style: 'welt', panel: id(pid), points: rect(-5, top - 9, 8, top - 7.5) });
+  // factory distressing on the front legs (placed pieces: more can be added by clicking the garment)
+  if (o.distress && o.distress !== 'none' && !shortLeg) {
+    const D = (pid, style, y, w, h2, dx = 0) => { const sg = pid === 'front-r' ? 1 : -1; const cxd = sg * front.cx + dx; overlays.push({ kind: 'distress', style, panel: id(pid), points: rect(cxd - w / 2, y - h2 / 2, cxd + w / 2, y + h2 / 2) }); };
+    const knee = I * 0.56;
+    if (o.distress === 'knee-rips') { D('front-r', 'rip', knee, 13, 7); D('front-l', 'rip', knee + 1.5, 12, 6); D('front-r', 'whiskers', I + riseCm * 0.3, 18, 12); D('front-l', 'whiskers', I + riseCm * 0.3, 18, 12); }
+    if (o.distress === 'one-knee') { D('front-l', 'blowout', knee, 12, 11); D('front-r', 'fade', I * 0.8, 16, 22); D('front-l', 'fade', I * 0.82, 16, 22); }
+    if (o.distress === 'shredded') { D('front-r', 'shred', I * 0.74, 12, 17); D('front-l', 'shred', knee, 12, 16); D('front-r', 'rip', knee - 4, 11, 6); }
+    if (o.distress === 'thigh-blowout') { D('front-r', 'blowout', I * 0.82, 11, 10); D('front-l', 'rip', I * 0.7, 12, 6); D('front-l', 'rip', knee, 12, 6); }
+    if (o.distress === 'worn-fades') for (const pid of ['front-r', 'front-l']) { D(pid, 'fade', I * 0.8, 17, 24); D(pid, 'fade', knee, 14, 16); D(pid, 'whiskers', I + riseCm * 0.3, 18, 12); }
+  }
   if (o.pleats !== 'flat') for (const pid of ['front-r', 'front-l']) { const s = pid === 'front-r' ? 1 : -1; for (let k = 0; k < (o.pleats === 'double' ? 2 : 1); k++) overlays.push({ kind: 'pleat', panel: id(pid), points: rect(s * (1 + k * 3) - 0.3, top - 12, s * (1 + k * 3) + 0.3, top - 4) }); }
   return { panels, seams, trims, overlays };
 }

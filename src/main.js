@@ -26,7 +26,7 @@ import { parseDXF, parseSVG, piecesToActions, MODEL_EXT, readAs } from './io/imp
 import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitChartSVG } from './core/knit.js';
 import { invoke } from './io/tauri.js';
 import { knitFiles, operationsCSV, printProtocol } from './make/machine.js';
-import { printTileCanvas, printTileCm } from './render/textures.js';
+import { printTileCanvas, printTileCm, DISTRESS } from './render/textures.js';
 import { designBitmap } from './make/embroidery.js';
 import { collection, kindOf } from './app/collection.js';
 import { POCKETS, POCKET_CLOSURES } from './core/pockets.js';
@@ -291,6 +291,11 @@ viewEl.addEventListener('click', (e) => {
     ui.placing = null; renderPanel(); renderPlaceHint();
     return;
   }
+  if (ui.placing.startsWith('distress:')) {
+    const k = ui.placing.slice(9); const d = DISTRESS[k]; const [x, y] = hit.local;
+    store.dispatch({ type: 'add_overlay', kind: 'distress', style: k, panel: hit.panelId, points: [[x - d.w / 2, y - d.h / 2], [x + d.w / 2, y - d.h / 2], [x + d.w / 2, y + d.h / 2], [x - d.w / 2, y + d.h / 2]].map((q) => q.map((v) => Math.round(v * 10) / 10)) });
+    return;
+  }
   if (ui.placing.startsWith('pocket:')) {
     const r = store.dispatch({ type: 'add_pocket', pocket: ui.placing.slice(7), panel: hit.panelId, at: hit.local.map((v) => Math.round(v * 10) / 10), ...(ui.pocketClosure ? { closure: ui.pocketClosure } : {}), ...(ui.pocketAngle ? { angle: ui.pocketAngle } : {}), mirror: hit.local[0] < 0 });
     toast(r[0]?.ok ? r[0].result : r[0]?.error || 'Could not add pocket');
@@ -311,7 +316,7 @@ addEventListener('keydown', (e) => {
 });
 function renderPlaceHint() {
   placeHint.classList.toggle('hide', !ui.placing);
-  if (ui.placing) placeHint.replaceChildren(`Click the garment to place ${ui.placing === 'embroidery' ? 'the embroidery' : ui.placing.startsWith('pocket:') ? POCKETS[ui.placing.slice(7)].name : TRIMS[ui.placing].name} · `, h('button', { class: 'btn sm', onclick: () => { ui.placing = null; renderPanel(); renderPlaceHint(); } }, 'Done'));
+  if (ui.placing) placeHint.replaceChildren(`Click the garment to place ${ui.placing === 'embroidery' ? 'the embroidery' : ui.placing.startsWith('distress:') ? DISTRESS[ui.placing.slice(9)].name : ui.placing.startsWith('pocket:') ? POCKETS[ui.placing.slice(7)].name : TRIMS[ui.placing].name} · `, h('button', { class: 'btn sm', onclick: () => { ui.placing = null; renderPanel(); renderPlaceHint(); } }, 'Done'));
 }
 
 // ---------- panel ----------
@@ -583,6 +588,13 @@ function cDetails(el, p) {
     h('details', { style: 'margin-top:8px' }, h('summary', {}, `Each seam (${p.seams.length})`), h('div', { class: 'list' }, p.seams.map((s) => { const a = p.panels.find((x) => x.id === s.a.panel); const b = p.panels.find((x) => x.id === s.b.panel); return h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, `${a?.name} ↔ ${b?.name}`), sel(s.stitch, groups, (v) => store.dispatch({ type: 'set_stitch', seam: s.id, stitch: v }), { class: 'inp' })), h('button', { class: 'btn sm', title: 'Remove seam', onclick: () => store.dispatch({ type: 'remove_seam', id: s.id }) }, '✕')); }))),
   ));
   // trims
+  // ---- distressing: rips, fades, whiskers ----
+  el.append(h('div', { class: 'sec' },
+    h('h3', {}, 'Distressing & wear'),
+    h('div', { class: 'grid2' }, Object.entries(DISTRESS).map(([id, d]) => h('button', { class: `tile ${ui.placing === `distress:${id}` ? 'on' : ''}`, title: d.note, onclick: () => { ui.placing = ui.placing === `distress:${id}` ? null : `distress:${id}`; renderPanel(); renderPlaceHint(); } }, h('div', { class: 't' }, d.name), h('div', { class: 's' }, `${d.w} × ${d.h} cm`)))),
+    h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:6px' }, ui.placing?.startsWith('distress:') ? `${DISTRESS[ui.placing.slice(9)].note} Click the garment to place it; click again for more.` : 'Pick a kind of wear, then click the garment (knees, thighs, hems, pockets). Rips keep the white cross threads and fray at the edge, like real denim.'),
+    (p.overlays || []).some((o) => o.kind === 'distress') ? h('div', { class: 'list', style: 'margin-top:8px' }, p.overlays.filter((o) => o.kind === 'distress').map((o) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, DISTRESS[o.style]?.name || o.style), h('div', { class: 's' }, p.panels.find((x) => x.id === o.panel)?.name || '')), h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_overlay', id: o.id }) }, 'Remove')))) : null,
+  ));
   // ---- embroidery ----
   ui.emb = ui.emb || { kind: 'text', text: 'GENZ', font: 'block', motif: 'star', width: 8, stitch: 'satin', colors: ['#111111'], threads: 6, outline: false };
   {
