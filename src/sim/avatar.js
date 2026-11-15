@@ -54,6 +54,35 @@ export function girthAt(body, y) {
 /** Default arm angle from the body's vertical axis, in degrees (45 = natural A-pose, 90 = T-pose). */
 export const ARM_ANGLE = 45;
 
+/** Feet of the reference mannequins (metres): centre line, heel back, toe tip, ball of the foot, ankle joint. */
+export const FOOT = {
+  male: { x: 0.207, heel: -0.083, toe: 0.175, ball: 0.103, ankleY: 0.085, ankleZ: -0.03, width: 0.097 },
+  female: { x: 0.19, heel: -0.077, toe: 0.154, ball: 0.089, ankleY: 0.085, ankleZ: -0.03, width: 0.094 },
+};
+
+/**
+ * Standing in shoes: the whole body rises by the sole under the forefoot (soleLift), and a heel
+ * pitches the foot about the ball (heelLift = heel height above the forefoot): the heel bone rises,
+ * the toes stay flat, the leg stays upright and is carried up with the ankle.
+ */
+function standIn(body, y, p) {
+  const sole = body?.soleLift || 0; const H = body?.heelLift || 0;
+  if (H > 0.002 && y < 0.16) {
+    const F = FOOT[body.mannequin || 'male']; const s = body._scales; const g = girthAt(body, 0);
+    const zb = F.ball * g; const Ld = (F.ball - F.heel) * g; const th = Math.asin(Math.min(0.92, H / Ld));
+    const rot = (py, pz, t) => { const dz = pz - zb; return [-dz * Math.sin(t) + py * Math.cos(t), zb + dz * Math.cos(t) + py * Math.sin(t)]; };
+    const ay = F.ankleY * s.legS; const az = F.ankleZ * g; const A = rot(ay, az, th);
+    const dY = A[0] - ay; const dZ = A[1] - az;
+    const u = Math.max(0, Math.min(1, (zb + 0.018 - p[2]) / 0.036)); const t = th * u * u * (3 - 2 * u); // the toes stay flat ahead of the ball
+    const f = rot(p[1], p[2], t); const fy = f[0]; const fz = f[1] - dZ;
+    const w0 = Math.max(0, Math.min(1, (y - 0.065) / 0.085)); const w = w0 * w0 * (3 - 2 * w0); // blend from the foot into the upright leg over the ankle
+    return [p[0], fy * (1 - w) + (p[1] + dY) * w + sole, fz * (1 - w) + p[2] * w];
+  }
+  if (H > 0.002) { const F = FOOT[body.mannequin || 'male']; const s = body._scales; const g = girthAt(body, 0); const zb = F.ball * g; const th = Math.asin(Math.min(0.92, H / ((F.ball - F.heel) * g))); const ay = F.ankleY * s.legS; const dz = F.ankleZ * g - zb; p[1] += -dz * Math.sin(th) + ay * Math.cos(th) - ay; }
+  p[1] += sole;
+  return p;
+}
+
 export function gradePoint(body, x, y, z) {
   const s = body?._scales || bodyScales(body || {}, body?.mannequin || 'male');
   const L = s.L;
@@ -71,11 +100,12 @@ export function gradePoint(body, x, y, z) {
     const d = Math.abs(nx) - root; const dy = (y - L.armY) * ag;
     const u = Math.max(0, Math.min(1, d / 0.1)); const th = lower * u * u * (3 - 2 * u);
     const c = Math.cos(th); const sn = Math.sin(th);
-    return [sx * (root + d * c + dy * sn), nArmY - d * sn + dy * c, z * ag];
+    return standIn(body, y, [sx * (root + d * c + dy * sn), nArmY - d * sn + dy * c, z * ag]);
   }
   const g = girthAt(body, y);
   const sw = y > L.armY - 0.15 ? 1 + (s.shoulderS - 1) * Math.min(1, (y - (L.armY - 0.15)) / 0.15) * 0.6 : 1;
-  return [x * g * sw, ny, z * g];
+  const p = [x * g * sw, ny, z * g];
+  return body?.soleLift || body?.heelLift ? standIn(body, y, p) : p;
 }
 
 export function buildAvatar(body) {

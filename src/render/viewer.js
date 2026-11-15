@@ -23,6 +23,7 @@ import { legwearTop } from '../core/legwear.js';
 import { panelAnchor, layerRank } from '../sim/cloth.js';
 import { fabricTextures, distressTexture } from './textures.js';
 import { buildCollar } from './collars.js';
+import { buildShoe } from './shoes3d.js';
 import { tieKnot, bowTie, clothBand, TIE_KNOTS } from './neckwear.js';
 import { designBitmap, previewCanvas, loadArtwork, artworkReady, STITCH_TYPES } from '../make/embroidery.js';
 import { customBodyMesh, bodyField, sampleField } from '../sim/bodyfield.js';
@@ -239,7 +240,7 @@ export class Viewer {
       this.avatarGroup.add(this._customMesh);
       return;
     }
-    const key = `${body.mannequin}:${JSON.stringify(body._scales, (k, v) => (k === 'L' ? undefined : v))}`;
+    const key = `${body.mannequin}:${JSON.stringify(body._scales, (k, v) => (k === 'L' ? undefined : v))}:${body.armAngle ?? ''}:${body.soleLift || 0}:${body.heelLift || 0}`;
     this._wantKey = key;
     if (this._mannequinKey === key && this._mannequinMesh) { this.avatarGroup.add(this._mannequinMesh); this.addShells(project, body); return; }
     // capsule stand-in until the mesh has loaded
@@ -250,6 +251,38 @@ export class Viewer {
   /** Hosiery & socks: skin-tight layers that follow the graded mannequin surface. */
   addShells(project, body) {
     try { this._addShells(project, body); } catch (e) { console.warn('hosiery layer failed', e); }
+    try { this.addShoes(project); } catch (e) { console.warn('shoes failed', e); }
+  }
+
+  /** Shoes and boots, lasted on the mannequin's own feet: every piece in its own material. */
+  addShoes(project) {
+    for (const o of this._shoeObjs || []) { this.avatarGroup.remove(o); o.traverse((m) => { m.geometry?.dispose(); }); }
+    this._shoeObjs = [];
+    const base = this._mannequinMesh; if (!base || !project?.shoes?.length) return;
+    const g = base.geometry; const pos = g.userData.restAttr || g.attributes.position; const idx = g.index;
+    const nT = idx ? idx.count / 3 : pos.count / 3;
+    for (const spec of project.shoes) {
+      const gar = (project.garments || []).find((x) => x.id === spec.garment);
+      const pseudo = { fabric: spec.fabric, fabricOverrides: {}, finish: gar?.finish || {}, garment: spec.garment };
+      const part = (id) => spec.parts.find((q) => q.id === id);
+      const fabOf = (id) => part(id)?.fabric || spec.fabric;
+      const colorOf = (id) => part(id)?.color || (part(id)?.fabric ? resolveFabric(project, part(id).fabric).look.color : spec.color || resolveFabric(project, spec.fabric).look.color);
+      const mats = { colorOf, part: (id) => { const m = this.materialFor(project, pseudo, fabOf(id), 1, { fabric: fabOf(id), color: part(id)?.color || (part(id)?.fabric ? null : spec.color) }); m.side = THREE.DoubleSide; return m; } };
+      const yMax = Math.min(0.78, Math.max(spec.heelH, spec.soleT) / 100 + Math.max(spec.shaft, 22) / 100 + 0.08);
+      for (const sd of [1, -1]) {
+        const tris = [];
+        for (let t = 0; t < nT; t++) {
+          const a = idx ? idx.getX(t * 3) : t * 3; const b = idx ? idx.getX(t * 3 + 1) : t * 3 + 1; const c = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+          if (pos.getX(a) * sd < 0.02 || pos.getX(b) * sd < 0.02 || pos.getX(c) * sd < 0.02) continue;
+          if (pos.getY(a) > yMax && pos.getY(b) > yMax && pos.getY(c) > yMax) continue;
+          tris.push(pos.getX(a), pos.getY(a), pos.getZ(a), pos.getX(b), pos.getY(b), pos.getZ(b), pos.getX(c), pos.getY(c), pos.getZ(c));
+        }
+        const grp = buildShoe(spec, new Float32Array(tris), sd, mats);
+        grp.traverse((m) => { m.frustumCulled = false; if (m.isMesh) { m.castShadow = true; } });
+        this.avatarGroup.add(grp); this._shoeObjs.push(grp);
+      }
+    }
+    this.dirty = true;
   }
 
   _addShells(project, body) {
@@ -431,7 +464,7 @@ export class Viewer {
         ref[i * 3] = x; ref[i * 3 + 1] = y; ref[i * 3 + 2] = z;
         p.setXYZ(i, ...gradePoint(body, x, y, z));
       }
-      g.userData.ref = ref;
+      g.userData = { ref }; // its own record: clones share the source's userData otherwise, and a stale rest pose would be reused
       g.computeVertexNormals();
       g.computeBoundingSphere();
       const mesh = new THREE.Mesh(g, mat);

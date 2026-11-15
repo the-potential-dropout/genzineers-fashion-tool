@@ -59,6 +59,7 @@ function seam(pa, polyA, tagA, pb, polyB, tagB, stitch) {
 // ---------- body reference (matches src/sim/avatar.js) ----------
 import { DEFAULT_BODY } from './sizes.js';
 import { LEGWEAR_OPTIONS, buildLegwear, GLOVE_OPTIONS, buildGlove } from './legwear.js';
+import { SHOE_OPTIONS, buildShoe } from './shoes.js';
 import { ZIPPER_DEFAULTS } from './trims.js';
 // Reference body comes from the selected size (o.__body); generators read it via bodyOf().
 const bodyOf = (o) => o.__body || DEFAULT_BODY;
@@ -1262,6 +1263,7 @@ export const GENERATORS = {
   bra: { label: 'Bra / bralette', options: BRA_OPTIONS, build: buildBra },
   legwear: { label: 'Hosiery & socks', options: LEGWEAR_OPTIONS, build: buildLegwear },
   glove: { label: 'Gloves & mittens', options: GLOVE_OPTIONS, build: buildGlove },
+  shoe: { label: 'Shoes & boots', options: SHOE_OPTIONS, build: buildShoe },
 };
 
 export function defaultOptions(gen) {

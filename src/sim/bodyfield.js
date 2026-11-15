@@ -59,7 +59,7 @@ export function bodyField(body, cell = 0.0125) {
   const which = custom ? `custom:${body.customMesh}` : body?.mannequin || 'male';
   const mesh = custom || meshes[which];
   if (!mesh) return null;
-  const key = custom ? which + cell : which + JSON.stringify(body._scales, (k, v) => (k === 'L' ? undefined : typeof v === 'number' ? Math.round(v * 1e4) / 1e4 : v)) + (body.armAngle ?? '') + cell;
+  const key = custom ? which + cell : which + JSON.stringify(body._scales, (k, v) => (k === 'L' ? undefined : typeof v === 'number' ? Math.round(v * 1e4) / 1e4 : v)) + (body.armAngle ?? '') + `|${body.soleLift || 0}|${body.heelLift || 0}` + cell;
   if (fields.has(key)) return fields.get(key);
   const { P: ref, idx } = mesh;
   const P = new Float32Array(ref.length);

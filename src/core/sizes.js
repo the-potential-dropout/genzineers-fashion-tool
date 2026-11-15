@@ -47,6 +47,7 @@ export function bodyFromMeasurements(m, mannequin = 'male') {
   const L = MANNEQUINS[mannequin].landmarks;
   const R = REF_BODY[mannequin];
   const body = { ...m, mannequin };
+  body.soleLift = m.soleLift || 0; body.heelLift = m.heelLift || 0; // standing in shoes (set from the shoes worn)
   body._scales = bodyScales(m, mannequin);
   const sc = body._scales;
   const gp = (x, y, z = 0) => gradePoint(body, x, y, z);
@@ -78,7 +79,8 @@ export function bodyFor(project) {
   const chart = SIZE_CHARTS[project.sizeChart || 'unisex'] || SIZE_CHARTS.unisex;
   const m = project.customBody || chart.sizes[project.size || 'M'] || chart.sizes.M;
   const mannequin = project.mannequin || (project.sizeChart === 'womens' ? 'female' : 'male');
-  const body = bodyFromMeasurements(project.armAngle != null ? { ...m, armAngle: project.armAngle } : m, mannequin);
+  const st = project.stance || {}; // shoes worn: sole under the forefoot and heel pitch (metres)
+  const body = bodyFromMeasurements({ ...m, ...(project.armAngle != null ? { armAngle: project.armAngle } : {}), soleLift: st.sole || 0, heelLift: st.heel || 0 }, mannequin);
   if (project.customMannequin?.id) body.customMesh = project.customMannequin.id; // your own body mesh for display and collision
   body.scale = project.scale || 1; // miniature / doll scale: 1 = life size
   return body;

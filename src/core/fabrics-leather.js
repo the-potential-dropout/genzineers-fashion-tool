@@ -106,4 +106,15 @@ export function addLeatherFamilies(family, LEATHER, WOVEN) {
     ['faux-fur-recycled', 'Recycled / bio-based faux fur', { thicknessMm: 22, color: '#8a7a66', gsm: 650 }, N('Pile from recycled polyester or part plant-based polymers.', 'Coats, trims', 'Lower footprint', 'Costs more, fewer colours')],
     ['faux-mongolian', 'Faux Mongolian (long curls)', { thicknessMm: 60, color: '#f1e9d8', pattern: 'curly', gsm: 800 }, N('Long ringlet pile.', 'Statement jackets, trims', 'Dramatic, animal-free', 'Tangles, hard to clean')],
   ]);
+  const TECH = WOVEN({ needle: 'Leather / heavy 100/16', interfacing: 'None', press: 'Do not iron', care: 'Wipe clean', uses: 'Footwear and bag components' });
+  family('rubber-sheet', 'Rubber (moulded / sheet)', 'Coated', 'Natural / SBR rubber', [1500, 0.9, 0.9, 0.9, 0.06, 0.95, 2.0], { color: '#f2efe6', roughness: 0.7, sheen: 0.05, pattern: 'plain', patternScale: 6 }, TECH, [
+    ['eva-foam', 'EVA foam (moulded)', { gsm: 400, thicknessMm: 4, rough: 0.85, color: '#e9e6df' }, N('Closed-cell ethylene-vinyl acetate foam.', 'Moulded clogs, slides, midsoles, padding', 'Very light, cushioned, waterproof, cheap', 'Compresses with wear, shrinks in heat')],
+    ['tpu-film', 'TPU (moulded / film overlays)', { gsm: 900, thicknessMm: 0.8, rough: 0.35, color: '#2a2c30' }, N('Thermoplastic polyurethane, welded or moulded.', 'Heel clips, welded sneaker overlays, eyestay reinforcements', 'Tough, no stitching needed, any colour or clear', 'Stiff, does not breathe')],
+    ['neoprene-sheet', 'Neoprene (foam laminate)', { gsm: 700, thicknessMm: 3, rough: 0.9, color: '#1b1b1d', bend: 0.35 }, N('Chloroprene foam laminated with jersey.', 'Sock liners, boot collars, wetsuit boots', 'Stretchy, warm, cushioned', 'Hot, perishes with UV')],
+  ]);
+  family('nylon-webbing', 'Nylon webbing', 'Woven', 'Nylon 6.6', [900, 0.99, 0.95, 0.75, 0.04, 0.5, 1.6], { color: '#1d1d1f', roughness: 0.75, sheen: 0.2, pattern: 'twill', patternScale: 14 }, TECH, [
+    ['cotton-webbing', 'Cotton webbing / pull tape', { color: '#b8a888', rough: 0.9 }, N('Herringbone or plain woven cotton tape.', 'Boot pull loops, bag straps, belts', 'Soft hand, takes dye, traditional look', 'Weaker than nylon, soaks up water')],
+    ['elastic-webbing', 'Woven elastic (gore)', { color: '#17171a', rough: 0.85, bend: 0.3, stretch: 0.45, pattern: 'rib' }, N('Rubber or elastane threads woven with polyester.', 'Chelsea boot gores, slip-on vamps, strap ends', 'Lets the shoe open and recover', 'Slackens with age and heat')],
+    ['interfacing-stiffener', 'Stiffener (leatherboard / thermoplastic sheet)', { color: '#b9a98f', rough: 0.9, thicknessMm: 1.4, bend: 1.0 }, N('Leather fibre board or heat-activated thermoplastic.', 'Toe puffs, heel counters, bag bases', 'Holds a moulded shape for the life of the shoe', 'Hidden: must be skived to nothing at the edges or it shows')],
+  ]);
 }

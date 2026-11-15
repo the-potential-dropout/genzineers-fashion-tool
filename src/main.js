@@ -7,6 +7,7 @@ import { Viewer } from './render/viewer.js';
 import { initSolver, buildCloth, solverKind, loadBodyMesh } from './sim/cloth.js';
 import { TEMPLATES, TEMPLATE_GROUPS } from './core/templates.js';
 import { GENERATORS } from './core/blocks.js';
+import { SHOE_INFO, shoeSpec } from './core/shoes.js';
 import { FABRICS, FABRIC_FAMILIES, FABRIC_CATEGORIES, resolveFabric } from './core/fabrics.js';
 import { ASSEMBLY, ASSEMBLY_GROUPS, THREADS } from './core/assembly.js';
 import { TRIMS, TRIM_GROUPS, ZIPPER_TYPES, ZIPPER_SIZES, ZIPPER_ENDS, ZIPPER_SLIDERS, ZIPPER_PULLERS, EDGE_TREATMENTS, LACING_STYLES, zipperSpec } from './core/trims.js';
@@ -373,7 +374,8 @@ function cStyle(el, p) {
         ? sel(String(val), s.values.map((v) => ({ value: v, label: pretty(v) + (v === s.default ? ' (default)' : '') })), (v) => store.dispatch({ type: 'set_option', garment: g.id, key: k, value: v }))
         : s.type === 'color' ? h('input', { type: 'color', value: val, onchange: (e) => store.dispatch({ type: 'set_option', garment: g.id, key: k, value: e.target.value }) })
         : h('input', { type: 'range', min: s.min, max: s.max, step: s.step, value: val, onchange: (e) => store.dispatch({ type: 'set_option', garment: g.id, key: k, value: Number(e.target.value) }), oninput: (e) => (e.target.closest('label').querySelector('b').textContent = e.target.value) });
-      return field(s.label, input, s.type === 'range' ? h('b', {}, val) : null);
+      const note = g.generator === 'shoe' ? SHOE_INFO[k]?.[val === 'type-default' ? shoeSpec(g.options)[k] : val] : null;
+      return note ? h('div', {}, field(s.label, input, null), h('div', { class: 'tip', style: 'margin-top:-4px' }, note)) : field(s.label, input, s.type === 'range' ? h('b', {}, val) : null);
     };
     const keys = KEY_OPTS[g.generator] || Object.keys(schema);
     el.append(h('div', { class: 'sec' },

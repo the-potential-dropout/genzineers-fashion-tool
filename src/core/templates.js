@@ -8,10 +8,11 @@
  * user can then customise. `why` explains the defaults (shown as guidance).
  */
 import { GENERATORS, defaultOptions } from './blocks.js';
+import { SHOE_TYPES } from './shoes.js';
 
 const g = (generator, options = {}, extra = {}) => ({ generator, options, ...extra });
 
-export const TEMPLATE_GROUPS = ['T-shirts & tanks', 'Shirts & polos', 'Sweats & hoodies', 'Jackets', 'Tailoring & suits', 'Coats', 'Dresses', 'Trousers & jeans', 'Shorts', 'Knitwear', 'Underwear & lingerie', 'Hosiery & socks', 'Gloves & mittens', 'Skirts', 'Accessories', 'Hats', 'Bags'];
+export const TEMPLATE_GROUPS = ['T-shirts & tanks', 'Shirts & polos', 'Sweats & hoodies', 'Jackets', 'Tailoring & suits', 'Coats', 'Dresses', 'Trousers & jeans', 'Shorts', 'Knitwear', 'Underwear & lingerie', 'Hosiery & socks', 'Gloves & mittens', 'Dress shoes', 'Loafers & slip-ons', 'Sneakers', 'Boots', 'Heels & flats', 'Sandals', 'Skirts', 'Accessories', 'Hats', 'Bags'];
 
 export const TEMPLATES = {
   // ---------- T-shirts & tanks ----------
@@ -273,6 +274,9 @@ export function templateGarments(templateId) {
 }
 
 /** Build panels/seams/trims/overlays for one garment spec. */
+// every shoe type is a template: a pair fitted to the mannequin's feet
+for (const [id, t] of Object.entries(SHOE_TYPES)) TEMPLATES[`shoe-${id}`] = { name: t.name, group: t.group, garments: [{ generator: 'shoe', options: { ...defaultOptions('shoe'), type: id }, fabric: t.fabric, stitch: 'lockstitch-301' }], why: t.why || `${t.construction.replace(/-/g, ' ')} construction, ${t.outsole.replace(/-/g, ' ')} sole.` };
+
 export function buildGarment(spec, body) {
   const gen = GENERATORS[spec.generator];
   const opts = { ...spec.options, __stitch: spec.stitch, __button: spec.button, __body: body, __wear: spec.wear || {} };
