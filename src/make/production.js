@@ -18,6 +18,7 @@ import { applyAction } from '../core/actions.js';
 import { checkProject, recommendFor } from '../core/guidance.js';
 import { METALS, GEMS, CUTS, SETTINGS, LINKS, CLASPS, estimateMetal, caratEstimate, ringSize } from '../core/jewelry.js';
 import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitChartSVG } from '../core/knit.js';
+import { makerNotesHTML } from '../core/jewelrymaker.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const r1 = (v) => Math.round(v * 10) / 10;
@@ -295,7 +296,8 @@ ${j.link ? `<tr><td>Chain</td><td>${esc(LINKS[j.link]?.name)} · ${j.gauge} mm w
 <tr><td>Est. metal weight</td><td>${w.grams} g (${w.volumeMm3} mm³; final weight from CAD/casting)</td></tr></table>
 <h2>Stones</h2><table><tr><th>Gem</th><th>Cut</th><th>Size (mm)</th><th>Est. ct</th><th>Setting</th><th>Hardness</th></tr>${stones.map((s) => `<tr><td>${esc(GEMS[s.gem]?.name)}</td><td>${esc(CUTS[s.cut]?.name)}</td><td>${s.size}${s.width ? ` × ${s.width}` : ''}</td><td>${caratEstimate(s.cut, s.size, s.width || s.size, s.gem)}</td><td>${esc(SETTINGS[s.setting]?.name || '-')}</td><td>Mohs ${GEMS[s.gem]?.mohs}</td></tr>`).join('') || '<tr><td colspan=6>None</td></tr>'}</table>
 <h2>Production route</h2><ol><li>Export STL from the app → CAD check (wall ≥ 0.8 mm gold / 1.0 mm silver; prong ≥ 0.8 mm; shank ≥ 1.4 mm).</li><li>3D-print castable resin / wax (SLA/DLP, 25-50 µm).</li><li>Lost-wax casting in ${esc(metal?.name)} (send STL + metal + quantity to a casting house).</li><li>Clean-up, pre-polish, assembly (solder jump rings / clasp).</li><li>Stone setting (setter): ${esc([...new Set(stones.map((s) => SETTINGS[s.setting]?.name))].join(', ') || '-')}.</li><li>Final polish, plating (${esc(j.plating || 'none')}), hallmarking at an assay office where required (UK/EU over set weights).</li><li>QC: stone security, sizing, weight, finish; pack in pouch/box with certificate.</li></ol>
-<p style="font-size:10px;color:#666">Generated with ${BRAND.name} by Genzineers (<a href="${BRAND.url}">genzineers.com</a>) · <a href="${BRAND.learn}">thepotentialdropout.com</a></p></body></html>`;
+<p style="font-size:10px;color:#666">Generated with ${BRAND.name} by Genzineers (<a href="${BRAND.url}">genzineers.com</a>) · <a href="${BRAND.learn}">thepotentialdropout.com</a></p>${makerNotesHTML(project, esc)}
+</body></html>`;
 }
 
 // ---------------- Production guide & RFQ templates ----------------

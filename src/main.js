@@ -36,6 +36,7 @@ import { TANNING, LEATHER_FINISHES, LEATHER_COLOURS, LEATHER_USE, leatherFit } f
 import { STITCH_TYPES, FONTS, THREADS_EMB, MOTIFS_EMB, rasterizeDesign, digitize, writeDST, embroiderySheet, loadArtwork } from './make/embroidery.js';
 import { LAYER_NAMES, listParts } from './core/project.js';
 import { initStudio } from './app/studio.js';
+import { makerNotes, makerBrief } from './core/jewelrymaker.js';
 import { CONSTRUCTION_PRESETS, CANVAS, LINING_TYPES, LINING_MATERIALS, SEAM_FINISHES, LABEL_SET, SHOULDER_PADS, constructionOf, suggestConstruction } from './core/construction.js';
 import { HAIR_STYLES, FACIAL_STYLES, HAIR_COLORS } from './render/hair3d.js';
 import { layerOf } from './sim/cloth.js';
@@ -953,6 +954,16 @@ function jMake(el, p) {
     h('button', { class: 'btn', onclick: async () => download(`${name}.obj`, await viewer.exportModel('obj')) }, 'OBJ'),
     h('button', { class: 'btn', onclick: async () => download(`${name}.glb`, await viewer.exportModel('glb')) }, 'GLB'),
     h('button', { class: 'btn', onclick: () => openInBlender() }, 'Open in Blender'))));
+  // ---- everything the jeweller needs to quote and make it ----
+  const notes = makerNotes(p);
+  el.append(h('div', { class: 'sec' }, h('h3', {}, 'Notes for your jeweller'),
+    h('div', { class: 'tip' }, 'Written from this design: how it should be made, what the metal allows, how each stone is set, tolerances, finish and stamps, the checks to ask for, and what to agree before work starts. All of it is in the spec sheet too.'),
+    h('div', { class: 'grid2' },
+      h('button', { class: 'btn primary', onclick: () => viewFile(`${name}-quote-request.txt`, 'text/plain', makerBrief(p)) }, 'Quote request (email)'),
+      h('button', { class: 'btn', onclick: () => { navigator.clipboard?.writeText(makerBrief(p)); toast('Quote request copied'); } }, 'Copy the email')),
+    notes.map((sct, i) => h('details', { open: i < 2, style: 'margin-top:8px' }, h('summary', {}, h('b', {}, sct.title)),
+      sct.rows ? h('div', { class: 'list' }, sct.rows.map(([k, v]) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, k), h('div', { class: 's' }, v))))) : null,
+      sct.items ? h('ul', { style: 'margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.5' }, sct.items.map((t) => h('li', {}, t))) : null))));
   guideSection(el, p);
 }
 
