@@ -68,6 +68,8 @@ export function bodyFromMeasurements(m, mannequin = 'male') {
     armCm: R.arm * sc.armS,
     armLen: (L.wristX ? L.wristX - L.armStartX : 0.56) * sc.armS,
     legX: L.legX * girthAt(body, L.crotchY - 0.2),
+    ankleX: gp(mannequin === 'female' ? 0.196 : 0.215, 0.13, -0.02)[0], // centre of the ankle (the legs stand slightly apart, so the leg leans out from the hip)
+    ankleY: gp(0.2, 0.13, -0.02)[1],
     headY: gp(0, L.headY)[1],
     headR: L.headR * 1.12 * ((m.head || R.head) / R.head),
     neckBase: gp(0, L.neckBase)[1],

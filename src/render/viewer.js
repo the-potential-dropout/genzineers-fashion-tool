@@ -23,7 +23,7 @@ import { legwearTop } from '../core/legwear.js';
 import { panelAnchor, layerRank } from '../sim/cloth.js';
 import { fabricTextures, distressTexture } from './textures.js';
 import { buildCollar } from './collars.js';
-import { buildShoe } from './shoes3d.js';
+import { buildShoe, strand } from './shoes3d.js';
 import { buildHat } from './hats3d.js';
 import { buildBag } from './bags3d.js';
 import { buildHair } from './hair3d.js';
@@ -266,7 +266,7 @@ export class Viewer {
     try { this.addShoes(project); } catch (e) { console.warn('shoes failed', e); }
     try { this.addHats(project); } catch (e) { console.warn('hats failed', e); }
     try { this.addHair(project); } catch (e) { console.warn('hair failed', e); }
-    try { this.addBelts(project); } catch (e) { console.warn('belt failed', e); }
+    if (!this.sim || !this.simAwake) { try { this.addBelts(project); } catch (e) { console.warn('belt failed', e); } } // a belt is put on over settled clothes
   }
 
   /**
@@ -337,23 +337,56 @@ export class Viewer {
   addBelts(project) {
     for (const o of this._beltObjs || []) { this.avatarGroup.remove(o); o.traverse((m) => { m.geometry?.dispose(); }); }
     this._beltObjs = [];
+    for (const t of this.trimObjs || []) if (t.trim?.type === 'belt-loop') t.obj.visible = true;
     if (!project?.belts?.length || project.display?.avatar === false || !this._mannequinMesh) return;
     const body = bodyFor(project); let f = null; try { f = bodyField(body); } catch { return; }
-    const o4 = [0, 0, 0, 0]; const overClothes = (project.garments || []).some((g) => ['bottom', 'skirt', 'top'].includes(g.generator));
+    const o4 = [0, 0, 0, 0]; const gen = (gid) => (project.garments || []).find((g) => g.id === gid)?.generator;
+    const NP = 144; const binOf = (x, z) => ((Math.round((Math.atan2(x, z) / (Math.PI * 2)) * NP) % NP) + NP) % NP;
+    const fillRing = (arr) => { const has = Array.from(arr, (v) => Number.isFinite(v)); if (!has.some(Boolean)) return false; for (let i = 0; i < NP; i++) if (!has[i]) { let l = i; let r = i; let dl = 0; let dr = 0; while (!has[l]) { l = (l - 1 + NP) % NP; dl++; } while (!has[r]) { r = (r + 1) % NP; dr++; } arr[i] = (arr[l] * dr + arr[r] * dl) / (dl + dr); } return true; };
+    const smooth = (arr, k = 3) => { for (let it = 0; it < k; it++) { const c = arr.slice(); for (let i = 0; i < NP; i++) arr[i] = (c[(i + NP - 1) % NP] + 2 * c[i] + c[(i + 1) % NP]) / 4; } };
     project.belts.forEach((spec, bi) => {
-      let y = (spec.position === 'waist' ? body.naturalWaistY : body.waistY - 0.012) - (spec.position === 'waist' ? 0 : spec.width / 2000);
-      const NP = 144; const R = new Float32Array(NP); const cloth = new Float32Array(NP);
-      // through the loops of what is actually worn: the belt sits in the waistband of the settled trousers or skirt
-      if (this.sim) { const low = this.sim.panels.filter((q) => ['bottom', 'skirt'].includes((project.garments || []).find((g) => g.id === q.panel.garment)?.generator)); const P = this.sim.pos;
-        if (low.length && spec.position !== 'waist') { const ys = []; for (const pan of low) for (let i = pan.offset; i < pan.offset + pan.count; i++) ys.push(P[i * 3 + 1]); ys.sort((a, b) => b - a); const topY = ys[Math.floor(ys.length * 0.02)] ?? y; y = topY - 0.019 - Math.max(0, spec.width / 2000 - 0.019); }
-        const band = Math.max(0.012, spec.width / 2000); for (const pan of this.sim.panels) for (let i = pan.offset; i < pan.offset + pan.count; i++) { if (Math.abs(P[i * 3 + 1] - y) > band) continue; const a = Math.atan2(P[i * 3], P[i * 3 + 2]); const k = ((Math.round((a / (Math.PI * 2)) * NP) % NP) + NP) % NP; const r = Math.hypot(P[i * 3], P[i * 3 + 2]); if (r > cloth[k]) cloth[k] = r; } }
-      const clear = (overClothes && !this.sim ? 0.0075 : 0.0015) + spec.thick / 2000 + bi * 0.006;
-      for (let i = 0; i < NP; i++) { const a = (i / NP) * Math.PI * 2; let r = 0.45; for (let it = 0; it < 90; it++) { const d = sampleField(f, Math.sin(a) * r, y, Math.cos(a) * r, o4) ? o4[0] : 0.05; if (d < 0.001) break; r -= Math.max(0.0008, d * 0.8); if (r <= 0.02) break; } R[i] = Math.max(r + clear, cloth[i] ? cloth[i] + 0.0022 + spec.thick / 2000 + bi * 0.006 : 0); }
-      for (let it = 0; it < 12; it++) for (let i = 0; i < NP; i++) { const l = R[(i + NP - 1) % NP]; const r = R[(i + 1) % NP]; if (R[i] < (l + r) / 2) R[i] = (l + r) / 2; } // a belt bridges hollows: it cannot follow the body inwards
-      for (let it = 0; it < 2; it++) { const c = R.slice(); for (let i = 0; i < NP; i++) R[i] = (c[(i + NP - 1) % NP] + 2 * c[i] + c[(i + 1) % NP]) / 4; }
-      const pts = []; const nrm = []; for (let i = 0; i < NP; i++) { const a = (i / NP) * Math.PI * 2; pts.push(new THREE.Vector3(Math.sin(a) * R[i], y, Math.cos(a) * R[i])); }
+      const W = spec.width / 1000; const T = spec.thick / 1000;
+      const P = this.sim?.pos; const low = this.sim ? this.sim.panels.filter((q) => ['bottom', 'skirt'].includes(gen(q.panel.garment))) : [];
+      const onBody = (i) => !sampleField(f, P[i * 3], P[i * 3 + 1], P[i * 3 + 2], o4) || o4[0] < 0.05;
+      const Y = new Float32Array(NP).fill(NaN); const R = new Float32Array(NP).fill(NaN);
+      if (low.length && spec.position !== 'waist') {
+        // the waistband itself (sewn on along the waist seam): its centre line, round the body
+        const wbs = (project.overlays || []).filter((ov) => ov.kind === 'waistband' && low.some((q) => q.id === ov.panel));
+        for (const ov of wbs) {
+          const pt = ov.points; if (pt.length < 4) continue; const A = [(pt[0][0] + pt[3][0]) / 2, (pt[0][1] + pt[3][1]) / 2]; const B = [(pt[1][0] + pt[2][0]) / 2, (pt[1][1] + pt[2][1]) / 2]; const hgt = Math.hypot(pt[0][0] - pt[3][0], pt[0][1] - pt[3][1]) / 100;
+          for (let q = 0; q <= 24; q++) { const t = q / 24; const an = panelAnchor(this.sim, ov.panel, A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t); if (!an) continue; let x = 0; let y = 0; let z = 0; an.ids.forEach((id, j) => { x += P[id * 3] * an.w[j]; y += P[id * 3 + 1] * an.w[j]; z += P[id * 3 + 2] * an.w[j]; }); const k = binOf(x, z);
+            const yc = y + Math.max(0, hgt / 2 - Math.max(0.002, (hgt - W) / 2)) * 0; Y[k] = Number.isFinite(Y[k]) ? (Y[k] + yc) / 2 : yc; const r = Math.hypot(x, z) + 0.003; if (!(r <= R[k])) R[k] = r; }
+        }
+        if (!fillRing(Y)) { const top = new Float32Array(NP).fill(-Infinity); for (const pan of low) for (let i = pan.offset; i < pan.offset + pan.count; i++) { const k = binOf(P[i * 3], P[i * 3 + 2]); if (P[i * 3 + 1] > top[k]) top[k] = P[i * 3 + 1]; } for (let i = 0; i < NP; i++) { let m = -Infinity; for (let d = -8; d <= 8; d++) m = Math.max(m, top[(i + d + NP) % NP]); Y[i] = m - Math.max(0.02, W / 2 + 0.002); } }
+        smooth(Y, 4);
+        // the waistband's outside where it has no sample: the cloth there
+        for (const pan of low) for (let i = pan.offset; i < pan.offset + pan.count; i++) { const k = binOf(P[i * 3], P[i * 3 + 2]); if (Number.isFinite(R[k]) || Math.abs(P[i * 3 + 1] - Y[k]) > W / 2 + 0.004 || !onBody(i)) continue; const r = Math.hypot(P[i * 3], P[i * 3 + 2]); if (!(r <= R[k])) R[k] = r; }
+      } else {
+        // a belt worn at the waist, over a dress, shirt or coat: on the outside of whatever is there
+        const y0 = body.naturalWaistY; Y.fill(y0);
+        if (this.sim) for (const pan of this.sim.panels) { if (pan.panel.role === 'sleeve') continue; for (let i = pan.offset; i < pan.offset + pan.count; i++) { if (Math.abs(P[i * 3 + 1] - y0) > W / 2 + 0.004 || !onBody(i)) continue; const k = binOf(P[i * 3], P[i * 3 + 2]); const r = Math.hypot(P[i * 3], P[i * 3 + 2]); if (!(r <= R[k])) R[k] = r; } }
+      }
+      // where there is no cloth, the body itself
+      for (let i = 0; i < NP; i++) { if (Number.isFinite(R[i])) continue; const a2 = (i / NP) * Math.PI * 2; let r = 0.45; for (let it = 0; it < 90; it++) { const d = sampleField(f, Math.sin(a2) * r, Y[i], Math.cos(a2) * r, o4) ? o4[0] : 0.05; if (d < 0.001) break; r -= Math.max(0.0008, d * 0.8); if (r <= 0.02) break; } R[i] = r + 0.002; }
+      for (let i = 0; i < NP; i++) R[i] += T / 2 + 0.0012 + bi * 0.006;
+      for (let it = 0; it < 12; it++) for (let i = 0; i < NP; i++) { const l = R[(i + NP - 1) % NP]; const r = R[(i + 1) % NP]; if (R[i] < (l + r) / 2) R[i] = (l + r) / 2; } // a belt under tension bridges hollows: it cannot follow the body inwards
+      smooth(R, 2);
+      const pts = []; const nrm = []; for (let i = 0; i < NP; i++) { const a2 = (i / NP) * Math.PI * 2; pts.push(new THREE.Vector3(Math.sin(a2) * R[i], Y[i], Math.cos(a2) * R[i])); }
       for (let i = 0; i < NP; i++) { const t = pts[(i + 1) % NP].clone().sub(pts[(i + NP - 1) % NP]).normalize(); nrm.push(new THREE.Vector3(t.z, 0, -t.x)); }
       const grp = buildBelt(spec, { pts, nrm }, this.formMats(project, spec), () => { this.dirty = true; });
+      // belt loops: each one a folded strip stitched below the waistband and at its top edge, standing out over the belt
+      if (low.length && spec.position !== 'waist') for (const t of this.trimObjs || []) {
+        if (t.trim?.type !== 'belt-loop') continue; const wp = new THREE.Vector3(); t.obj.getWorldPosition(wp); const k = binOf(wp.x, wp.z); const a2 = (k / NP) * Math.PI * 2;
+        const dir = new THREE.Vector3(Math.sin(a2), 0, Math.cos(a2)); const tan = new THREE.Vector3(Math.cos(a2), 0, -Math.sin(a2)); const rc = R[k] - T / 2 - 0.0012; const rOut = R[k] + T / 2 + 0.0016; const y0 = Y[k] - W / 2; const y1 = Y[k] + W / 2;
+        const at = (r, y) => dir.clone().multiplyScalar(r).setY(y);
+        const path = new THREE.CatmullRomCurve3([at(rc + 0.0008, y0 - 0.011), at(rc + 0.0012, y0 - 0.006), at(rOut - 0.001, y0 - 0.0015), at(rOut, Y[k]), at(rOut - 0.001, y1 + 0.0015), at(rc + 0.002, y1 + 0.004), at(rc + 0.0008, y1 + 0.0005)], false, 'catmullrom', 0.3).getPoints(28);
+        const nr = path.map((p, q) => { const tg = path[Math.min(path.length - 1, q + 1)].clone().sub(path[Math.max(0, q - 1)]).normalize(); return new THREE.Vector3().crossVectors(tg, tan).normalize().multiplyScalar(-1); });
+        const host = project.panels.find((p) => p.id === t.trim.panel); const m = this.materialFor(project, host || project.panels[0]); m.side = THREE.DoubleSide;
+        const loopM = new THREE.Mesh(strand(path, nr.map((v) => (v.dot(dir) < 0 ? v.negate() : v)), 0.0105, 0.0024), m); grp.add(loopM);
+        for (const yy of [y0 - 0.008, y1 - 0.001]) { const tack = new THREE.Mesh(new THREE.BoxGeometry(0.0095, 0.0016, 0.0008), new THREE.MeshBasicMaterial({ color: this.threadColor(project, host || project.panels[0]) })); tack.position.copy(at(rc + 0.0024, yy)); tack.lookAt(tack.position.clone().add(dir)); tack.rotateZ(Math.PI / 2); grp.add(tack); } // bar tacks
+        t.obj.visible = false;
+      }
+      grp.traverse((o) => { o.frustumCulled = false; });
       this.avatarGroup.add(grp); this._beltObjs.push(grp);
     });
     this.dirty = true;

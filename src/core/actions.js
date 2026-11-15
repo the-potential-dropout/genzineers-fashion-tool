@@ -209,6 +209,7 @@ export function applyAction(project, action) {
       if (a.toggleButton != null) { const cur = typeof w.buttons === 'object' ? w.buttons : {}; w.buttons = { ...cur, [a.toggleButton]: cur[a.toggleButton] === false }; }
       for (const [k, vals] of [['hood', ['up', 'down']], ['sleeves', ['rolled', 'down']], ['fly', ['open', 'closed']]]) if (a[k] != null) { if (!vals.includes(a[k])) throw new Error(`${k} must be ${vals.join(' or ')}`); w[k] = a[k]; }
       if (a.cuff != null) w.cuff = clamp(Math.round(Number(a.cuff) || 0), 0, 2);
+      if (a.tuck != null) { if (!['in', 'out'].includes(a.tuck)) throw new Error('tuck must be in or out'); w.tuck = a.tuck; }
       g.wear = w;
       mergeGarment(p, g);
       result = 'worn: ' + (Object.entries(w).map(([k, v]) => `${k} ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ') || 'default');

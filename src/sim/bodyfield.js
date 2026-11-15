@@ -75,6 +75,7 @@ export function bodyField(body, cell = 0.0125) {
   const N = nx * ny * nz;
   const dist = new Float32Array(N).fill(1e9);
   const sgn = new Int8Array(N).fill(1);
+  const fac = new Float32Array(N); // how squarely the nearest triangle faces the cell: decides the sign when several triangles are equally near (edges, vertices)
   const band = cell * 2.6;
   const inv = 1 / cell;
   for (let t = 0; t < idx.length; t += 3) {
@@ -113,7 +114,8 @@ export function bodyField(body, cell = 0.0125) {
       const qx = px - (e0x * u + e1x * v); const qy = py - (e0y * u + e1y * v); const qz = pz - (e0z * u + e1z * v);
       const d = Math.sqrt(qx * qx + qy * qy + qz * qz);
       const q = i + nx * (j + ny * k);
-      if (d < dist[q] - 1e-7) { dist[q] = d; sgn[q] = qx * nxn + qy * nyn + qz * nzn >= 0 ? 1 : -1; }
+      const dn = qx * nxn + qy * nyn + qz * nzn; const cf = d > 1e-9 ? Math.abs(dn) / d : 1;
+      if (d < dist[q] - 1e-6 || (d < dist[q] + 1e-6 && cf > fac[q])) { dist[q] = Math.min(d, dist[q]); sgn[q] = dn >= 0 ? 1 : -1; fac[q] = cf; }
     }
   }
   // extend beyond the band (chamfer sweeps), carrying the sign outwards
@@ -133,6 +135,25 @@ export function bodyField(body, cell = 0.0125) {
     }
   };
   sweep(1); sweep(-1);
+  // the sign, made robust: everything that can be reached from the edge of the grid without crossing the skin is outside.
+  // A wrong sign picked up at a sharp edge or a gap in the mesh can then no longer leave a phantom 'inside' streak in the air.
+  {
+    const thr = cell * 0.9; const out = new Uint8Array(N); const stack = new Int32Array(N); let sp = 0;
+    const push = (q) => { if (!out[q] && dist[q] > thr) { out[q] = 1; stack[sp++] = q; } };
+    for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) { push(0 + nx * (j + ny * k)); push(nx - 1 + nx * (j + ny * k)); }
+    for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) { push(i + nx * (0 + ny * k)); push(i + nx * (ny - 1 + ny * k)); }
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { push(i + nx * j); push(i + nx * (j + ny * (nz - 1))); }
+    while (sp) { const q = stack[--sp]; const i = q % nx; const j = ((q / nx) | 0) % ny; const k = (q / (nx * ny)) | 0;
+      if (i > 0) push(q - 1); if (i < nx - 1) push(q + 1); if (j > 0) push(q - nx); if (j < ny - 1) push(q + nx); if (k > 0) push(q - nx * ny); if (k < nz - 1) push(q + nx * ny); }
+    for (let q = 0; q < N; q++) if (dist[q] > thr) sgn[q] = out[q] ? 1 : -1;
+    // skin cells: outside if they touch the outside region and their own sign disagrees with every inside neighbour
+    for (let q = 0; q < N; q++) {
+      if (dist[q] > thr || sgn[q] > 0) continue; const i = q % nx; const j = ((q / nx) | 0) % ny; const k = (q / (nx * ny)) | 0;
+      let o = 0; let inn = 0; const nb = [i > 0 ? q - 1 : -1, i < nx - 1 ? q + 1 : -1, j > 0 ? q - nx : -1, j < ny - 1 ? q + nx : -1, k > 0 ? q - nx * ny : -1, k < nz - 1 ? q + nx * ny : -1];
+      for (const r of nb) { if (r < 0 || dist[r] <= thr) continue; if (out[r]) o++; else inn++; }
+      if (o && !inn) sgn[q] = 1;
+    }
+  }
   const data = new Float32Array(N);
   for (let q = 0; q < N; q++) data[q] = Math.min(dist[q], 1) * sgn[q];
   const field = { data, nx, ny, nz, ox, oy, oz, inv, cell };

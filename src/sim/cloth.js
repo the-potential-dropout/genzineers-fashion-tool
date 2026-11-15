@@ -91,7 +91,9 @@ export function panelToWorld(panel, x, y) {
   }
   const c = Math.cos(r);
   const sn = Math.sin(r);
-  return [px + lx * c + lz * sn, py + ly, pz - lx * sn + lz * c];
+  // a leg panel leans with the leg: shifted sideways by lean.dx at the hem, fading to nothing at lean.y1 (cm up the panel)
+  const lean = pl.lean ? pl.lean.dx * Math.max(0, 1 - y / pl.lean.y1) : 0;
+  return [px + lx * c + lz * sn + lean, py + ly, pz - lx * sn + lz * c];
 }
 
 const perSub = (k, sub) => 1 - Math.pow(1 - Math.min(0.999, Math.max(0, k)), 1 / sub);
@@ -148,7 +150,7 @@ export function buildCloth(project) {
       P.push(...panelToWorld(panel, x, y));
       local.push(x, y);
       UV.push(x / 10, y / 10);
-      inv.push(1 / ((fab.weightGsm / 1000) * (Math.max(area[q], h * h * 0.2) / 1e4)));
+      inv.push(1 / ((fab.weightGsm / 1000) * (Math.max(area[q], h * h * 0.4) / 1e4)));
       fric.push(Math.min(0.95, fab.mech ? fab.mech.mu * 1.1 : fab.friction * 0.6));
       // collision margin: skin clearance + half the cloth thickness (thick coatings and leathers stand further off)
       thk.push(0.0045 + Math.min(0.02, ((fab.thicknessMm || 0.5) / 1000) / scale) + rank * 0.009 + (panel.zBias ? 0.0035 : 0));
@@ -221,6 +223,19 @@ export function buildCloth(project) {
           const ddx = Math.abs(xa - xb); const ddy = Math.abs(local[pa * 2 + 1] - local[pb * 2 + 1]);
           R[e] *= 1 + (g.ratio - 1) * (ddy / (ddx + ddy || 1));
         }
+      }
+    }
+    // interfaced bands: a barrel cuff, waistband, collar stand or placket is two layers of cloth with fusible
+    // interfacing between them, so it bends and stretches far less than the single layer around it
+    {
+      const BAND = { cuff: 1, waistband: 1, placket: 1, 'collar-stand': 1, stand: 1, facing: 1 };
+      const inPoly = (pts, x, y) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i]; const b = pts[j]; if ((a[1] > y) !== (b[1] > y) && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1] || 1e-9) + a[0]) c = !c; } return c; };
+      const bands = (project.overlays || []).filter((ov) => ov.panel === panel.id && BAND[ov.kind] && (ov.points || []).length >= 3 && !/elastic|rib|knit/.test(ov.style || ''));
+      if (bands.length) {
+        const kBand = Math.max(kS, 0.92); const bBand = Math.min(0.85, Math.max(kB * 6, 0.35));
+        const inBand = (q) => { const x = mesh.xy[q * 2]; const y = mesh.xy[q * 2 + 1]; for (const ov of bands) if (inPoly(ov.points, x, y)) return true; return false; };
+        const mark = new Uint8Array(count); for (let q = 0; q < count; q++) mark[q] = inBand(q) ? 1 : 0;
+        for (let e = cStart; e < R.length; e++) { const pa = C[e * 2] - offset; const pb = C[e * 2 + 1] - offset; if (!mark[pa] || !mark[pb] || K[e] === 0) continue; K[e] = K[e] >= kS * 0.99 || K[e] === kSh ? Math.max(K[e], kBand) : Math.max(K[e], bBand); L[e] = Math.min(L[e], 0.02); }
       }
     }
     // triangle buckets for fast panel-space lookups (overlays, trims, stitches)
@@ -361,6 +376,8 @@ export function buildCloth(project) {
   }
   // body collision: distance field of the real mannequin mesh when loaded, capsules otherwise
   const field = project.display?.avatar === false ? null : bodyField(bodyFor(project));
+  // with the body field, layers are kept apart cloth to cloth (layerPass below), so an inner garment is never yanked onto the body where it bridges a hollow
+  if (field) for (let i = 0; i < n; i++) thk[n + i] = 0;
   const body = project.display?.avatar === false || field ? [] : buildAvatar(bodyFor(project));
   const colliders = packColliders([...body, ...(project.colliders || [])]);
   const bins = binColliders(colliders);
@@ -372,6 +389,51 @@ export function buildCloth(project) {
     thickness: 0.006,
   });
   sim.panels = panels;
+  // ---- garment over garment: wherever two layers meet, the outer one stays outside the inner one ----
+  const rankP = new Float32Array(n); let maxRank = 0; for (let i = 0; i < n; i++) { rankP[i] = rankOf[gar[i]] ?? 0; maxRank = Math.max(maxRank, rankP[i]); }
+  if (maxRank > 0 && field) {
+    const genOf = {}; for (const g of project.garments || []) genOf[g.id] = g.generator;
+    const isLow = new Uint8Array(n); let anyLow = false; for (let i = 0; i < n; i++) if (genOf[gar[i]] === 'bottom' || genOf[gar[i]] === 'skirt') { isLow[i] = 1; anyLow = true; }
+    const belt = anyLow ? (project.belts || [])[0] : null; const beltW = belt ? belt.width / 1000 : 0; const beltT = belt ? belt.thick / 1000 + 0.004 : 0;
+    const TB = 16384; const head = new Int32Array(TB); const next = new Int32Array(n); const sd = new Float32Array(n); const cap = new Float32Array(n); const gx = new Float32Array(n); const gy = new Float32Array(n); const gz = new Float32Array(n); const ok = new Uint8Array(n); const o4 = [0, 0, 0, 0];
+    const CELL = 0.02; const key = (ix, iy, iz) => (((ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)) >>> 0) & (TB - 1);
+    const base = sim.step.bind(sim);
+    sim.layerPass = () => {
+      const P = sim.pos; const Q = sim.prev; head.fill(-1);
+      const NB = 48; const topB = new Float32Array(NB).fill(-1e9); const binB = (x, z) => ((Math.round((Math.atan2(x, z) / (Math.PI * 2)) * NB) % NB) + NB) % NB;
+      if (belt) for (let i = 0; i < n; i++) if (isLow[i]) { const k = binB(P[i * 3], P[i * 3 + 2]); if (P[i * 3 + 1] > topB[k]) topB[k] = P[i * 3 + 1]; }
+      const topD = new Float32Array(NB); for (let k = 0; k < NB; k++) { let m = -1e9; for (let d = -3; d <= 3; d++) m = Math.max(m, topB[(k + d + NB) % NB]); topD[k] = m; } const bcAt = (x, z) => topD[binB(x, z)] - Math.max(0.02, beltW / 2 + 0.002); const bh = beltW / 2 + 0.004;
+      for (let i = 0; i < n; i++) {
+        ok[i] = sampleField(field, P[i * 3], P[i * 3 + 1], P[i * 3 + 2], o4) ? 1 : 0; if (!ok[i]) continue;
+        sd[i] = o4[0]; const gl = Math.hypot(o4[1], o4[2], o4[3]) || 1; gx[i] = o4[1] / gl; gy[i] = o4[2] / gl; gz[i] = o4[3] / gl;
+        if (belt && isLow[i] && Math.abs(P[i * 3 + 1] - bcAt(P[i * 3], P[i * 3 + 2])) < bh) sd[i] += beltT; // the belt is worn over the trousers here
+        cap[i] = 1e9;
+        if (rankP[i] < maxRank) { const k = key(Math.floor(P[i * 3] / CELL), Math.floor(P[i * 3 + 1] / CELL), Math.floor(P[i * 3 + 2] / CELL)); next[i] = head[k]; head[k] = i; }
+      }
+      for (let i = 0; i < n; i++) {
+        const r = rankP[i]; if (!r || !ok[i] || sim.inv[i] === 0) continue;
+        const px = P[i * 3]; const py = P[i * 3 + 1]; const pz = P[i * 3 + 2]; const ix = Math.floor(px / CELL); const iy = Math.floor(py / CELL); const iz = Math.floor(pz / CELL);
+        let need = -1e9;
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+          for (let q = head[key(ix + a, iy + b, iz + c)]; q >= 0; q = next[q]) {
+            if (rankP[q] >= r) continue;
+            if (gx[i] * gx[q] + gy[i] * gy[q] + gz[i] * gz[q] < 0.7) continue; /* the two layers must face the same way: not cloth on the other side of a leg or across the crotch */
+            const dx = px - P[q * 3]; const dy = py - P[q * 3 + 1]; const dz = pz - P[q * 3 + 2]; const along = dx * gx[q] + dy * gy[q] + dz * gz[q]; if (along < -0.025) continue;
+            const lat2 = dx * dx + dy * dy + dz * dz - along * along; if (lat2 > 0.00026) continue; // within about 1.6 cm sideways
+            const g2 = 0.0028 * Math.min(2, r - rankP[q] + 0.5); const want = sd[q] + g2; if (want > need) need = want; if (sd[i] - g2 < cap[q]) cap[q] = sd[i] - g2;
+          }
+        }
+        const lack = (need - sd[i]) * 0.3; // the outer layer gives way by less than half: the inner one is pressed in for the rest
+        if (lack > 0) { const mv = Math.min(lack, 0.004); P[i * 3] += gx[i] * mv; P[i * 3 + 1] += gy[i] * mv; P[i * 3 + 2] += gz[i] * mv; Q[i * 3] += gx[i] * mv; Q[i * 3 + 1] += gy[i] * mv; Q[i * 3 + 2] += gz[i] * mv; }
+      }
+    };
+    sim.layerPass = ((outerPass) => () => {
+      outerPass();
+      const P = sim.pos; const Q = sim.prev;
+      for (let q = 0; q < n; q++) { if (!ok[q] || cap[q] > 1e8 || sim.inv[q] === 0) continue; const over = sd[q] - cap[q]; if (over <= 0) continue; const mv = Math.min(over * 0.35, Math.max(0, sd[q] - 0.004), 0.004); if (mv <= 0) continue; P[q * 3] -= gx[q] * mv; P[q * 3 + 1] -= gy[q] * mv; P[q * 3 + 2] -= gz[q] * mv; Q[q * 3] -= gx[q] * mv; Q[q * 3 + 1] -= gy[q] * mv; Q[q * 3 + 2] -= gz[q] * mv; }
+    })(sim.layerPass);
+    sim.step = (dt) => { const mv = base(dt); sim.layerPass(); sim.computeNormals?.(); return mv; };
+  }
   sim.uv = new Float32Array(UV);
   sim.local = new Float32Array(local);
   sim.seamLines = seamLines;
@@ -719,6 +781,7 @@ export function layerOf(project, panel) {
   if (g.layer != null) return g.layer;
   if (g.generator === 'brief' || g.generator === 'bra') return 0;
   if (g.generator === 'scarf' || g.generator === 'tie') return 5;
+  if (g.generator === 'bottom' || g.generator === 'skirt') return (project.garments || []).some((t) => t.generator === 'top' && t.wear?.tuck === 'in') ? 1.5 : 0.9; // tucked tops go inside, untucked ones hang over
   if (g.generator === 'top') {
     if (g.knit) return 2;
     const o = g.options || {};

@@ -318,7 +318,10 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
       const sid = id(side > 0 ? 'sleeve-r' : 'sleeve-l');
       // front body panel: wearer-left is +x in world; front 'arm-r' is at +x,
       // back 'arm-l' is at +x (back panel is rotated 180 degrees)
-      const d0 = 0.035 + Math.max(0, t.shoulderX - t.natural) / 100;
+      let d0 = 0.035 + Math.max(0, t.shoulderX - t.natural) / 100;
+      // a long sleeve goes on with the hand through the cuff: the cuff starts at the wrist, never over the hand,
+      // since a closed cuff cannot be pulled back over the knuckles. A sleeve longer than the arm starts higher up it.
+      if (['long', 'three-quarter'].includes(o.sleeve) && BODY.armLen) { const over = sl.L / 100 - (BODY.armLen - d0 + 0.012); if (over > 0) d0 -= Math.min(over, 0.08); }
       panels.push({ id: sid, name: side > 0 ? 'Sleeve (left)' : 'Sleeve (right)', role: 'sleeve', points: sl.poly.pts, placement: { arm: side, angle: BODY.armAngle, radius: sl.R + 0.012, position: [(BODY.armStartX + d0 * Math.sin(an)) * side, BODY.armY - d0 * Math.cos(an), 0] }, fabric });
       seams.push(seam(sid, sl.poly, 'under-f', sid, sl.poly, 'under-b', sideStitch));
       seams.push(seam(sid, sl.poly, 'cap-f', side > 0 ? FR[0] : FL[0], side > 0 ? FR[1] : FL[1], side > 0 ? 'arm-r' : 'arm-l', sideStitch));
@@ -627,12 +630,27 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
   const [kneeBase, hemBase] = LEGS[o.leg] || LEGS.straight;
   const fitAdd = { slim: -0.4, regular: 0, relaxed: 0.8, oversized: 1.8 }[o.fit] ?? 0;
   const legHalf = hemBase + fitAdd * 0.6 + (o.hemAdj || 0) / 4;
-  const kneeHalf = kneeBase + fitAdd;
-  const hipQ = (BODY.hip + ease * 2 + (o.hipAdj || 0)) / 4;
+  let kneeHalf = kneeBase + fitAdd;
+  // hip ease as a trouser maker drafts it: a regular jean is about 6 cm over the seat, pleats need room to open,
+  // pull-on (elastic / drawstring) waists are cut fuller so they pass over the hips
+  const HIP_EASE = { slim: 3, regular: 6, relaxed: 10, oversized: 18 }[o.fit] ?? 6;
+  const hipFull = ({ single: 3, double: 5 }[o.pleats] || 0) + (o.waistband === 'elastic' || o.waistband === 'drawstring' ? 4 : 0) + ({ wide: 2, baggy: 6, barrel: 5, palazzo: 8, carpenter: 3 }[o.leg] || 0);
+  const hipQ = (BODY.hip + HIP_EASE + hipFull + (o.hipAdj || 0)) / 4;
   const waistQ = (BODY.waist + 4 + (o.waistAdj || 0) + (o.waistband === 'elastic' || o.waistband === 'drawstring' ? 14 : 0)) / 4;
-  const thighHalf = 13 + ease * 0.4 + (o.thighAdj || 0) / 4;
+  const thighHalf = 13 + ease * 0.4 + (o.thighAdj || 0) / 4; void thighHalf;
+  // thigh: the body's thigh round at the crotch plus the ease of the leg style (a straight jean is about 6 cm over the thigh)
+  const thighBody = BODY.thigh || BODY.hip * 0.58;
+  const LEG_EASE = { skinny: 1.5, cigarette: 3, slim: 4, tapered: 6, straight: 6.5, bootcut: 5, flare: 4.5, relaxed: 10, carpenter: 12, wide: 16, baggy: 20, barrel: 18, palazzo: 26, jogger: 9, cargo: 12 };
+  const thighRound = thighBody + (LEG_EASE[o.leg] ?? 7) + ({ slim: -2, regular: 0, relaxed: 4, oversized: 10 }[o.fit] ?? 0) + (o.thighAdj || 0);
   const shortLeg = I < 30;
   const kneeY = I * 0.56;
+  // below the knee the leg follows the body too: knee and calf rounds (measured on the mannequin, about 0.35 and
+  // 0.37 of the hip) plus the style's ease. Close-fitting legs may go a little under the body only in stretch cloth.
+  const kneeBody = BODY.knee || BODY.hip * 0.35; const calfBody = BODY.calf || BODY.hip * 0.366;
+  const stretchy = /stretch|jersey|knit|elast|spandex|lycra|legging|neoprene/.test(String(fabric));
+  const CALF_EASE = { skinny: stretchy ? -1 : 1.5, cigarette: stretchy ? 0.5 : 2.5, slim: 2.5, tapered: 3, bootcut: 3, flare: 2, 'bell-bottom': 2 };
+  const KNEE_EASE = { skinny: stretchy ? -0.5 : 2, cigarette: 1.5, slim: 3, tapered: 4, bootcut: 2.5, flare: 1.5, 'bell-bottom': 1.5 };
+  const calfY = kneeY * 0.8;
   // Trouser draft. Centre front/back seam runs at x = -10; +x is the outseam, the fork
   // extends to -x. The back has a longer fork, a deeper seat curve and a raised, angled waist.
   const legPoly = (crotchExt, extraRise) => {
@@ -641,19 +659,22 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
     const fork = [-10 - crotchExt, I - (isBack ? 0.8 : 0)];
     const hipY = I + riseCm * 0.36;
     const outHip = [hipQ - 10 + (isBack ? 0.8 : -0.4), hipY];
-    const thighOut = (o.thighAdj || 0) / 4 + outHip[0] - 0.6;
+    // the outseam curves in below the hip: the leg at the crotch is the thigh round, shared 45 / 55 front to back
+    const thighOut = Math.min(outHip[0] + 2, fork[0] + thighRound * (isBack ? 0.55 : 0.45));
     const cx = (fork[0] + thighOut) / 2; // crease line
     const hem = shortLeg ? Math.max(legHalf, (thighOut - fork[0]) / 2 - I * 0.07) : legHalf;
     const top = I + riseCm;
     const waistOut = [waistQ - 10 + 1, top + extraRise * 0.25];
     const waistIn = [-10 + (isBack ? 2.6 : 0.4), top + extraRise - (isBack ? 0 : 0.8)];
     p.add(cx - hem, 0, 'hem');
+    const kH = Math.max(kneeHalf, (kneeBody + (KNEE_EASE[o.leg] ?? 4) + fitAdd * 2) / 4); const calfH = Math.max(hem + (kH - hem) * 0.8, (calfBody + (CALF_EASE[o.leg] ?? 4) + fitAdd * 2) / 4);
     // outseam
     if (!shortLeg && I > 45) {
-      bez(p, [cx + hem, 0], [cx + hem - (hem - kneeHalf) * 0.2, kneeY * 0.45], [cx + kneeHalf + (hem - kneeHalf) * 0.15, kneeY * 0.8], [cx + kneeHalf, kneeY], 'out', 6);
-      bez(p, [cx + kneeHalf, kneeY], [cx + kneeHalf + (thighOut - cx - kneeHalf) * 0.35, kneeY + (I - kneeY) * 0.45], [thighOut - 0.4, I - (I - kneeY) * 0.25], [thighOut, I], 'out', 6);
+      bez(p, [cx + hem, 0], [cx + hem, calfY * 0.4], [cx + calfH, calfY * 0.72], [cx + calfH, calfY], 'out', 5);
+      bez(p, [cx + calfH, calfY], [cx + calfH, calfY + (kneeY - calfY) * 0.4], [cx + kH, kneeY - (kneeY - calfY) * 0.3], [cx + kH, kneeY], 'out', 2);
+      bez(p, [cx + kH, kneeY], [cx + kH + (thighOut - cx - kH) * 0.35, kneeY + (I - kneeY) * 0.45], [thighOut - 0.4, I - (I - kneeY) * 0.25], [thighOut, I], 'out', 6);
     } else { p.add(cx + hem, 0, 'out'); }
-    bez(p, [thighOut, I], [thighOut + 0.3, I + (hipY - I) * 0.5], [outHip[0], hipY - (hipY - I) * 0.3], outHip, 'out', 4);
+    bez(p, [thighOut, I], [thighOut + (outHip[0] - thighOut) * 0.45, I + (hipY - I) * 0.42], [outHip[0], hipY - (hipY - I) * 0.32], outHip, 'out', 5);
     bez(p, outHip, [outHip[0], hipY + (top - hipY) * 0.45], [waistOut[0] + 0.6, top - (top - hipY) * 0.35], waistOut, 'out', 6);
     p.add(waistOut[0], waistOut[1], 'waist');
     // centre seam: straight (angled on the back) down to the hip line, then the crotch curve
@@ -663,8 +684,9 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
     bez(p, turn, [turn[0] - 0.2, I + riseCm * 0.12], [fork[0] + crotchExt * 0.55, fork[1] + (isBack ? 0.1 : 0.6)], fork, 'cf', isBack ? 9 : 7);
     // inseam
     if (!shortLeg && I > 45) {
-      bez(p, fork, [fork[0] + (cx - kneeHalf - fork[0]) * 0.55, I - (I - kneeY) * 0.35], [cx - kneeHalf - 0.3, kneeY + (I - kneeY) * 0.3], [cx - kneeHalf, kneeY], 'in', 7);
-      bez(p, [cx - kneeHalf, kneeY], [cx - kneeHalf - (hem - kneeHalf) * 0.15, kneeY * 0.8], [cx - hem + (hem - kneeHalf) * 0.2, kneeY * 0.45], [cx - hem, 0], 'in', 6);
+      bez(p, fork, [fork[0] + (cx - kH - fork[0]) * 0.55, I - (I - kneeY) * 0.35], [cx - kH - 0.3, kneeY + (I - kneeY) * 0.3], [cx - kH, kneeY], 'in', 7);
+      bez(p, [cx - kH, kneeY], [cx - kH, kneeY - (kneeY - calfY) * 0.3], [cx - calfH, calfY + (kneeY - calfY) * 0.4], [cx - calfH, calfY], 'in', 2);
+      bez(p, [cx - calfH, calfY], [cx - calfH, calfY * 0.72], [cx - hem, calfY * 0.4], [cx - hem, 0], 'in', 5);
     } else p.add(fork[0], fork[1], 'in');
     p.cx = cx;
     return p;
@@ -678,7 +700,9 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
   // mirror: flip local x so the outseam faces outwards; leg: which leg (+1 = +x world)
   const mk = (pid, name, poly, mirrorX, leg, isBack) => {
     const pts = mirrorX > 0 ? poly.pts : poly.pts.map(([x, y]) => [-x, y]);
-    panels.push({ id: id(pid), name, role: 'leg', points: pts, placement: { position: [BODY.legX * leg, hemY, isBack ? -R : R], rotationY: isBack ? Math.PI : 0, wrap: R, wrapMax: 1.35 }, fabric });
+    // the tube is put on along the leg: the legs stand apart, so at the hem it sits round the ankle, not straight below the hip
+    const ankleOff = BODY.ankleX ? (BODY.ankleX - BODY.legX) * leg : 0; const lean = Math.abs(ankleOff) > 0.005 ? { dx: ankleOff * Math.min(1, Math.max(0, (BODY.crotchY - hemY) / Math.max(0.2, BODY.crotchY - (BODY.ankleY || 0.13)))), y1: I } : null;
+    panels.push({ id: id(pid), name, role: 'leg', points: pts, placement: { position: [BODY.legX * leg, hemY, isBack ? -R : R], rotationY: isBack ? Math.PI : 0, wrap: R, wrapMax: 1.35, ...(lean ? { lean } : {}) }, fabric });
   };
   // front panels face +z; back panels are rotated PI (local +x -> world -x)
   mk('front-r', 'Front (right leg)', front, 1, 1, false);
@@ -772,26 +796,46 @@ export function buildSkirt(o, prefix = '', fabric = 'denim') {
     if (o.flare < 6) p.add(-(wq + 4), o.length - 20, 'side-l');
     return p;
   };
-  const f = mk();
-  const b = mk();
   const y = BODY.waistY - o.length / 100;
-  const panels = [
-    { id: id('front'), name: 'Front', role: 'body', points: f.pts, placement: { position: [0, y, 0.16], rotationY: 0, wrap: Math.max(0.16, (wq + o.flare) / 145), wrapTop: 0.16, wrapTopY: o.length, wrapMax: 1.5 }, fabric },
-    { id: id('back'), name: 'Back', role: 'body', points: b.pts, placement: { position: [0, y, -0.16], rotationY: Math.PI, wrap: Math.max(0.16, (wq + o.flare) / 145), wrapTop: 0.16, wrapTopY: o.length, wrapMax: 1.5 }, fabric },
-  ];
+  const ventH = Math.min(30, o.length * 0.4);
+  // a front or back slit is a real opening: that piece is cut in two halves joined by a centre seam,
+  // and the seam is stitched only from the waist down to the top of the slit
+  const half = (side, cbTag) => {
+    const p = new Poly(); const W = wq + o.flare;
+    if (side > 0) {
+      p.add(0, 0, 'hem'); p.add(W, 0, 'side-r'); if (o.flare < 6) p.add(wq + 4, o.length - 20, 'side-r'); p.add(wq, o.length, 'waist');
+      p.add(0, o.length, cbTag); p.add(0, ventH, 'slit');
+    } else {
+      p.add(-W, 0, 'hem'); p.add(0, 0, 'slit'); p.add(0, ventH, cbTag); p.add(0, o.length, 'waist'); p.add(-wq, o.length, 'side-l'); if (o.flare < 6) p.add(-(wq + 4), o.length - 20, 'side-l');
+    }
+    return p;
+  };
+  const splitAt = o.slit === 'back' || o.slit === 'front' ? o.slit : null;
+  const place = (z, rot) => ({ position: [0, y, z], rotationY: rot, wrap: Math.max(0.16, (wq + o.flare) / 145), wrapTop: 0.16, wrapTopY: o.length, wrapMax: 1.5 });
+  const pieces = [];
+  for (const [nm, z, rot] of [['front', 0.16, 0], ['back', -0.16, Math.PI]]) {
+    if (splitAt === nm) { pieces.push({ key: nm + '-r', base: nm, poly: half(1, 'cb'), z, rot, name: (nm === 'front' ? 'Front' : 'Back') + ' right' }, { key: nm + '-l', base: nm, poly: half(-1, 'cb'), z, rot, name: (nm === 'front' ? 'Front' : 'Back') + ' left' }); }
+    else pieces.push({ key: nm, base: nm, poly: mk(), z, rot, name: nm === 'front' ? 'Front' : 'Back' });
+  }
+  const panels = pieces.map((q) => ({ id: id(q.key), name: q.name, role: 'body', points: q.poly.pts, placement: place(q.z, q.rot), fabric, edges: { hem: pathOf(q.poly, 'hem'), ...(q.key.endsWith('-r') || q.key.endsWith('-l') ? { slit: pathOf(q.poly, 'slit') } : {}) } }));
+  const withTag = (base, tag) => pieces.find((q) => q.base === base && q.poly.tags.includes(tag));
   const st = o.__stitch || 'safety-516';
-  const seams = [seam(id('front'), f, 'side-r', id('back'), b, 'side-l', st), seam(id('front'), f, 'side-l', id('back'), b, 'side-r', st)];
+  const sideOpen = o.slit === 'side' ? { open: Math.min(0.85, ventH / Math.hypot(o.length, o.flare + 4)), slit: true } : {};
+  const sideSeam = (tf, tb) => { const A = withTag('front', tf); const B = withTag('back', tb); return seam(id(A.key), A.poly, tf, id(B.key), B.poly, tb, st); };
+  const seams = [{ ...sideSeam('side-r', 'side-l'), ...sideOpen }, sideSeam('side-l', 'side-r')];
+  if (splitAt) { const L = pieces.find((q) => q.key === splitAt + '-l'); const R = pieces.find((q) => q.key === splitAt + '-r'); seams.push(seam(id(L.key), L.poly, 'cb', id(R.key), R.poly, 'cb', st)); }
+  const pid = (base, x) => { const c = pieces.filter((q) => q.base === base); return id((c.length > 1 ? c.find((q) => (x >= 0) === q.key.endsWith('-r')) : c[0]).key); };
   const overlays = [];
   const trims = [];
   for (const pan of panels) pan.tack = { y0: o.length - 3, y1: o.length + 1 };
   if (o.waistband === 'elastic') for (const pan of panels) pan.gather = [{ y0: o.length - 4, y1: o.length + 1, ratio: (BODY.waist + 6) / (BODY.waist + 18) }];
-  for (const pid of ['front', 'back']) overlays.push({ kind: 'waistband', style: o.waistband, panel: id(pid), points: rect(-wq, o.length - 4, wq, o.length) });
-  if (o.waistband === 'button') trims.push({ type: o.pockets === 'five-pocket' ? 'jeans-button' : 'button-4hole', panel: id('front'), at: [0, o.length - 2] });
-  panels[0].edges = { hem: pathOf(f, 'hem') }; panels[1].edges = { hem: pathOf(b, 'hem') };
-  if (o.waistband === 'facing') trims.push({ type: 'zipper', panel: id('back'), at: [0, o.length - 20], to: [0, o.length - 1], zip: { ...ZIPPER_DEFAULTS.dress } });
-  if (o.slit !== 'none') overlays.push({ kind: 'vent', panel: id(o.slit === 'back' ? 'back' : 'front'), points: rect((o.slit === 'side' ? wq + o.flare - 1 : 0) - 0.4, 0, (o.slit === 'side' ? wq + o.flare - 1 : 0) + 0.4, Math.min(30, o.length * 0.4)) });
-  if (o.pockets === 'patch') for (const s of [1, -1]) overlays.push({ kind: 'pocket', style: 'patch', panel: id('back'), points: rect(s > 0 ? 3 : -15, o.length - 20, s > 0 ? 15 : -3, o.length - 7) });
-  if (o.pockets === 'five-pocket') { for (const s of [1, -1]) overlays.push({ kind: 'pocket', style: 'scoop', panel: id('front'), points: [[s * wq, o.length - 4], [s * wq, o.length - 13], [s * (wq - 9), o.length - 4]] }); trims.push({ type: 'rivet', panel: id('front'), at: [wq - 1, o.length - 12] }, { type: 'rivet', panel: id('front'), at: [-wq + 1, o.length - 12] }); }
+  for (const q of pieces) { const xs = q.poly.pts.map((v) => v[0]); overlays.push({ kind: 'waistband', style: o.waistband, panel: id(q.key), points: rect(Math.max(-wq, Math.min(...xs)), o.length - 4, Math.min(wq, Math.max(...xs)), o.length) }); }
+  if (o.waistband === 'button') trims.push({ type: o.pockets === 'five-pocket' ? 'jeans-button' : 'button-4hole', panel: pid('front', 0.5), at: [0.5, o.length - 2] });
+  if (o.waistband === 'facing') trims.push({ type: 'zipper', panel: pid('back', -0.3), at: [-0.3, o.length - 20], to: [-0.3, o.length - 1], zip: { ...ZIPPER_DEFAULTS.dress } });
+  if (o.slit === 'side') overlays.push({ kind: 'vent', panel: pid('front', 1), points: rect(wq + o.flare - 1.4, 0, wq + o.flare - 0.6, ventH) });
+  else if (splitAt) for (const sd of [-1, 1]) overlays.push({ kind: 'vent', panel: pid(splitAt, sd), points: sd > 0 ? rect(0.1, 0, 0.9, ventH) : rect(-0.9, 0, -0.1, ventH) });
+  if (o.pockets === 'patch') for (const s of [1, -1]) overlays.push({ kind: 'pocket', style: 'patch', panel: pid('back', s), points: rect(s > 0 ? 3 : -15, o.length - 20, s > 0 ? 15 : -3, o.length - 7) });
+  if (o.pockets === 'five-pocket') { for (const s of [1, -1]) overlays.push({ kind: 'pocket', style: 'scoop', panel: pid('front', s), points: [[s * wq, o.length - 4], [s * wq, o.length - 13], [s * (wq - 9), o.length - 4]] }); trims.push({ type: 'rivet', panel: pid('front', 1), at: [wq - 1, o.length - 12] }, { type: 'rivet', panel: pid('front', -1), at: [-wq + 1, o.length - 12] }); }
   return { panels, seams, trims, overlays };
 }
 
