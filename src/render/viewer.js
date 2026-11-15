@@ -188,6 +188,7 @@ export class Viewer {
       if (this._grab) { // hold the pinched cloth at the pointer (limited reach so it cannot be torn off the body)
         const g = this._grab; const P = this.sim.pos; const Q = this.sim.prev;
         g.ids.forEach((i, k) => { const x = g.target.x + g.off[k].x; const y = Math.max(0.01, g.target.y + g.off[k].y); const z = g.target.z + g.off[k].z; this.sim.inv[i] = 0; P[i * 3] += (x - P[i * 3]) * g.gain; P[i * 3 + 1] += (y - P[i * 3 + 1]) * g.gain; P[i * 3 + 2] += (z - P[i * 3 + 2]) * g.gain; Q[i * 3] = P[i * 3]; Q[i * 3 + 1] = P[i * 3 + 1]; Q[i * 3 + 2] = P[i * 3 + 2]; });
+        if (g.mirror) { const i = g.mirror.i; const x = -g.target.x; const y = Math.max(0.01, g.target.y); const z = g.target.z; this.sim.inv[i] = 0; P[i * 3] += (x - P[i * 3]) * g.gain; P[i * 3 + 1] += (y - P[i * 3 + 1]) * g.gain; P[i * 3 + 2] += (z - P[i * 3 + 2]) * g.gain; Q[i * 3] = P[i * 3]; Q[i * 3 + 1] = P[i * 3 + 1]; Q[i * 3 + 2] = P[i * 3 + 2]; }
       }
       const mv = this.sim.step(1 / 60);
       this.onStep?.(mv);
@@ -938,6 +939,20 @@ export class Viewer {
     this.buildProps(project, sim);
     this.buildEmbroidery(project, sim);
     this.buildCollars(project, sim);
+    // torn seams: broken threads and frayed yarn ends along both edges
+    for (const seam of project.seams || []) {
+      if (!seam.ripped) continue;
+      for (const side of [seam.a, seam.b]) {
+        const pan = project.panels.find((p) => p.id === side.panel); if (!pan) continue;
+        const n = pan.points.length; const path = []; for (let i = side.edge; ; i++) { path.push(pan.points[i % n]); if (i % n === ((side.to ?? side.edge) + 1) % n) break; if (path.length > n + 1) break; }
+        const anchors = this.pathAnchors(sim, side.panel, path, 0.35); if (anchors.length < 2) continue;
+        const rnd = anchors.map((_, i) => { const s = Math.sin(i * 12.9898 + side.edge * 7.1) * 43758.5453; const t = Math.sin(i * 78.233 + 1.7) * 12543.123; return [(s - Math.floor(s)) - 0.5, (t - Math.floor(t)) - 0.5, 0.004 + (s - Math.floor(s)) * 0.009]; });
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(anchors.length * 6), 3));
+        const line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: this.threadColor(project, pan).lerp(new THREE.Color(pan.finish?.color || resolveFabric(project, pan.fabric, pan.fabricOverrides).look.color), 0.5) })); line.frustumCulled = false;
+        const upd = () => { const P = sim.pos; const A = g.attributes.position; for (let i = 0; i < anchors.length; i++) { const a = anchors[i]; const b = anchors[Math.min(anchors.length - 1, i + 1)]; let x = 0; let y = 0; let z = 0; let x2 = 0; let y2 = 0; let z2 = 0; a.ids.forEach((q, k) => { x += P[q * 3] * a.w[k]; y += P[q * 3 + 1] * a.w[k]; z += P[q * 3 + 2] * a.w[k]; }); b.ids.forEach((q, k) => { x2 += P[q * 3] * b.w[k]; y2 += P[q * 3 + 1] * b.w[k]; z2 += P[q * 3 + 2] * b.w[k]; }); const r = rnd[i]; A.setXYZ(i * 2, x, y, z); A.setXYZ(i * 2 + 1, x + (x2 - x) * 0.4 + r[0] * r[2], y - r[2] * 0.8 + r[1] * 0.003, z + (z2 - z) * 0.4 + r[1] * r[2]); } A.needsUpdate = true; };
+        upd(); this.garment.add(line); this.stitchLines.push({ line, update: upd });
+      }
+    }
     // seam joins: a narrow strip of the fabric bridges the two sewn edges, so a seam never shows a gap
     for (const sl of sim.seamLines) {
       const n = sl.pairs.length / 2;
@@ -1292,11 +1307,25 @@ export class Viewer {
     const el = this.renderer.domElement; const rc = new THREE.Raycaster(); const ndc = new THREE.Vector2();
     const ray = (e) => { const r = el.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); rc.setFromCamera(ndc, this.camera); };
     el.addEventListener('pointerdown', (e) => {
-      if (!this.grabMode || !this.sim) return;
+      if ((!this.grabMode && !this.ripMode) || !this.sim) return;
       ray(e);
       const hit = rc.intersectObjects(this.panelMeshes, false)[0];
       if (!hit || !hit.face) return;
       const pan = this.sim.panels.find((p) => p.id === hit.object.userData.panelId); if (!pan) return;
+      if (this.ripMode) { // tear the nearest seam open
+        let best = null; let bd = 0.05; const Q = this.sim.pos;
+        for (const sl of this.sim.seamLines || []) for (const i of sl.particles || []) { const d = Math.hypot(Q[i * 3] - hit.point.x, Q[i * 3 + 1] - hit.point.y, Q[i * 3 + 2] - hit.point.z); if (d < bd) { bd = d; best = sl.id; } }
+        if (best) { e.stopPropagation(); this.onRip?.(best); }
+        return;
+      }
+      if (e.shiftKey) { // pin: hold this spot of cloth where it is until unpinned
+        const ids0 = [hit.face.a, hit.face.b, hit.face.c].map((i) => i + pan.offset);
+        this.pins = (this.pins || []).filter((q) => q.sim === this.sim);
+        const mk = new THREE.Mesh(new THREE.SphereGeometry(0.006, 12, 8), new THREE.MeshBasicMaterial({ color: '#ff4f1f', depthTest: false })); mk.renderOrder = 99;
+        const sim = this.sim; mk.onBeforeRender = () => { const i = ids0[0]; mk.position.set(sim.pos[i * 3], sim.pos[i * 3 + 1], sim.pos[i * 3 + 2]); }; mk.position.copy(hit.point); mk.frustumCulled = false;
+        this.pins.push({ sim, ids: ids0, inv: ids0.map((i) => sim.inv[i]), mk }); for (const i of ids0) sim.inv[i] = 0;
+        this.scene.add(mk); this.dirty = true; this.onPins?.(this.pins.length); e.stopPropagation(); return;
+      }
       // pinch the three corners of the triangle under the pointer
       const ids = [hit.face.a, hit.face.b, hit.face.c].map((i) => i + pan.offset);
       const P = this.sim.pos;
@@ -1305,14 +1334,24 @@ export class Viewer {
       const gain = Math.max(0.07, Math.min(0.6, 0.42 * Math.sqrt(160 / gsm) / (1 + stiff * 0.5)));
       const reach = Math.max(0.035, Math.min(0.3, 0.03 + emt * 0.0042 + 0.02 * Math.sqrt(160 / gsm)));
       this._grab = { gain, reach, anchor: hit.point.clone(), ids, inv: ids.map((i) => this.sim.inv[i]), off: ids.map((i) => new THREE.Vector3(P[i * 3] - hit.point.x, P[i * 3 + 1] - hit.point.y, P[i * 3 + 2] - hit.point.z)), dist: hit.distance, target: hit.point.clone(), id: e.pointerId };
+      if (this.grabSym) { // symmetric pinching: the mirrored spot on the other side of the body moves with it
+        let mi = -1; let md = 0.04; for (let i = 0; i < P.length / 3; i++) { const d = Math.hypot(P[i * 3] + hit.point.x, P[i * 3 + 1] - hit.point.y, P[i * 3 + 2] - hit.point.z); if (d < md) { md = d; mi = i; } }
+        if (mi >= 0 && Math.abs(hit.point.x) > 0.02) this._grab.mirror = { i: mi, inv: this.sim.inv[mi] };
+      }
       this.controls.enabled = false;
       el.setPointerCapture?.(e.pointerId);
       e.stopPropagation();
     }, true);
     el.addEventListener('pointermove', (e) => { if (!this._grab || e.pointerId !== this._grab.id) return; ray(e); this._grab.target.copy(rc.ray.origin).addScaledVector(rc.ray.direction, this._grab.dist); { const g2 = this._grab; const off = g2.target.clone().sub(g2.anchor); const l = off.length(); if (l > g2.reach) g2.target.copy(g2.anchor).addScaledVector(off, (g2.reach + (l - g2.reach) * 0.12) / l); } this.simAwake = true; this._simFrames = Math.min(this._simFrames || 0, 500); this._still = 0; });
-    const end = (e) => { if (!this._grab || e.pointerId !== this._grab.id) return; this._grab.ids.forEach((i, k) => { this.sim.inv[i] = this._grab.inv[k]; }); this._grab = null; this.controls.enabled = true; this.simAwake = true; this._simFrames = Math.min(this._simFrames || 0, 420); this._still = 0; };
+    const end = (e) => { if (!this._grab || e.pointerId !== this._grab.id) return; const pinned = new Set((this.pins || []).filter((q) => q.sim === this.sim).flatMap((q) => q.ids)); this._grab.ids.forEach((i, k) => { this.sim.inv[i] = pinned.has(i) ? 0 : this._grab.inv[k]; }); if (this._grab.mirror) this.sim.inv[this._grab.mirror.i] = this._grab.mirror.inv; this._grab = null; this.controls.enabled = true; this.simAwake = true; this._simFrames = Math.min(this._simFrames || 0, 420); this._still = 0; };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
   }
+
+  /** Let go of every pinned spot. */
+  clearPins() { for (const q of this.pins || []) { this.scene.remove(q.mk); if (q.sim === this.sim) q.ids.forEach((i, k) => { q.sim.inv[i] = q.inv[k]; }); } this.pins = []; this.simAwake = true; this._simFrames = 0; this._still = 0; this.dirty = true; this.onPins?.(0); }
+
+  /** A faint ring round the body at a height (while measuring). */
+  showLevel(y) { if (!this._level) { this._level = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.345, 64), new THREE.MeshBasicMaterial({ color: '#ff4f1f', side: THREE.DoubleSide, transparent: true, opacity: 0.8 })); this._level.rotation.x = -Math.PI / 2; this.scene.add(this._level); } this._level.position.y = y; this._level.visible = true; clearTimeout(this._levelT); this._levelT = setTimeout(() => { this._level.visible = false; this.dirty = true; }, 2500); this.dirty = true; }
 
   snapshot(width = 1024) {
     const old = this.renderer.getPixelRatio();

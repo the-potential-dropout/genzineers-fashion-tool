@@ -45,6 +45,19 @@ Real cloth physics in Rust/WebAssembly · real construction methods · factory-r
 - **Realistic male & female mannequins** (CC0, generated from MakeHuman) graded to every size, with collision shapes fitted to the mesh so cloth rests on the body you see.
 - **Real cloth simulation**: sew-then-drape like garment CAD on outline-conforming triangle meshes. Cloth collides with a **distance field of the actual mannequin mesh** (not capsules), so garments sit on the real neck, shoulders, chest and seat. Every material has a **default thickness and weight you can override per project** (thickness changes stiffness and stand-off, weight changes the hang). Each fabric is driven by **measured textile behaviour** (extensibility, shear stiffness, bending rigidity and friction from fabric objective measurement), so denim hangs like denim and chiffon like chiffon. Mannequin stands in a natural **A-pose (arms at 45°)**. It runs in **Rust → WebAssembly** (20 KB, zero-copy to the GPU) and sleeps when settled, so it uses no CPU at idle.
 
+### Shoes & boots
+- 70 types (dress, loafers, sneakers, work and hiking boots, western, heels, flats, sandals), each lasted on the mannequin's own feet; a heel pitches the foot and the body rises on the sole.
+- Real upper pieces (vamp, quarters, cap, counter, backstay, facings, tongue, collar), each in its own material and colour; welt, midsole, outsole, tread and heel by named construction (Goodyear, Blake, stitchdown, cemented, vulcanised...).
+- Lace hardware you can see: punched holes, eyelets, D-rings, webbing loops and solid speed hooks, with the lace threaded in six lacing patterns.
+- Flat pattern pieces, lace length, hardware counts and a footwear spec for the maker.
+
+### Studio tools
+- Any sub-piece (collar, cuffs, lapels, pockets, plackets, straps) in its own material and colour.
+- Colourways, rendered side by side; every size rendered as a size run; turntable video.
+- Costing per unit with your own material, trim and labour prices, through to FOB, wholesale and retail, in the tech pack.
+- Version history (automatic copies you can restore), search everything with Ctrl+K.
+- Pull the cloth, pin it (Shift+click), pinch both sides at once, rip a seam open with frayed edges, measure the body at any height.
+
 ### Jewelry
 - Chain links are dimensioned so **neighbouring links never intersect** (verified by an automated interference test for every chain type): true twisted, diamond-cut **Cuban and curb** links, cable, rolo, mariner, paperclip, box, and swept rope / wheat / snake chains; the **signet ring** is one solid with tapered shoulders and a flat face.
 Rings, chains (19 link types incl. cable, curb, Cuban, figaro, rope, box, franco, byzantine, paperclip, tennis), necklaces, pendants, bracelets, bangles, cuffs and earrings, with clasps, bails and backs; 34 gems with real refractive index & dispersion; 17 cuts incl. custom; 14 settings; **karat control** (purity, density, colour, hallmark), platings; custom outlines for pendants, stones, links and signets; **import CAD parts** (STL, OBJ, GLB, 3MF, PLY, FBX, DAE, STEP, IGES, .blend) and resize, stretch and distort them to fit; metal weight & carat estimates; STL export for casting.

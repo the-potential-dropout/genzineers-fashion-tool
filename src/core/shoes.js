@@ -427,14 +427,15 @@ export function shoePieces(s, body, fabric) {
   }
   // ---- bottom
   const soleFab = { leather: 'leather-sole-bend' }[s.outsole] || 'leather-sole-bend';
-  const bottom = (name, pts, cut, note) => out.push({ name, points: pts.map(([a, b]) => [r1(a), r1(b)]), fabric: soleFab, cut, note, part: 'bottom', material: name });
+  const matFab = (id) => ({ leather: 'leather-sole-bend', 'stacked-leather': 'leather-sole-bend', eva: 'eva-foam', tpu: 'tpu-film', pu: 'eva-foam' }[id] || 'rubber-sheet');
+  const bottom = (name, pts, cut, note, fab = soleFab) => out.push({ name, points: pts.map(([a, b]) => [r1(a), r1(b)]), fabric: fab, cut, note, part: 'bottom', material: name });
   bottom(`Insole (${s.construction === 'strobel' ? 'strobel sock, non-woven' : 'leather or cellulose board, 2.5-3.5 mm'})`, sole(0), 1, s.construction === 'goodyear-welt' || s.construction === 'storm-welt' ? 'Channelled or ribbed (gemming) 6 mm in from the edge to take the welt seam.' : 'Shaped to the last bottom.');
-  if (s.midsole && s.midsole !== 'none') bottom(`Midsole (${SOLE_MATERIALS[s.midsole]?.name || s.midsole})`, sole(s.ext), 1, 'Between the welt and the outsole.');
-  bottom(`Outsole (${SOLE_MATERIALS[s.outsole]?.name || s.outsole}, ${TREADS[s.tread] || s.tread})`, sole(s.ext + (CONSTRUCTIONS[s.construction]?.welt ? 0.45 : 0.1), HEELS[s.heel]?.pin ? 0 : 0), 1, `${CONSTRUCTIONS[s.construction]?.name}. Forefoot ${r1(s.soleT * 10)} mm${s.platform ? ` including a ${r1(s.platform * 10)} mm platform` : ''}.`);
+  if (s.midsole && s.midsole !== 'none') bottom(`Midsole (${SOLE_MATERIALS[s.midsole]?.name || s.midsole})`, sole(s.ext), 1, 'Between the welt and the outsole.', matFab(s.midsole));
+  bottom(`Outsole (${SOLE_MATERIALS[s.outsole]?.name || s.outsole}, ${TREADS[s.tread] || s.tread})`, sole(s.ext + (CONSTRUCTIONS[s.construction]?.welt ? 0.45 : 0.1), HEELS[s.heel]?.pin ? 0 : 0), 1, `${CONSTRUCTIONS[s.construction]?.name}. Forefoot ${r1(s.soleT * 10)} mm${s.platform ? ` including a ${r1(s.platform * 10)} mm platform` : ''}.${s.outsole === 'leather' ? '' : ' Bought or moulded as a unit: this outline is the size to order or cut from sheet.'}`, matFab(s.outsole));
   if (CONSTRUCTIONS[s.construction]?.welt) bottom('Welt strip', [[0, 0], [SL * 2.25, 0], [SL * 2.25, 1.8], [0, 1.8]], 1, `${CONSTRUCTIONS[s.construction].storm ? 'Storm welt with a raised lip. ' : ''}3 mm vegetable-tanned leather, runs heel breast to heel breast (360 degree welt: add ${r1(SL * 0.7)} cm).`);
   if (!HEELS[s.heel]?.wedge && s.heelH > 0.9) { const lifts = Math.max(1, Math.round((s.heelH - s.soleT * 0.4) / 0.6)); const hp = sole(s.ext + 0.3).filter(([x]) => x <= SL * (HEELS[s.heel]?.breast || 0.27)); bottom(HEELS[s.heel]?.pin ? 'Heel (moulded, steel pin) cover' : `Heel lift (x${lifts} stacked) and top piece`, hp.length > 4 ? hp : [[0, -3], [6, -3], [6, 3], [0, 3]], HEELS[s.heel]?.pin ? 1 : lifts + 1, HEELS[s.heel]?.pin ? `Covering for a ${r1(s.heelH)} cm ${HEELS[s.heel].name.toLowerCase()} heel: wrap, seam at the breast. Top piece 9-11 mm polyurethane with a steel dowel.` : `${r1(s.heelH)} cm total heel height. Last lift is a rubber or quarter-rubber top piece.`); }
   const shank = s.opt?.shank && s.opt.shank !== 'auto' ? s.opt.shank : s.heelH >= 2 ? 'steel' : 'none';
-  if (shank !== 'none') bottom(`Shank (${shank})`, [[SL * 0.18, -0.6], [SL * 0.58, -0.6], [SL * 0.58, 0.6], [SL * 0.18, 0.6]], 1, 'Bridges the waist of the shoe between heel and ball; set in the bottom filler.');
+  if (shank !== 'none') bottom(`Shank (${shank})`, [[SL * 0.18, -0.6], [SL * 0.58, -0.6], [SL * 0.58, 0.6], [SL * 0.18, 0.6]], 1, 'Bridges the waist of the shoe between heel and ball; set in the bottom filler.', 'interfacing-stiffener');
   return out;
 }
 

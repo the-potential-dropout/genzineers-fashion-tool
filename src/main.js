@@ -35,6 +35,7 @@ import { POCKETS, POCKET_CLOSURES } from './core/pockets.js';
 import { TANNING, LEATHER_FINISHES, LEATHER_COLOURS, LEATHER_USE, leatherFit } from './core/leather.js';
 import { STITCH_TYPES, FONTS, THREADS_EMB, MOTIFS_EMB, rasterizeDesign, digitize, writeDST, embroiderySheet, loadArtwork } from './make/embroidery.js';
 import { LAYER_NAMES, listParts } from './core/project.js';
+import { initStudio } from './app/studio.js';
 import { layerOf } from './sim/cloth.js';
 
 const LINKS_OUT = {
@@ -174,6 +175,37 @@ function applyPatternMode() {
 }
 if (matchMedia('(max-width: 760px)').matches) ui.pattern = 'off';
 
+// ---------- studio tools (colourways, costing, history, search, video, measuring) ----------
+let studio_;
+const studio = () => (studio_ ||= (() => {
+  const st = initStudio({ store, viewer, h, toast, download, rerender: () => renderPanel(), field, sel });
+  st.setCommands(() => { const p = store.get(); const go = (step) => () => { ui.step = step; renderPanel(); }; return [
+    { label: 'Go to: Style', run: go('style') }, { label: 'Go to: Materials', run: go('materials') }, { label: 'Go to: Details', run: go('details') }, { label: 'Go to: Make it (files, costing)', run: go('make') },
+    { label: 'Flat pattern editor', hint: 'draw, sew and edit pieces', run: () => { ui.pattern = 'split'; applyPatternMode(); renderTop(); } },
+    { label: 'Undo', hint: 'Ctrl+Z', run: () => store.undo() }, { label: 'Redo', hint: 'Ctrl+Y', run: () => store.redo() },
+    { label: 'Re-drape the garment', run: () => rebuild({ keepCamera: true }) },
+    { label: 'Pull mode: drag the cloth', hint: 'Shift+click pins a spot', run: () => { viewer.setGrab(true); renderHud(); } },
+    { label: 'Symmetric pinching on / off', run: () => { viewer.setGrab(true); viewer.grabSym = !viewer.grabSym; renderHud(); } },
+    { label: 'Rip a seam open', hint: 'click a seam on the garment', run: () => { viewer.setGrab(viewer.grabMode); viewer.ripMode = true; renderHud(); toast('Click a seam on the garment to tear it open'); } },
+    { label: 'Sew all ripped seams back', run: () => store.dispatch(p.seams.filter((x) => x.ripped).map((x) => ({ type: 'rip_seam', seam: x.id, ripped: false }))) },
+    { label: 'Unpin all', run: () => viewer.clearPins() },
+    { label: 'Fit map (tension colours)', run: () => { viewer.setFitMap(!viewer.fitMap); renderHud(); } },
+    { label: 'Version history', hint: 'restore an earlier copy', run: () => st.openHistory() },
+    { label: 'Save current look as a colourway', run: () => { const n = prompt('Name this colourway'); if (n) store.dispatch({ type: 'save_colorway', name: n }); } },
+    { label: 'Render all colourways (line sheet)', run: () => st.renderSheet('colorways') }, { label: 'Render every size (size run)', run: () => st.renderSheet('sizes') },
+    { label: 'Record turntable video', run: () => st.recordTurntable() },
+    { label: 'Snapshot (PNG)', run: () => download(`${p.name}.png`, dataUrlToBlob(viewer.snapshot(1600))) },
+    { label: 'Export 3D model (GLB)', run: async () => download(`${p.name}.glb`, await viewer.exportModel('glb')) }, { label: 'Export 3D model (OBJ)', run: async () => download(`${p.name}.obj`, await viewer.exportModel('obj')) },
+    { label: 'Tech pack', run: () => openDoc(techPackHTML(p, { image: viewer.snapshot(1000) }), `${p.name}-techpack.html`) },
+    { label: 'Manufacturing pack (ZIP)', run: () => manufacturingPack() },
+    { label: 'Save to my collection', hint: 'Ctrl+S', run: () => saveToCollection() }, { label: 'My collection', run: () => openCollection() },
+    { label: 'Open / import a file', run: () => fileInput.click() }, { label: 'Connect AI and tools', run: () => { ui.aiTab = 'connect'; toggleAI(true); } },
+  ]; });
+  viewer.onRip = (seam) => { store.dispatch({ type: 'rip_seam', seam }); viewer.ripMode = false; renderHud(); toast('Seam torn open. Search "sew" to sew it back, or Ctrl+Z.'); };
+  viewer.onPins = () => renderHud();
+  return st;
+})());
+
 // ---------- menu ----------
 let menuEl;
 function openMenu() {
@@ -190,6 +222,10 @@ function openMenu() {
     item('Export 3D model (STL, for 3D printing / casting)', async () => download(`${p.name}.stl`, await viewer.exportModel('stl'))),
     item('Open in Blender', () => openInBlender()),
     item('Snapshot (PNG)', () => download(`${p.name}.png`, dataUrlToBlob(viewer.snapshot(1600)))),
+    item('Turntable video', () => studio().recordTurntable()),
+    item('Render every size / colourway…', () => studio().renderSheet((p.colorways || []).filter((c) => c.look).length > 1 && confirm('OK = all colourways, Cancel = every size') ? 'colorways' : 'sizes')),
+    item('Search everything (Ctrl+K)', () => studio().openSearch()),
+    item('Version history…', () => studio().openHistory()),
     h('hr'),
     item(`Auto-orbit: ${viewer.autoOrbit ? 'on' : 'off'}`, () => { viewer.setAutoOrbit(!viewer.autoOrbit); settings.set('orbit', viewer.autoOrbit); }),
     item(`Theme: ${settings.get('theme', 'system')}`, () => { const order = ['system', 'light', 'dark']; const nt = order[(order.indexOf(settings.get('theme', 'system')) + 1) % 3]; settings.set('theme', nt); if (nt === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = nt; viewer.setBackground(getComputedStyle(document.documentElement).getPropertyValue('--stage').trim() || '#eceae6'); }),
@@ -255,6 +291,10 @@ function renderHud() {
     h('button', { class: 'pill', onclick: () => (p.mode === 'jewelry' ? viewer.setProject(p) : viewer.frameGarment()) }, '⤢ Fit'),
     h('button', { class: 'pill', onclick: () => { viewer.setAutoOrbit(!viewer.autoOrbit); settings.set('orbit', viewer.autoOrbit); renderHud(); } }, viewer.autoOrbit ? '⟳ Orbit on' : '⟳ Orbit off'),
     p.mode !== 'jewelry' ? h('button', { class: `pill ${viewer.grabMode ? 'on' : ''}`, title: 'Pull mode: drag the cloth itself to pinch and tug it; it falls back naturally when you let go', onclick: () => { viewer.setGrab(!viewer.grabMode); renderHud(); toast(viewer.grabMode ? 'Pull mode: drag the cloth. Tap again to go back to orbiting.' : 'Orbit mode'); } }, viewer.grabMode ? '✋ Pulling' : '✋ Pull') : null,
+    p.mode !== 'jewelry' && viewer.grabMode ? h('button', { class: `pill ${viewer.grabSym ? 'on' : ''}`, title: 'Symmetric pinching: the same spot on the other side of the body moves with your hand', onclick: () => { viewer.grabSym = !viewer.grabSym; renderHud(); } }, '⇋ Both sides') : null,
+    p.mode !== 'jewelry' && viewer.grabMode ? h('button', { class: `pill ${viewer.ripMode ? 'on' : ''}`, title: 'Rip: click a seam to tear it open along its stitching', onclick: () => { studio(); viewer.ripMode = !viewer.ripMode; renderHud(); } }, '✂ Rip seam') : null,
+    p.mode !== 'jewelry' && viewer.pins?.length ? h('button', { class: 'pill on', title: 'Shift+click in pull mode pins a spot of cloth in place', onclick: () => viewer.clearPins() }, `📌 Unpin ${viewer.pins.length}`) : null,
+    p.mode !== 'jewelry' && (p.seams || []).some((x) => x.ripped) ? h('button', { class: 'pill on', onclick: () => store.dispatch(p.seams.filter((x) => x.ripped).map((x) => ({ type: 'rip_seam', seam: x.id, ripped: false }))) }, 'Sew ripped seams') : null,
     p.mode !== 'jewelry' ? h('button', { class: `pill ${viewer.fitMap ? 'on' : ''}`, title: 'Colour the cloth by tension: red = tight, blue = loose', onclick: () => { viewer.setFitMap(!viewer.fitMap); renderHud(); } }, viewer.fitMap ? '◐ Fit map on' : '◐ Fit map') : null,
     p.mode !== 'jewelry' ? h('span', { class: 'pill' }, `Size ${p.customBody ? 'custom' : p.size} · ${SIZE_CHARTS[p.sizeChart || 'unisex'].label}${p.scale && p.scale !== 1 ? ` · ${Math.round(p.scale * 100)}% scale` : ''}`) : null,
     h('button', { class: 'pill', onclick: () => { ui.aiTab = 'images'; ui.useRef = true; toggleAI(true); } }, '✦ AI render'),
@@ -315,6 +355,7 @@ addEventListener('keydown', (e) => {
   if (mod && e.key.toLowerCase() === 'z' && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) { e.preventDefault(); e.shiftKey ? store.redo() : store.undo(); }
   if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); store.redo(); }
   if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveToCollection(); }
+  if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); studio().openSearch(); }
   if (e.key === 'Escape' && collEl) closeCollection();
 });
 function renderPlaceHint() {
@@ -380,6 +421,7 @@ function cStyle(el, p) {
     const keys = KEY_OPTS[g.generator] || Object.keys(schema);
     el.append(h('div', { class: 'sec' },
       h('h3', {}, 'Customise'),
+      g.generator === 'bag' ? h('div', { class: 'tip' }, h('b', {}, `Holds about ${studio().bagVolume(g.options).toFixed(1)} litres. `), 'Worked out from the inside width, height and depth for this shape.') : null,
       gs.length > 1 ? h('div', { class: 'chips', style: 'margin-bottom:8px' }, gs.map((x) => h('button', { class: `chip ${x.id === ui.garment ? 'on' : ''}`, onclick: () => { ui.garment = x.id; renderPanel(); } }, GENERATORS[x.generator].label.split(' /')[0]))) : null,
       keys.map(opt),
       h('details', {}, h('summary', {}, 'All options'), h('div', {}, Object.keys(schema).filter((k) => !keys.includes(k) && !/Adj$/.test(k)).map(opt))),
@@ -509,6 +551,7 @@ function partLooks(p) {
 function cMaterials(el, p) {
   el.append(targetChips(p));
   const pl = partLooks(p); if (pl) el.append(pl);
+  el.append(studio().colorwaySection(p));
   const cur = tgtPanel(p); if (!cur) return;
   const fab = resolveFabric(p, cur.fabric, cur.fabricOverrides);
   const rec = recommendFor(cur.fabric, p);
@@ -622,6 +665,7 @@ function customBlend() {
 
 // ===== Clothing: Details =====
 function cDetails(el, p) {
+  { const ms = studio().measureSection(p); if (ms) setTimeout(() => el.append(ms), 0); }
   const cur = p.panels[0];
   const rec = recommendFor(cur?.fabric || 'cotton-jersey', p);
   const groups = Object.entries(ASSEMBLY_GROUPS).map(([m, label]) => ({ group: label, items: Object.entries(ASSEMBLY).filter(([, v]) => v.method === m).map(([id, v]) => ({ value: id, label: `${v.name}${id === rec.stitch ? ' ★' : ''}` })) }));
@@ -758,6 +802,7 @@ function cMake(el, p) {
   const name = p.name.replace(/[^\w-]+/g, '_');
   const design = p; p = atMakingSize(design); // files are written at the size you will actually make
   if (design.scale && design.scale !== 1) el.append(h('div', { class: 'tip' }, h('b', {}, `Miniature: ${Math.round(design.scale * 100)}% scale. `), 'Patterns, measurements and machine files below are written at that size (seam allowance 0.5 cm, hems 1 cm).'));
+  { const cs = studio().costSection(p); if (cs) el.append(cs); }
   el.append(h('div', { class: 'sec' }, h('h3', {}, 'Files for manufacturers'),
     h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-bottom:8px' }, 'Each file opens in the viewer: read it, edit it, undo, reset or save your edits, print, then download to the folder you choose.'),
     h('div', { class: 'grid2' },

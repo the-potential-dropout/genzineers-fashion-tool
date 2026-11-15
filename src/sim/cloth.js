@@ -258,6 +258,7 @@ export function buildCloth(project) {
     const pa = panels.find((x) => x.id === seam.a.panel);
     const pb = panels.find((x) => x.id === seam.b.panel);
     if (!pa?.count || !pb?.count) continue;
+    if (seam.ripped) continue; // torn open: the two edges are free
     const ea = edgePath(pa.panel, seam.a.edge, seam.a.to ?? seam.a.edge);
     const eb = edgePath(pb.panel, seam.b.edge, seam.b.to ?? seam.b.edge);
     const wa0 = panelToWorld(pa.panel, ...ea[0]);

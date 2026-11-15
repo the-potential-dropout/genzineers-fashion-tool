@@ -26,6 +26,9 @@ export const ACTION_DOCS = {
   add_garment: '{ template } add another garment (e.g. trousers to a jacket = suit)',
   new_blank: '{ name? } start an empty design: draft your own pieces with add_panel and join them with add_seam',
   remove_garment: '{ garment: "g0" }',
+  set_cost: '{ key: fabricId | "trim:<name>", price } price per metre / per piece, or { costing: { labourRate, overheadPct, marginPct, dutyPct, freight, currency } }',
+  save_colorway: '{ name } keep the current colours and materials as a colourway', apply_colorway: '{ id }', remove_colorway: '{ id }',
+  rip_seam: '{ seam, ripped? } tear a seam open; ripped:false sews it back',
   set_part_look: '{ key or keys:[...], fabric?, color?, clear? } give one sub-piece (collar, cuff, pocket, placket, lapel, strap; keys from summary.parts) its own material and colour',
   add_pocket: '{ panel, at: [x,y] cm (top centre of the opening), pocket: "<pocket id>", width?, height?, angle? deg, closure?: none|button|snap|zip|velcro|magnet, mirror? } add an outside or inside pocket (catalog pockets)',
   remove_pocket: '{ id: "<pocket id from the project>" }',
@@ -260,6 +263,35 @@ export function applyAction(project, action) {
     case 'rename':
       p.name = String(a.name || 'Untitled').slice(0, 120);
       break;
+    case 'set_cost': { // a = { key, price } a material or trim price, or { costing: { labourRate, overheadPct, marginPct, dutyPct, freight, currency } }
+      p.costs = { ...(p.costs || {}) };
+      if (a.key) { if (a.price === null || a.price === '' || a.price === undefined) delete p.costs[a.key]; else p.costs[a.key] = Math.max(0, Number(a.price) || 0); }
+      if (a.costing) p.costing = { ...(p.costing || {}), ...a.costing };
+      break;
+    }
+    case 'save_colorway': { // a = { name, id? } keep the current fabrics, colours, prints and sub-piece looks as a colourway
+      const id = a.id || `cw${Date.now().toString(36)}`;
+      const look = { panels: Object.fromEntries(p.panels.map((x) => [x.id, { fabric: x.fabric, fabricOverrides: x.fabricOverrides || {}, finish: x.finish || null }])), partLooks: { ...(p.partLooks || {}) }, garments: Object.fromEntries((p.garments || []).map((g) => [g.id, { fabric: g.fabric, colors: Object.fromEntries(Object.entries(GENERATORS[g.generator].options).filter(([, s]) => s.type === 'color').map(([k]) => [k, g.options[k]])) }])), seams: p.seams[0]?.threadColor || null };
+      const list = (p.colorways || []).filter((c) => c.id !== id && c.look);
+      p.colorways = [...list, { id, name: String(a.name || `Colourway ${list.length + 1}`).slice(0, 60), look }];
+      p.colorway = id;
+      break;
+    }
+    case 'apply_colorway': {
+      const cw = (p.colorways || []).find((c) => c.id === a.id); if (!cw?.look) throw new Error(`unknown colourway "${a.id}"`);
+      for (const pan of p.panels) { const L = cw.look.panels[pan.id]; if (L) { pan.fabric = L.fabric; pan.fabricOverrides = L.fabricOverrides; pan.finish = L.finish || undefined; } }
+      p.partLooks = { ...cw.look.partLooks };
+      if (cw.look.seams) for (const s of p.seams) s.threadColor = cw.look.seams;
+      for (const g of p.garments || []) { const L = cw.look.garments?.[g.id]; if (!L) continue; g.options = { ...g.options, ...L.colors }; if (!g.knit) g.fabric = L.fabric; if (!p.panels.some((x) => x.garment === g.id)) mergeGarment(p, g); }
+      applyPartLooks(p); syncForms(p); p.colorway = cw.id;
+      break;
+    }
+    case 'remove_colorway': { p.colorways = (p.colorways || []).filter((c) => c.id !== a.id); if (p.colorway === a.id) delete p.colorway; break; }
+    case 'rip_seam': { // a = { seam, ripped? } tear a seam open (the cloth parts and falls); ripped:false sews it back
+      const s = p.seams.find((x) => x.id === a.seam); if (!s) throw new Error(`unknown seam "${a.seam}"`);
+      if (a.ripped === false) delete s.ripped; else s.ripped = true;
+      break;
+    }
     case 'set_part_look': { // a = { keys:[...] | key, fabric?, color?, clear? } : one sub-piece (or several) in its own material / colour
       const keys = a.keys || [a.key]; const known = new Set(listParts(p).map((x) => x.key));
       if (a.fabric && !fabricExists(p, a.fabric)) throw new Error(`unknown fabric "${a.fabric}"`);
@@ -688,7 +720,7 @@ export function applyAction(project, action) {
 
 /** Which actions only change looks (no physics rebuild needed). */
 export function isLookOnly(type) {
-  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket', 'add_embroidery', 'update_embroidery', 'remove_embroidery', 'set_look', 'set_part_look'].includes(type);
+  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket', 'add_embroidery', 'update_embroidery', 'remove_embroidery', 'set_look', 'set_part_look', 'set_cost', 'remove_colorway'].includes(type);
 }
 
 export function applyActions(project, actions) {

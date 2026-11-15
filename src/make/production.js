@@ -53,7 +53,7 @@ export function cutList(project) {
     seen[key] = piece; pieces.push(piece);
   }
   // pocket bags, welts, flaps and other made-up pieces
-  for (const k of project.pieces || []) pieces.push({ id: k.id, name: k.name, points: k.points, fabric: k.fabric, qty: k.cut || 1, kind: 'piece', color: k.color || null, panel: project.panels.find((p) => p.id === k.forPanel), note: k.note });
+  for (const k of project.pieces || []) pieces.push({ id: k.id, name: k.name, points: k.points, fabric: k.fabric, qty: k.cut || 1, kind: 'piece', pair: Boolean(k.part), color: k.color || null, panel: project.panels.find((p) => p.id === k.forPanel), note: k.note });
   return pieces;
 }
 
@@ -62,7 +62,7 @@ export function bom(project) {
   const qty = project.production?.quantity || 1;
   const rows = [];
   const fabArea = {};
-  for (const pc of cutList(project)) { const a = polyArea(offsetPoly(pc.points, 1)) * pc.qty; fabArea[pc.fabric] = (fabArea[pc.fabric] || 0) + a; }
+  for (const pc of cutList(project)) { const a = (pc.kind === 'piece' ? polyArea(pc.points) * 1.08 * (pc.pair ? 2 : 1) : polyArea(offsetPoly(pc.points, 1))) * pc.qty; fabArea[pc.fabric] = (fabArea[pc.fabric] || 0) + a; }
   for (const [fid, cm2] of Object.entries(fabArea)) {
     const f = resolveFabric(project, fid);
     const m2 = (cm2 / 1e4) * 1.18; // +18% marker waste
@@ -99,6 +99,47 @@ export function bom(project) {
   rows.push({ cat: 'Labels', item: 'Main label + size label + care/composition label', spec: 'woven / printed satin', perUnit: 3, total: qty * 3, note: 'Legally required: fibre content, country of origin, care, RN/importer (US)' });
   rows.push({ cat: 'Packaging', item: 'Polybag (recycled LDPE) + hangtag + barcode sticker', spec: 'suffocation warning on polybag', perUnit: 1, total: qty, note: '' });
   return rows;
+}
+
+/** A starting price for a material when you have not entered your supplier's quote (USD per metre at 150 cm; leather and fur per m²). */
+export function defaultPrice(f) {
+  const t = `${f.id} ${f.fiber || ''} ${f.category || ''}`.toLowerCase();
+  const tbl = [[/crocodile|alligator|ostrich|python|stingray|lizard/, 480], [/shell-cordovan|cordovan/, 420], [/mink|sable|chinchilla|fox|fur(?!.*faux)/, 260], [/shearling/, 150], [/faux|vegan|pu\b|pvc/, 11], [/leather|suede|nubuck|kidskin|calf|lamb|goat|deer|peccary|kangaroo/, 75], [/cashmere|vicuna|qiviut/, 85], [/silk/, 28], [/alpaca|mohair|angora/, 38], [/wool|tweed|flannel|melton|gabardine/, 24], [/linen|hemp|ramie/, 13], [/denim/, 9], [/velvet|corduroy/, 12], [/lace/, 18], [/down|insul/, 14], [/nylon|ripstop|softshell|gore|membrane/, 9], [/polyester|fleece|mesh|tricot/, 5], [/rubber|eva|tpu|neoprene|webbing|elastic|stiffener/, 8], [/cotton|jersey|poplin|oxford|canvas|twill|terry|rib|pique|interlock|chambray/, 7], [/viscose|rayon|modal|lyocell|tencel|bamboo|cupro|acetate/, 8]];
+  for (const [re, v] of tbl) if (re.test(t)) return v;
+  return 8;
+}
+
+/**
+ * Cost sheet for one unit: every material and trim at its price (yours, or a marked estimate), labour from
+ * the sewing operations, then overhead, duty, freight and margin up to wholesale and retail.
+ */
+export function costSheet(project) {
+  const C = { currency: '$', labourRate: 0.12, overheadPct: 12, dutyPct: 0, freight: 0.6, marginPct: 55, retailX: 2.2, ...(project.costing || {}) };
+  const costs = project.costs || {}; const rows = []; const area = {};
+  for (const pc of cutList(project)) { const a = (pc.kind === 'piece' ? polyArea(pc.points) * 1.08 * (pc.pair ? 2 : 1) : polyArea(offsetPoly(pc.points, 1))) * pc.qty; area[pc.fabric] = (area[pc.fabric] || 0) + a; }
+  for (const [fid, cm2] of Object.entries(area)) {
+    const f = resolveFabric(project, fid); const leather = /Leather|Pile/.test(f.category || '') && /leather|suede|fur|shearling|skin|nubuck/i.test(`${f.id} ${f.name}`);
+    const m2 = (cm2 / 1e4) * (leather ? 1.3 : 1.18); const qty = leather ? m2 : m2 / 1.5; const unit = leather ? 'm²' : 'm';
+    const price = costs[fid] ?? defaultPrice(f);
+    rows.push({ key: fid, cat: 'Material', item: f.name, qty: Math.round(qty * 100) / 100, unit, price, estimate: costs[fid] == null, cost: qty * price, note: leather ? '30% cutting waste (hides are irregular)' : '18% marker waste, 150 cm wide' });
+  }
+  const tr = {};
+  for (const t of project.trims || []) { const d = TRIMS[t.type]; if (!d || d.internal) continue; const k = d.name; tr[k] = tr[k] || { n: 0, group: d.group, type: t.type }; tr[k].n++; }
+  const trimDefault = (g, ty) => (/zip/.test(ty) ? 1.2 : /button|snap|rivet|eyelet|grommet/.test(ty) ? 0.12 : /buckle|ring|clasp|hook/.test(ty) ? 0.45 : /label/.test(ty) ? 0.08 : /elastic|cord|tape|lacing|binding/.test(ty) ? 0.3 : 0.2);
+  for (const [name, v] of Object.entries(tr)) { const key = `trim:${name}`; const price = costs[key] ?? trimDefault(v.group, v.type); rows.push({ key, cat: 'Trim', item: name, qty: v.n, unit: 'pc', price, estimate: costs[key] == null, cost: v.n * price, note: '' }); }
+  for (const f of Object.values(project.garmentForms || {})) for (const sh of f.shoes || []) { // a pair of bottoms and hardware
+    for (const [key, item, n, def] of [['shoe:outsole', `Outsole unit pair (${sh.outsole})`, sh.outsole === 'leather' ? 0 : 1, 6], ['shoe:insole', 'Insoles, stiffeners, shank (pair)', 1, 3.5], ['shoe:hardware', `Lace hardware (${(sh.rowKinds || []).length * 4} pieces)`, (sh.rowKinds || []).length * 4, sh.rowKinds?.includes('hook') ? 0.18 : 0.05], ['shoe:laces', 'Laces (pair)', sh.closure === 'laces' ? 1 : 0, 0.8], ['shoe:last', 'Last hire / amortised tooling', 1, 2.5]]) { if (!n) continue; const price = costs[key] ?? def; rows.push({ key, cat: 'Footwear', item, qty: n, unit: 'pc', price, estimate: costs[key] == null, cost: n * price, note: '' }); }
+  }
+  { const key = 'trim:labels'; const price = costs[key] ?? 0.35; rows.push({ key, cat: 'Trim', item: 'Labels, hangtag, polybag', qty: 1, unit: 'set', price, estimate: costs[key] == null, cost: price, note: '' }); }
+  // labour: seam length through each operation at a realistic sewing speed, plus handling per operation
+  let cm = 0; for (const s of project.seams || []) { const a = project.panels.find((p) => p.id === s.a.panel); if (a) cm += edgeLen(a, s.a.edge, s.a.to ?? s.a.edge); }
+  const ops = (project.seams || []).length + (project.trims || []).length * 0.5 + (project.overlays || []).length * 1.2 + Object.values(project.garmentForms || {}).reduce((n, f) => n + (f.shoes || []).length * 190 + (f.shells || []).length * 6, 0);
+  const minutes = costs['labour:minutes'] ?? Math.round((cm / 100) * 0.55 + ops * 0.45 + 4);
+  const materials = rows.reduce((a, r) => a + r.cost, 0);
+  const labour = minutes * C.labourRate; const overhead = (materials + labour) * C.overheadPct / 100;
+  const fob = materials + labour + overhead; const duty = fob * C.dutyPct / 100; const landed = fob + duty + C.freight;
+  const wholesale = landed / (1 - Math.min(0.95, C.marginPct / 100)); const retail = wholesale * C.retailX;
+  return { C, rows, minutes, minutesEstimate: costs['labour:minutes'] == null, materials, labour, overhead, fob, duty, landed, wholesale, retail };
 }
 
 /** Graded points of measure: re-draft for every production size. */
@@ -205,6 +246,7 @@ export function techPackHTML(project, { image } = {}) {
 <h2>1. Flats & pattern pieces (incl. 1 cm seam allowance)</h2>${svg}
 <h2>2. Bill of materials</h2><table><tr><th>Category</th><th>Item</th><th>Spec</th><th>Per unit</th><th>Total (${project.production.quantity} pcs)</th><th>Notes</th></tr>${rows.map((r) => `<tr><td>${esc(r.cat)}</td><td>${esc(r.item)}</td><td>${esc(r.spec)}</td><td>${esc(r.perUnit)}</td><td>${esc(r.total)}</td><td>${esc(r.note)}</td></tr>`).join('')}</table>
 <h2>3. Construction</h2><table><tr><th>Seam</th><th>Method</th><th>Machine</th><th>Thread</th><th>Colour</th><th>Length</th></tr>${seamRows}</table>
+${(() => { const cs = costSheet(project); const m = (v) => `${cs.C.currency}${v.toFixed(2)}`; return `<h2>Costing (per unit)</h2><table><tr><th>Category</th><th>Item</th><th>Qty</th><th>Price</th><th>Cost</th></tr>${cs.rows.map((r) => `<tr><td>${esc(r.cat)}</td><td>${esc(r.item)}</td><td>${r.qty} ${r.unit}</td><td>${m(r.price)}${r.estimate ? ' (estimate)' : ''}</td><td>${m(r.cost)}</td></tr>`).join('')}<tr><td>Labour</td><td>${cs.minutes} min at ${m(cs.C.labourRate)}/min${cs.minutesEstimate ? ' (estimate)' : ''}</td><td></td><td></td><td>${m(cs.labour)}</td></tr><tr><td>Overhead</td><td>${cs.C.overheadPct}%</td><td></td><td></td><td>${m(cs.overhead)}</td></tr><tr><td><b>FOB</b></td><td></td><td></td><td></td><td><b>${m(cs.fob)}</b></td></tr><tr><td>Landed</td><td>duty ${cs.C.dutyPct}% + freight ${m(cs.C.freight)}</td><td></td><td></td><td>${m(cs.landed)}</td></tr><tr><td>Wholesale</td><td>${cs.C.marginPct}% margin</td><td></td><td></td><td>${m(cs.wholesale)}</td></tr><tr><td>Retail</td><td>x${cs.C.retailX}</td><td></td><td></td><td>${m(cs.retail)}</td></tr></table><p style="color:#666">Prices marked (estimate) are starting figures: replace them with your suppliers' quotes.</p>`; })()}
 ${Object.values(project.garmentForms || {}).filter((f) => f.meta?.sheet?.length).map((f) => `<h2>Footwear specification (for the shoemaker / factory)</h2><table class="meta">${f.meta.sheet.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>`).join('')}
 ${(project.garments || []).filter((g) => g.knit).map((g) => { const k = g.knit; const chart = knitChartSVG(k); return `<h2>Knit specification (${esc(g.id)})</h2><table class="meta"><tr><td>Method</td><td>${esc(KNIT_METHODS[k.method].name)}: ${esc(KNIT_METHODS[k.method].note)}</td></tr><tr><td>Machine</td><td>${esc(KNIT_METHODS[k.method].machine)}</td></tr><tr><td>Gauge</td><td>${esc(GAUGES[k.gauge].name)} (${GAUGES[k.gauge].gg} needles/inch)</td></tr><tr><td>Yarn</td><td>${esc(YARNS[k.yarn].name)}, ${esc(YARNS[k.yarn].fiber)}, count ${esc(YARNS[k.yarn].nm)} Nm, ${esc(YARNS[k.yarn].weight)}</td></tr><tr><td>Body structure</td><td>${esc(KNIT_STRUCTURES[k.structure].name)}</td></tr><tr><td>Trims</td><td>1x1 rib cuffs, hem and neck (linked)</td></tr><tr><td>Colourwork</td><td>${esc(MOTIFS[k.motif || 'none'].name)} · colours ${k.colors.map((c) => `<span class="sw" style="background:${esc(c)}"></span>${esc(c)}`).join(' ')}</td></tr><tr><td>Notes</td><td>Agree stitch density (wales x courses per 10 cm) on a knitted swatch before sampling; wash-test the swatch for shrinkage and pilling (ISO 12945).</td></tr></table>${chart ? chart.replace('<svg ', '<svg style="max-width:100%" ') : ''}`; }).join('')}
 <h2>4. Colour, dye, print & paint</h2>${fin.length ? `<table><tr><th>Piece</th><th>Colour</th><th>Dye</th><th>Print</th><th>Paint</th></tr>${fin.map((p) => `<tr><td>${esc(p.name)}</td><td>${p.finish.color ? `<span class="sw" style="background:${esc(p.finish.color)}"></span>${esc(p.finish.color)} (send Pantone TCX / lab dip)` : '-'}</td><td>${esc(DYES[p.finish.dye]?.name || '-')}</td><td>${esc(p.finish.print ? `${PRINT_METHODS[p.finish.print.method]?.name || ''} ${p.finish.print.design || ''}` : '-')}</td><td>${esc(p.finish.paint ? `${PAINTS[p.finish.paint.method]?.name || ''} ${p.finish.paint.design || ''}` : '-')}</td></tr>`).join('')}</table>` : '<p>Fabric colour as supplied. For custom colours send a Pantone TCX reference and approve lab dips (A/B/C) before bulk.</p>'}
