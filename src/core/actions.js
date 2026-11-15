@@ -12,6 +12,7 @@ import { TRIMS, STIFFENERS, ZIPPER_TYPES, ZIPPER_SIZES, ZIPPER_ENDS, ZIPPER_SLID
 import { TEMPLATES, templateGarments } from './templates.js';
 import { GENERATORS } from './blocks.js';
 import { CONSTRUCTION_PRESETS, SHOULDER_PADS } from './construction.js';
+import { edgeTags, CORNERS } from './allowance.js';
 import { DYES, PRINT_METHODS, PRINT_DESIGNS, PAINTS } from './color.js';
 import { POCKETS, POCKET_CLOSURES, draftPocket, pocketPieces } from './pockets.js';
 import { recommendFor } from './guidance.js';
@@ -30,6 +31,7 @@ export const ACTION_DOCS = {
   set_cost: '{ key: fabricId | "trim:<name>", price } price per metre / per piece, or { costing: { labourRate, overheadPct, marginPct, dutyPct, freight, currency } }',
   save_colorway: '{ name } keep the current colours and materials as a colourway', apply_colorway: '{ id }', remove_colorway: '{ id }',
   rip_seam: '{ seam, ripped? } tear a seam open; ripped:false sews it back',
+  set_allowance: '{ panel, edge, to?, cm, corner? } seam allowance on one edge run (null cm = default); { seam, hem } sets the house defaults',
   set_construction: '{ preset } apply an industry construction standard (see catalog.constructions), or set fields: canvas, lining, liningMaterial, pocketing, seamFinish, hem, spi, labels, packing, aql, tolerance',
   set_pose: '{ armAngle } 90 = T-pose, 45 = A-pose, 20 = arms relaxed at the sides',
   set_part_look: '{ key or keys:[...], fabric?, color?, clear? } give one sub-piece (collar, cuff, pocket, placket, lapel, strap; keys from summary.parts) its own material and colour',
@@ -294,6 +296,15 @@ export function applyAction(project, action) {
     case 'rip_seam': { // a = { seam, ripped? } tear a seam open (the cloth parts and falls); ripped:false sews it back
       const s = p.seams.find((x) => x.id === a.seam); if (!s) throw new Error(`unknown seam "${a.seam}"`);
       if (a.ripped === false) delete s.ripped; else s.ripped = true;
+      break;
+    }
+    case 'set_allowance': { // a = { panel, edge, to?, cm (null = back to the default), corner?: mitre|square|cut|reverse } or { seam: cm, hem: cm } for the house defaults
+      if (a.panel == null) { p.production = { ...(p.production || {}) }; if (isNum(a.seam)) p.production.seamAllowance = Math.max(0, Math.min(5, a.seam)); if (isNum(a.hem)) p.production.hemAllowance = Math.max(0, Math.min(10, a.hem)); break; }
+      const pan = p.panels.find((x) => x.id === a.panel); if (!pan) throw new Error(`unknown panel "${a.panel}"`);
+      const n = pan.points.length; const tags = edgeTags(pan); const e0 = ((a.edge % n) + n) % n; const e1 = a.to == null ? e0 : ((a.to % n) + n) % n;
+      pan.sa = { ...(pan.sa || {}) }; pan.saCorner = { ...(pan.saCorner || {}) };
+      for (let e = e0, k = 0; k < n; e = (e + 1) % n, k++) { const kk = tags[e] ? `tag:${tags[e]}` : `i:${e}`; if (a.cm === null || a.cm === '') delete pan.sa[kk]; else if (isNum(a.cm)) pan.sa[kk] = Math.max(0, Math.min(10, a.cm)); if (e === e1) break; }
+      if (a.corner) { if (!CORNERS[a.corner]) throw new Error(`corner must be one of ${Object.keys(CORNERS).join(', ')}`); for (const i of [e0, (e1 + 1) % n]) { const t0 = tags[(i - 1 + n) % n]; const t1 = tags[i]; pan.saCorner[t0 && t1 ? `tags:${t0}|${t1}` : `i:${i}`] = a.corner; } }
       break;
     }
     case 'set_construction': { // a = { preset } or any fields of the construction standard (canvas, lining, liningMaterial, pocketing, seamFinish, hem, spi, labels, labelSet, packing, aql, tolerance); { reset: true } goes back to the suggestion
@@ -733,7 +744,7 @@ export function applyAction(project, action) {
 
 /** Which actions only change looks (no physics rebuild needed). */
 export function isLookOnly(type) {
-  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket', 'add_embroidery', 'update_embroidery', 'remove_embroidery', 'set_look', 'set_part_look', 'set_cost', 'remove_colorway', 'set_construction'].includes(type);
+  return ['rename', 'set_finish', 'set_trim', 'set_production', 'add_overlay', 'remove_overlay', 'set_zipper', 'add_zipper', 'set_edge', 'add_lacing', 'remove_trim', 'add_trim', 'add_pocket', 'remove_pocket', 'add_embroidery', 'update_embroidery', 'remove_embroidery', 'set_look', 'set_part_look', 'set_cost', 'remove_colorway', 'set_construction', 'set_allowance'].includes(type);
 }
 
 export function applyActions(project, actions) {

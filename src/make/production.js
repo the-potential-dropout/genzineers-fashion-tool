@@ -19,6 +19,7 @@ import { checkProject, recommendFor } from '../core/guidance.js';
 import { METALS, GEMS, CUTS, SETTINGS, LINKS, CLASPS, estimateMetal, caratEstimate, ringSize } from '../core/jewelry.js';
 import { KNIT_METHODS, GAUGES, YARNS, KNIT_STRUCTURES, MOTIFS, knitChartSVG } from '../core/knit.js';
 import { makerNotesHTML } from '../core/jewelrymaker.js';
+import { cutOutline } from '../core/allowance.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const r1 = (v) => Math.round(v * 10) / 10;
@@ -40,18 +41,21 @@ export function offsetPoly(pts, sa) {
     return [p[0] + m[0] * d * sgn, p[1] + m[1] * d * sgn];
   });
 }
+/** The cut line of a cut-list piece: its own allowances (panels), the house allowance (sewn-on pieces), or the outline itself (pieces drafted with their allowance). */
+export const cutOf = (pc) => pc.cut || (pc.kind === 'piece' ? pc.points : offsetPoly(pc.points, 1));
 const norm = ([x, y]) => { const l = Math.hypot(x, y) || 1; return [x / l, y / l]; };
 
 /** Pieces that get cut: panels + overlay pieces (pockets, collars, cuffs...). */
 export function cutList(project) {
-  const pieces = project.panels.map((p) => ({ id: p.id, name: p.name, points: p.points, fabric: p.fabric, qty: 1, kind: 'panel', panel: p }));
+  const SA = project.production?.seamAllowance ?? 1;
+  const pieces = project.panels.map((p) => ({ id: p.id, name: p.name, points: p.points, cut: cutOutline(project, p), fabric: p.fabric, qty: 1, kind: 'panel', panel: p }));
   const seen = {};
   for (const o of project.overlays || []) {
     if (['vent', 'pleat', 'pinch', 'distress', 'hem'].includes(o.kind) || o.pocket) continue; // pockets carry their own pieces; hems and vents are part of their panel
     const key = `${o.kind}-${o.style || ''}-${JSON.stringify(o.points.map((p) => [Math.abs(p[0]).toFixed(0), p[1].toFixed(0)]))}`;
     if (seen[key]) { seen[key].qty++; continue; }
     const host = project.panels.find((p) => p.id === o.panel);
-    const piece = { id: o.id, name: `${o.kind[0].toUpperCase()}${o.kind.slice(1)}${o.style ? ` (${o.style})` : ''}`, points: o.points, fabric: o.fabric || (o.style === 'rib' ? 'rib-knit' : host?.fabric), qty: o.cut || (o.kind === 'lapel' || o.kind === 'collar' || o.kind === 'epaulette' || o.kind === 'flap' ? 2 : 1), kind: 'overlay', panel: host, note: o.note || '', color: o.look?.color || null };
+    const piece = { id: o.id, name: `${o.kind[0].toUpperCase()}${o.kind.slice(1)}${o.style ? ` (${o.style})` : ''}`, points: o.points, fabric: o.fabric || (o.style === 'rib' ? 'rib-knit' : host?.fabric), qty: o.cut || (o.kind === 'lapel' || o.kind === 'collar' || o.kind === 'epaulette' || o.kind === 'flap' ? 2 : 1), kind: 'overlay', panel: host, note: o.note || '', color: o.look?.color || null, cut: offsetPoly(o.points, o.kind === 'lapel' || o.kind === 'collar' ? 0.6 : SA) };
     seen[key] = piece; pieces.push(piece);
   }
   // pocket bags, welts, flaps and other made-up pieces
@@ -65,7 +69,7 @@ export function bom(project) {
   const qty = project.production?.quantity || 1;
   const rows = [];
   const fabArea = {};
-  for (const pc of cutList(project)) { const a = (pc.kind === 'piece' ? polyArea(pc.points) * 1.08 * (pc.pair ? 2 : 1) : polyArea(offsetPoly(pc.points, 1))) * pc.qty; fabArea[pc.fabric] = (fabArea[pc.fabric] || 0) + a; }
+  for (const pc of cutList(project)) { const a = (pc.kind === 'piece' ? polyArea(pc.points) * 1.08 * (pc.pair ? 2 : 1) : polyArea(cutOf(pc))) * pc.qty; fabArea[pc.fabric] = (fabArea[pc.fabric] || 0) + a; }
   for (const [fid, cm2] of Object.entries(fabArea)) {
     const f = resolveFabric(project, fid);
     const m2 = (cm2 / 1e4) * 1.18; // +18% marker waste
@@ -117,7 +121,7 @@ export function defaultPrice(f) {
 export function costSheet(project) {
   const C = { currency: '$', labourRate: 0.12, overheadPct: 12, dutyPct: 0, freight: 0.6, marginPct: 55, retailX: 2.2, ...(project.costing || {}) };
   const costs = project.costs || {}; const rows = []; const area = {};
-  for (const pc of cutList(project)) { const a = (pc.kind === 'piece' ? polyArea(pc.points) * 1.08 * (pc.pair ? 2 : 1) : polyArea(offsetPoly(pc.points, 1))) * pc.qty; area[pc.fabric] = (area[pc.fabric] || 0) + a; }
+  for (const pc of cutList(project)) { const a = (pc.kind === 'piece' ? polyArea(pc.points) * 1.08 * (pc.pair ? 2 : 1) : polyArea(cutOf(pc))) * pc.qty; area[pc.fabric] = (area[pc.fabric] || 0) + a; }
   for (const [fid, cm2] of Object.entries(area)) {
     const f = resolveFabric(project, fid); const leather = /Leather|Pile/.test(f.category || '') && /leather|suede|fur|shearling|skin|nubuck/i.test(`${f.id} ${f.name}`);
     const m2 = (cm2 / 1e4) * (leather ? 1.3 : 1.18); const qty = leather ? m2 : m2 / 1.5; const unit = leather ? 'm²' : 'm';
@@ -169,7 +173,7 @@ export function careLabel(project) {
 }
 
 function svgPiece(pc, ox, oy, scale) {
-  const sa = offsetPoly(pc.points, 1);
+  const sa = cutOf(pc);
   const b = bbox(sa);
   const tx = (p) => `${((p[0] - b.x0) * scale + ox).toFixed(2)},${((b.y1 - p[1]) * scale + oy).toFixed(2)}`;
   const cx = (b.x0 + b.x1) / 2;
@@ -182,7 +186,7 @@ function svgPiece(pc, ox, oy, scale) {
 export function patternSVG(project) {
   const pieces = cutList(project);
   let x = 10; let y = 10; let rowH = 0; const maxW = 1600; const parts = [];
-  for (const pc of pieces) { const b = bbox(offsetPoly(pc.points, 1)); const w = b.w * 10; const h = b.h * 10; if (x + w > maxW) { x = 10; y += rowH + 20; rowH = 0; } parts.push(svgPiece(pc, x, y, 10)); x += w + 20; rowH = Math.max(rowH, h); }
+  for (const pc of pieces) { const b = bbox(cutOf(pc)); const w = b.w * 10; const h = b.h * 10; if (x + w > maxW) { x = 10; y += rowH + 20; rowH = 0; } parts.push(svgPiece(pc, x, y, 10)); x += w + 20; rowH = Math.max(rowH, h); }
   const H = y + rowH + 20;
   return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${maxW}mm" height="${H}mm" viewBox="0 0 ${maxW} ${H}"><defs><marker id="arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z"/></marker></defs><title>${esc(project.name)} pattern (1 unit = 1 mm, solid = cut line incl. 1 cm seam allowance, dashed = stitch line)</title>${parts.join('')}</svg>`;
 }
@@ -196,7 +200,7 @@ export function patternHPGL(project, paperWidthCm = 150) {
   const U = 400; const out = ['IN;', 'SP1;']; let x = 1; let y = 1; let rowH = 0; const q = (v) => Math.round(v * U);
   const path = (pts, ox, oy) => { out.push(`PU${q(pts[0][0] + ox)},${q(pts[0][1] + oy)};`); out.push(`PD${[...pts.slice(1), pts[0]].map((p) => `${q(p[0] + ox)},${q(p[1] + oy)}`).join(',')};`); out.push('PU;'); };
   for (const pc of cutList(project)) for (let n = 0; n < 1; n++) {
-    const cut = pc.kind === 'piece' ? pc.points : offsetPoly(pc.points, 1); const b = bbox(cut);
+    const cut = cutOf(pc); const b = bbox(cut);
     if (x + b.w > paperWidthCm && x > 1) { x = 1; y += rowH + 1.5; rowH = 0; }
     const ox = x - b.x0; const oy = y - b.y0;
     out.push('SP1;'); path(cut, ox, oy);
@@ -214,7 +218,7 @@ export function patternDXF(project) {
   let ox = 0;
   const poly = (pts, layer, dx) => { out.push('0', 'POLYLINE', '8', layer, '66', '1', '70', '1'); for (const p of pts) out.push('0', 'VERTEX', '8', layer, '10', ((p[0] + dx) * 10).toFixed(2), '20', (p[1] * 10).toFixed(2)); out.push('0', 'SEQEND'); };
   for (const pc of cutList(project)) {
-    const sa = offsetPoly(pc.points, 1); const b = bbox(sa); const dx = ox - b.x0;
+    const sa = cutOf(pc); const b = bbox(sa); const dx = ox - b.x0;
     poly(sa, '1', dx); poly(pc.points, '8', dx);
     const cx = (b.x0 + b.x1) / 2 + dx;
     out.push('0', 'LINE', '8', '7', '10', (cx * 10).toFixed(2), '20', ((b.y0 + b.h * 0.2) * 10).toFixed(2), '11', (cx * 10).toFixed(2), '21', ((b.y0 + b.h * 0.8) * 10).toFixed(2));

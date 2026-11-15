@@ -64,7 +64,7 @@ export function mergeGarment(p, g) {
     p.panels.push({
       fabricOverrides: {},
       ...pan,
-      ...(old ? { fabric: g.knit ? pan.fabric : old.fabric, fabricOverrides: old.fabricOverrides, finish: old.finish } : {}),
+      ...(old ? { fabric: g.knit ? pan.fabric : old.fabric, fabricOverrides: old.fabricOverrides, finish: old.finish, ...(old.sa ? { sa: old.sa } : {}), ...(old.saCorner ? { saCorner: old.saCorner } : {}) } : {}),
     });
   }
   for (const s of out.seams) p.seams.push({ id: uid('seam'), threadColor: '#d8d2c4', thread: 'poly-corespun', ...s });

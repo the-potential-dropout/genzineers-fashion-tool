@@ -18,6 +18,7 @@
  */
 import { ASSEMBLY, ASSEMBLY_GROUPS, THREADS } from '../core/assembly.js';
 import { cutList } from '../make/production.js';
+import { allowances, offsetEdges, CORNERS } from '../core/allowance.js';
 
 const COLORS = ['#ff5a1f', '#2f6bff', '#1f8a4c', '#a63fd6', '#c79a00', '#d6336c', '#00a3a3', '#6b4f2a', '#5f6caf', '#b34d00', '#3d8b8b', '#8a3ffc'];
 const letter = (i) => (i < 26 ? String.fromCharCode(65 + i) : String.fromCharCode(65 + Math.floor(i / 26) - 1) + String.fromCharCode(65 + (i % 26)));
@@ -96,6 +97,23 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
     conn.hidden = false;
     void p;
   }
+  /** Seam allowance of one edge run: width and how its two corners are cut. */
+  function openAllowance(pan, run) {
+    const p = store.get(); const A = allowances(p, pan); const cur = A.d[run.edge]; const n = pan.points.length;
+    const mk = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (k === 'class') e.className = v; else if (v != null && v !== false) e.setAttribute(k, v); } for (const c of kids.flat()) if (c != null) e.append(c); return e; };
+    const num = mk('input', { type: 'number', step: '0.1', min: '0', max: '10', value: String(cur), 'aria-label': 'Seam allowance in cm', style: 'width:80px' });
+    const corner = mk('select', { 'aria-label': 'Corners' }, Object.entries(CORNERS).map(([k, v]) => mk('option', { value: k, selected: k === A.corner[run.edge] ? '' : null }, v)));
+    const apply = () => { const r = store.dispatch({ type: 'set_allowance', panel: pan.id, edge: run.edge, to: run.to, cm: Number(num.value), corner: corner.value }); toast(r[0]?.ok ? `Allowance set to ${num.value} cm` : r[0]?.error || 'Could not set'); closeConn(); draw(); };
+    let len = 0; for (let e = run.edge, k = 0; k < n; e = (e + 1) % n, k++) { const a = pan.points[e]; const b = pan.points[(e + 1) % n]; len += Math.hypot(b[0] - a[0], b[1] - a[1]); if (e === run.to) break; }
+    conn.replaceChildren(
+      mk('div', { class: 'row' }, mk('b', {}, 'Seam allowance'), mk('span', { class: 'grow' }), mk('button', { class: 'btn ghost icon', 'aria-label': 'Close', onclick: closeConn }, '✕')),
+      mk('div', { class: 's' }, `${pan.name} · ${A.tags[run.edge] ? `${A.tags[run.edge]} edge · ` : ''}${len.toFixed(1)} cm long · now ${cur} cm (${A.why[run.edge]})`),
+      mk('label', {}, mk('span', {}, 'Allowance (cm)'), num),
+      mk('label', {}, mk('span', {}, 'Corners at both ends'), corner),
+      mk('div', { class: 's' }, 'Usual: 1 cm plain seams, 1.5 cm French seams, 0.6 cm necklines and collars, 2.5 to 5 cm hems, 0 on bound or raw edges. "Reversed" mirrors a seam allowance about the hem fold so the hem turns up flat.'),
+      mk('div', { class: 'row' }, mk('button', { class: 'btn sm primary', onclick: apply }, 'Apply'), mk('button', { class: 'btn sm', onclick: () => { store.dispatch({ type: 'set_allowance', panel: pan.id, edge: run.edge, to: run.to, cm: null }); closeConn(); draw(); } }, 'Back to default')));
+    conn.hidden = false; setTimeout(() => num.focus(), 30);
+  }
   const btn = (label, title, on, fn) => { const b = document.createElement('button'); b.className = `btn sm ${on ? 'primary' : ''}`; b.textContent = label; b.title = title; b.onclick = (e) => { e.stopPropagation(); fn(); renderBar(); draw(); }; return b; };
   function renderBar() {
     const p = store.get();
@@ -111,6 +129,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
       btn('Details', 'Pockets, plackets, buttons and other placements', opt.details, () => { opt.details = !opt.details; }),
       btn('✎ Draw piece', 'Click to place points; double-click (or click the first point) to close the piece', opt.tool === 'draw', () => { opt.tool = opt.tool === 'draw' ? 'edit' : 'draw'; draft = []; sewA = null; }),
       btn('⧓ Sew edges', 'Click one edge, then the edge it is sewn to', opt.tool === 'sew', () => { opt.tool = opt.tool === 'sew' ? 'edit' : 'sew'; sewA = null; draft = []; }),
+      btn('↔ Allowance', 'Click any edge to set its seam allowance and how its corners are cut', opt.tool === 'sa', () => { opt.tool = opt.tool === 'sa' ? 'edit' : 'sa'; opt.allowance = true; sewA = null; draft = []; }),
       btn('? How to', 'How to draw pieces, connect them and edit connections', !help.hidden, () => { help.hidden = !help.hidden; }),
       btn('Blank canvas', 'Start a design from scratch with no pieces', false, () => { if (confirm('Start a blank design? Your current design stays in undo and in your collection if saved.')) { store.dispatch({ type: 'new_blank' }); opt.tool = 'draw'; } }),
     );
@@ -170,23 +189,23 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
    * into an armhole, a crotch curve into a waist. Pieces sit 1 cm apart.
    */
   function nestMarker(pans, sheet) {
-    const CELL = 0.5; const cols = Math.max(4, Math.floor(sheet / CELL)); const sky = new Float32Array(cols).fill(1); let area = 0; const oneWay = opt.oneWay === true;
-    const prof = (pan) => { const xs = pan.points.map((q) => q[0]); const ys = pan.points.map((q) => q[1]); const minX = Math.min(...xs); const maxX = Math.max(...xs); const minY = Math.min(...ys); const maxY = Math.max(...ys); const wc = Math.max(1, Math.ceil((maxX - minX) / CELL)); const lo = new Float32Array(wc).fill(1e9); const hi = new Float32Array(wc).fill(-1e9); const n = pan.points.length;
+    const CELL = 0.5; const cols = Math.max(4, Math.floor(sheet / CELL)); const sky = new Float32Array(cols).fill(0.5); let area = 0; const oneWay = opt.oneWay === true;
+    const prof = (pan0) => { const p0 = store.get(); const own = !pan0.piece ? allowances(p0, pan0) : null; const pan = { ...pan0, points: own ? offsetEdges(pan0.points, own.d, own.corner) : String(pan0.id).startsWith('cut-') ? offsetOutline(pan0.points, () => p0.production?.seamAllowance ?? 1) : pan0.points }; const xs = pan.points.map((q) => q[0]); const ys = pan.points.map((q) => q[1]); const minX = Math.min(...xs); const maxX = Math.max(...xs); const minY = Math.min(...ys); const maxY = Math.max(...ys); const wc = Math.max(1, Math.ceil((maxX - minX) / CELL)); const lo = new Float32Array(wc).fill(1e9); const hi = new Float32Array(wc).fill(-1e9); const n = pan.points.length;
       for (let i = 0; i < n; i++) { const a = pan.points[i]; const b = pan.points[(i + 1) % n]; const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (CELL * 0.5))); for (let k = 0; k <= steps; k++) { const px = a[0] + ((b[0] - a[0]) * k) / steps; const py = a[1] + ((b[1] - a[1]) * k) / steps; const c = Math.min(wc - 1, Math.max(0, Math.floor((px - minX) / CELL))); if (py < lo[c]) lo[c] = py; if (py > hi[c]) hi[c] = py; } }
       for (let c = 0; c < wc; c++) if (lo[c] > 1e8) { lo[c] = c ? lo[c - 1] : minY; hi[c] = c ? hi[c - 1] : maxY; }
       let A = 0; for (let i = 0; i < n; i++) { const a = pan.points[i]; const b = pan.points[(i + 1) % n]; A += a[0] * b[1] - b[0] * a[1]; }
-      return { pan, minX, maxX, minY, maxY, wc, lo, hi, w: maxX - minX, h: maxY - minY, A: Math.abs(A) / 2 }; };
+      return { pan: pan0, minX, maxX, minY, maxY, wc, lo, hi, w: maxX - minX, h: maxY - minY, A: Math.abs(A) / 2 }; };
     const items = pans.map(prof).sort((a, b) => b.A - a.A);
     for (const it of items) {
-      area += it.A; let best = null; const pad = 2; // one cell either side: 1 cm between neighbours
+      area += it.A; let best = null; const pad = 1; // cut lines touch with a 0.5 cm cutting gap
       for (const flip of oneWay ? [false] : [false, true]) {
         // distance from the top of the piece to its upper and lower outline, per column, as laid
         const top = new Float32Array(it.wc + 2 * pad); const bot = new Float32Array(it.wc + 2 * pad);
         for (let c = 0; c < it.wc + 2 * pad; c++) { let t = 1e9; let b = -1e9; for (let d = -pad; d <= pad; d++) { const k = c - pad + d; if (k < 0 || k >= it.wc) continue; const src = flip ? it.wc - 1 - k : k; const tt = flip ? it.lo[src] - it.minY : it.maxY - it.hi[src]; const bb = flip ? it.hi[src] - it.minY : it.maxY - it.lo[src]; if (tt < t) t = tt; if (bb > b) b = bb; } top[c] = t > 1e8 ? it.h : t; bot[c] = b < -1e8 ? 0 : b; }
-        for (let x = 0; x + it.wc + 2 * pad <= cols || x === 0; x++) { let y = 1; for (let c = 0; c < it.wc + 2 * pad && x + c < cols; c++) { const need = sky[x + c] - top[c]; if (need > y) y = need; } const score = y + it.h + x * 0.002; if (!best || score < best.score) best = { x, y, flip, top, bot, score }; if (x + it.wc + 2 * pad >= cols) break; }
+        for (let x = 0; x + it.wc + 2 * pad <= cols || x === 0; x++) { let y = 0.5; for (let c = 0; c < it.wc + 2 * pad && x + c < cols; c++) { const need = sky[x + c] - top[c]; if (need > y) y = need; } const score = y + it.h + x * 0.002; if (!best || score < best.score) best = { x, y, flip, top, bot, score }; if (x + it.wc + 2 * pad >= cols) break; }
       }
-      for (let c = 0; c < it.wc + 2 * best.pad || c < best.bot.length; c++) { if (best.x + c >= cols || c >= best.bot.length) break; const v = best.y + best.bot[c] + 1; if (v > sky[best.x + c]) sky[best.x + c] = v; }
-      const x0 = (best.x + 2) * CELL; // the pad columns on the left
+      for (let c = 0; c < it.wc + 2 * best.pad || c < best.bot.length; c++) { if (best.x + c >= cols || c >= best.bot.length) break; const v = best.y + best.bot[c] + 0.5; if (v > sky[best.x + c]) sky[best.x + c] = v; }
+      const x0 = (best.x + 1) * CELL; // the pad column on the left
       layout.push(best.flip ? { id: it.pan.id, flip: true, ox: x0 + it.maxX, oy: best.y - it.minY, w: it.w, h: it.h, x0, y0: best.y } : { id: it.pan.id, ox: x0 - it.minX, oy: best.y + it.maxY, w: it.w, h: it.h, x0, y0: best.y });
     }
     layout.W = sheet; layout.H = Math.max(...layout.map((L) => L.y0 + L.h)) + 1;
@@ -232,7 +251,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
     if (opt.mode === 'marker' && marker) {
       const x0 = view.x; const y0 = view.y; const w = opt.fabricWidth * view.s; const hgt = marker.length * view.s;
       g.fillStyle = 'rgba(47,107,255,.05)'; g.fillRect(x0, y0, w, hgt); g.strokeStyle = '#2f6bff'; g.lineWidth = 1.5; g.strokeRect(x0, y0, w, hgt);
-      g.fillStyle = '#2f6bff'; g.font = '600 12px sans-serif'; g.fillText(`Fabric ${opt.fabricWidth} cm wide · ${(marker.length / 100).toFixed(2)} m needed for one garment · nested marker, ${(marker.efficiency * 100).toFixed(0)}% of the cloth used (grain kept; pieces may be turned end for end, 1 cm apart)`, x0, y0 - 8);
+      g.fillStyle = '#2f6bff'; g.font = '600 12px sans-serif'; g.fillText(`Fabric ${opt.fabricWidth} cm wide · ${(marker.length / 100).toFixed(2)} m needed for one garment · nested marker, ${(marker.efficiency * 100).toFixed(0)}% of the cloth used (cut lines with their allowances, grain kept, pieces may be turned end for end, 0.5 cm cutting gap)`, x0, y0 - 8);
     }
     const sizes = opt.grading && grade ? grade(p) : null;
     for (const pan of shown(p)) {
@@ -244,7 +263,10 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
       if (sizes) sizes.forEach((sz, k) => { const gp = sz.panels.find((x) => x.id === pan.id); if (!gp || sz.current) return; const q = gp.points.map((pt) => toScreen(L, pt)); g.strokeStyle = GRADE_COLORS[k % GRADE_COLORS.length]; g.lineWidth = 0.9; g.setLineDash([]); g.beginPath(); q.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.stroke(); const top = q.reduce((b, c) => (c[1] < b[1] ? c : b)); g.fillStyle = GRADE_COLORS[k % GRADE_COLORS.length]; g.font = '9px sans-serif'; g.fillText(sz.size, top[0] + 3, top[1] - 2); });
       // cut line = stitch line + allowance (hems deeper, raw / bound edges none)
       if (opt.allowance) {
-        const cut = offsetOutline(pan.points, (e) => (hemLike(pan, e) && !sides.has(e) ? HEM : SA)).map((q) => toScreen(L, q));
+        const own = !pan.piece ? allowances(p, pan) : null; const fromCut = String(pan.id).startsWith('cut-');
+        const cutPts = own ? offsetEdges(pan.points, own.d, own.corner) : fromCut ? offsetOutline(pan.points, () => SA) : pan.points;
+        const cut = cutPts.map((q) => toScreen(L, q));
+        if (own && view.s > 2.2) { g.fillStyle = muted; g.font = '10px sans-serif'; g.textAlign = 'center'; for (let e = 0; e < n; e++) { const prev = own.d[(e - 1 + n) % n]; if (e && Math.abs(prev - own.d[e]) < 0.01) continue; let e2 = e; let L2 = 0; const runPts = []; while (L2 < 400) { const a = pan.points[e2 % n]; const b = pan.points[(e2 + 1) % n]; runPts.push([a, b]); L2++; if (Math.abs(own.d[(e2 + 1) % n] - own.d[e]) > 0.01 || (e2 + 1) % n === 0) break; e2++; } const [a, b] = runPts[Math.floor(runPts.length / 2)]; const mx = (a[0] + b[0]) / 2; const my = (a[1] + b[1]) / 2; const dx = b[0] - a[0]; const dy = b[1] - a[1]; const l = Math.hypot(dx, dy) || 1; const sgnA = (() => { let S = 0; for (let i = 0; i < n; i++) { const u = pan.points[i]; const v = pan.points[(i + 1) % n]; S += u[0] * v[1] - v[0] * u[1]; } return S > 0 ? 1 : -1; })(); const off = own.d[e] / 2; const [tx, ty] = toScreen(L, [mx + (dy / l) * off * sgnA, my - (dx / l) * off * sgnA]); g.fillText(`${own.d[e]}`, tx, ty + 3); } g.textAlign = 'left'; }
         g.beginPath(); cut.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
         g.fillStyle = 'rgba(255,90,31,.05)'; g.fill();
         g.strokeStyle = text; g.lineWidth = 1.4; g.setLineDash([]); g.stroke();
@@ -333,9 +355,10 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
     g.fillStyle = muted; g.font = '12px sans-serif';
     const tip = opt.tool === 'draw' ? `Drawing a piece: click to add points (${draft.length} so far), double-click or click the first point to close. Esc cancels.`
       : opt.tool === 'sew' ? (sewA ? 'Now click the edge it is sewn to.' : 'Sew: click the first edge.')
+      : opt.tool === 'sa' ? 'Allowance: click an edge to set its seam allowance (cm) and corners. The numbers along the cut line are the allowance on each run.'
       : picked ? picked.text
       : !p.panels.length ? 'Blank canvas. Use "Draw piece" to draft your first pattern piece, then "Sew edges" to join pieces.'
-      : `Solid = cut line · dashed = stitch line (${SA} cm seam allowance, ${HEM} cm hems) · same letter = sewn together · grid = 10 cm`;
+      : `Solid = cut line · dashed = stitch line · allowances edge by edge (numbers in cm; ↔ Allowance to change one) · same letter = sewn together · grid = 10 cm`;
     g.fillText(tip, 12, r.height - 10);
     if (opt.mode === 'one' && pan0) { g.fillStyle = muted; g.font = '12px sans-serif'; g.fillText(pan0.note || '', 12, r.height - 28); }
     if (opt.mode === 'one' && p.panels.length) { g.textAlign = 'right'; g.fillText(`Piece ${opt.index + 1} of ${allPieces(p).length}`, r.width - 12, r.height - 10); g.textAlign = 'left'; }
@@ -348,16 +371,28 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
       const L = layout.find((l) => l.id === pan.id); if (!L) continue;
       for (let i = 0; i < pan.points.length; i++) { const [x, y] = toScreen(L, pan.points[i]); if (Math.hypot(x - sx, y - sy) < 9) return { kind: 'point', pan, L, i }; }
     }
+    // edges: the nearest one, counting a click on its cut line (the allowance band) as a click on the edge
+    let best = null; let bd = Infinity;
     for (const pan of shown(p)) {
       if (pan.piece) continue;
-      const L = layout.find((l) => l.id === pan.id); if (!L) continue; const n = pan.points.length;
+      const L = layout.find((l) => l.id === pan.id); if (!L) continue; const n = pan.points.length; const tol = 7 + (opt.allowance ? Math.min(40, 2 * view.s) : 0);
       for (let i = 0; i < n; i++) {
         const [ax, ay] = toScreen(L, pan.points[i]); const [bx, by] = toScreen(L, pan.points[(i + 1) % n]);
         const t = Math.max(0, Math.min(1, ((sx - ax) * (bx - ax) + (sy - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2 || 1)));
-        if (Math.hypot(ax + (bx - ax) * t - sx, ay + (by - ay) * t - sy) < 7) return { kind: 'edge', pan, L, i };
+        const dd = Math.hypot(ax + (bx - ax) * t - sx, ay + (by - ay) * t - sy); if (dd < tol && dd < bd) { bd = dd; best = { kind: 'edge', pan, L, i }; }
       }
     }
-    return null;
+    return best;
+  }
+  /** The run an allowance belongs to: the edges sewn by the same seam (or carrying the same edge name), else the corner-to-corner run. */
+  function saRun(p, pan, e) {
+    const n = pan.points.length; const sides = seamSides(p, pan); const A = allowances(p, pan);
+    const keyOf = (i) => (sides.get(i) ? `s:${sides.get(i).seam.id}` : A.tags[i] ? `t:${A.tags[i]}` : null);
+    const k = keyOf(e); if (!k) return edgeRun(pan, e);
+    let s0 = e; let t0 = e;
+    for (let c = 0; c < n && keyOf((s0 - 1 + n) % n) === k; c++) s0 = (s0 - 1 + n) % n;
+    for (let c = 0; c < n && keyOf((t0 + 1) % n) === k; c++) t0 = (t0 + 1) % n;
+    return { edge: s0, to: t0 };
   }
   /** Extend a clicked edge to the whole straight / smooth run between corners, so a seam covers the full side. */
   function edgeRun(pan, e) {
@@ -387,7 +422,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
     if (pointers.size !== 1) return;
     if (opt.tool === 'draw') { drag = { kind: 'draw', sx, sy, vx: view.x, vy: view.y, moved: false }; return; }
     const h = hit(sx, sy, opt.tool === 'edit');
-    if (opt.tool === 'sew') { drag = { kind: 'sewclick', sx, sy, vx: view.x, vy: view.y, h, moved: false }; return; }
+    if (opt.tool === 'sew' || opt.tool === 'sa') { drag = { kind: opt.tool === 'sa' ? 'saclick' : 'sewclick', sx, sy, vx: view.x, vy: view.y, h, moved: false }; return; }
     drag = h?.kind === 'point' ? { ...h, moved: false } : { kind: 'pan', sx, sy, vx: view.x, vy: view.y, h, moved: false };
     if (h?.kind === 'point') longPress = setTimeout(() => { store.dispatch({ type: 'delete_point', panel: h.pan.id, index: h.i }); drag = null; }, 650);
   });
@@ -404,7 +439,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
     if (!drag) return;
     const [sx, sy] = pos(e);
     clearTimeout(longPress);
-    if (drag.kind === 'pan' || drag.kind === 'draw' || drag.kind === 'sewclick') { if (Math.hypot(sx - drag.sx, sy - drag.sy) > 4) drag.moved = true; if (drag.moved) { view.x = drag.vx + sx - drag.sx; view.y = drag.vy + sy - drag.sy; draw(); } return; }
+    if (drag.kind === 'pan' || drag.kind === 'draw' || drag.kind === 'sewclick' || drag.kind === 'saclick') { if (Math.hypot(sx - drag.sx, sy - drag.sy) > 4) drag.moved = true; if (drag.moved) { view.x = drag.vx + sx - drag.sx; view.y = drag.vy + sy - drag.sy; draw(); } return; }
     drag.moved = true;
     const [lx, ly] = toLocal(drag.L, sx, sy);
     drag.pan.points[drag.i] = [Math.round(lx * 2) / 2, Math.round(ly * 2) / 2]; // preview (0.5 cm snap)
@@ -422,6 +457,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
       if (draft.length >= 3 && Math.hypot((draft[0][0] - x) * view.s, (draft[0][1] - y) * view.s) < 10) { closeDraft(); draw(); return; }
       draft.push([Math.round(x * 2) / 2, Math.round(y * 2) / 2]); draw(); return;
     }
+    if (d.kind === 'saclick') { if (d.h?.kind === 'edge') openAllowance(d.h.pan, saRun(store.get(), d.h.pan, d.h.i)); return; }
     if (d.kind === 'sewclick') {
       if (d.h?.kind !== 'edge') return;
       const run = { panel: d.h.pan.id, ...edgeRun(d.h.pan, d.h.i) };
