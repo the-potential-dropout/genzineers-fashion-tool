@@ -260,6 +260,60 @@ export class Viewer {
     try { this.addHats(project); } catch (e) { console.warn('hats failed', e); }
   }
 
+  /**
+   * What makes a cut-and-sewn glove: the fourchettes (strips between the fingers), the thumb set
+   * into its hole, the side seam down the little-finger edge, three points stitched on the back,
+   * the hemmed or bound cuff, and its fastening. Worked out on the hand itself, in the straight-arm
+   * reference pose (fingers along x, back of the hand up, thumb forward).
+   */
+  gloveDetails(sh, pos, nor, ref, idx, wristX, L) {
+    const add = (o) => { o.frustumCulled = false; this.avatarGroup.add(o); this._shellMeshes.push(o); };
+    const base = new THREE.Color(sh.look.color); const thread = base.clone().lerp(new THREE.Color('#ffffff'), 0.4); const crease = base.clone().multiplyScalar(0.4);
+    const off = sh.thickness + 0.0006; const nT = idx ? idx.count / 3 : pos.count / 3; const vi = (t, k) => (idx ? idx.getX(t * 3 + k) : t * 3 + k);
+    for (const sd of [1, -1]) {
+      const x0 = wristX - sh.cuff; const tris = []; const inHand = (i) => ref[i * 3] * sd > x0 && Math.abs(ref[i * 3 + 1] - L.armY) < 0.16;
+      for (let t = 0; t < nT; t++) { const a = vi(t, 0); const b = vi(t, 1); const c = vi(t, 2); if (inHand(a) && inHand(b) && inHand(c)) tris.push(a, b, c); }
+      if (tris.length < 30) continue;
+      // normals in the reference pose
+      const rn = new Map(); const acc = (i, x, y, z) => { const o = rn.get(i) || [0, 0, 0]; o[0] += x; o[1] += y; o[2] += z; rn.set(i, o); };
+      for (let t = 0; t < tris.length; t += 3) { const [a, b, c] = [tris[t], tris[t + 1], tris[t + 2]]; const ux = ref[b * 3] - ref[a * 3]; const uy = ref[b * 3 + 1] - ref[a * 3 + 1]; const uz = ref[b * 3 + 2] - ref[a * 3 + 2]; const vx = ref[c * 3] - ref[a * 3]; const vy = ref[c * 3 + 1] - ref[a * 3 + 1]; const vz = ref[c * 3 + 2] - ref[a * 3 + 2]; const nx = uy * vz - uz * vy; const ny = uz * vx - ux * vz; const nz = ux * vy - uy * vx; acc(a, nx, ny, nz); acc(b, nx, ny, nz); acc(c, nx, ny, nz); }
+      for (const o of rn.values()) { const l = Math.hypot(o[0], o[1], o[2]) || 1; o[0] /= l; o[1] /= l; o[2] /= l; }
+      const X = (i) => ref[i * 3] * sd - wristX; const Y = (i) => ref[i * 3 + 1] - L.armY; const Z = (i) => ref[i * 3 + 2];
+      let zc = 0; let nz0 = 0; let zmin = 9; let zmax = -9; let xTip = 0; let yTop = -9;
+      for (const i of rn.keys()) { if (X(i) > 0 && X(i) < 0.03) { zc += Z(i); nz0++; } xTip = Math.max(xTip, X(i)); }
+      zc /= nz0 || 1; const knX = xTip * 0.5; // knuckles about half way from wrist to fingertip
+      for (const i of rn.keys()) if (X(i) > knX + 0.01) { zmin = Math.min(zmin, Z(i)); zmax = Math.max(zmax, Z(i)); yTop = Math.max(yTop, Y(i)); }
+      const P3 = (i, k = off) => new THREE.Vector3(pos.getX(i) + nor.getX(i) * k, pos.getY(i) + nor.getY(i) * k, pos.getZ(i) + nor.getZ(i) * k);
+      // ---- pieces cut out of the hand surface along smooth lines (not along the mesh's own edges)
+      const thumbZ = zc + 0.036;
+      const fourM = (i) => { const n = rn.get(i); const x = X(i); const outer = (Z(i) < zmin + 0.007 && n[2] < 0) || (Z(i) > zmax - 0.007 && n[2] > 0); return Math.min(0.52 - Math.abs(n[1]), (x - knX - 0.002) * 8, outer ? -1 : 1, sh.fingerless ? -1 : 1); };
+      const thumbM = (i) => { const x = X(i); return Math.min((Z(i) - thumbZ - Math.max(0, x - knX * 0.45) * 0.55) * 10, (x - 0.01) * 10, (knX + 0.03 - x) * 10); };
+      const cut = (mf, emit) => { const segs = []; const pp = []; const nn = [];
+        const at = (a, b, t, k) => new THREE.Vector3(pos.getX(a) + (pos.getX(b) - pos.getX(a)) * t, pos.getY(a) + (pos.getY(b) - pos.getY(a)) * t, pos.getZ(a) + (pos.getZ(b) - pos.getZ(a)) * t).add(new THREE.Vector3(nor.getX(a) + (nor.getX(b) - nor.getX(a)) * t, nor.getY(a) + (nor.getY(b) - nor.getY(a)) * t, nor.getZ(a) + (nor.getZ(b) - nor.getZ(a)) * t).normalize().multiplyScalar(k));
+        for (let t = 0; t < tris.length; t += 3) { const v = [tris[t], tris[t + 1], tris[t + 2]]; const m = v.map(mf); const ins = (m[0] > 0) + (m[1] > 0) + (m[2] > 0); if (!ins) continue; const poly = []; const cr = [];
+          for (let e = 0; e < 3; e++) { const p = v[e]; const q = v[(e + 1) % 3]; if (m[e] > 0) poly.push([p, p, 0]); if ((m[e] > 0) !== (m[(e + 1) % 3] > 0)) { const tt = m[e] / (m[e] - m[(e + 1) % 3]); poly.push([p, q, tt]); cr.push([p, q, tt]); } }
+          if (emit) for (let q = 1; q + 1 < poly.length; q++) for (const w of [poly[0], poly[q], poly[q + 1]]) { const p = at(w[0], w[1], w[2], off + 0.0003); pp.push(p.x, p.y, p.z); nn.push(nor.getX(w[0]), nor.getY(w[0]), nor.getZ(w[0])); }
+          if (cr.length === 2) segs.push(cr); }
+        if (emit && pp.length) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pp, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nn, 3)); add(new THREE.Mesh(g, new THREE.MeshPhysicalMaterial({ color: base.clone().multiplyScalar(0.6), roughness: Math.min(1, (sh.look.roughness || 0.6) + 0.08), sheen: sh.look.sheen || 0, side: THREE.DoubleSide }))); }
+        for (const [k, color, dashed] of [[0.0005, crease, false], [0.0008, thread, true]]) { const pts = []; for (const sgm of segs) pts.push(at(sgm[0][0], sgm[0][1], sgm[0][2], off + k), at(sgm[1][0], sgm[1][1], sgm[1][2], off + k)); if (!pts.length) continue; const ln = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), dashed ? new THREE.LineDashedMaterial({ color, dashSize: 0.002, gapSize: 0.001 }) : new THREE.LineBasicMaterial({ color })); if (dashed) ln.computeLineDistances(); add(ln); } };
+      cut(fourM, true); // fourchettes: the strips that give the fingers their depth
+      cut(thumbM, false); // the thumb, set into its hole
+      // a line of stitching through chosen points of the hand, smoothed
+      const run = (pts, tube = false) => { if (pts.length < 3) return; for (let it = 0; it < 2; it++) for (let i = 1; i + 1 < pts.length; i++) pts[i].lerp(pts[i - 1].clone().add(pts[i + 1]).multiplyScalar(0.5), 0.5); if (tube) add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 3, 0.0009, 5), new THREE.MeshStandardMaterial({ color: base.clone().multiplyScalar(0.8), roughness: 0.7 }))); const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map((p) => p.clone())), new THREE.LineDashedMaterial({ color: thread, dashSize: 0.0022, gapSize: 0.001 })); ln.computeLineDistances(); add(ln); };
+      const nearest = (x, z, back) => { let best = -1; let bd = 1e9; for (const [i, n] of rn) { if (back ? n[1] < 0.45 : false) continue; const d = Math.abs(X(i) - x) + Math.abs(Z(i) - z); if (d < bd) { bd = d; best = i; } } return best; };
+      // three points on the back of the hand
+      if (sh.points && !sh.fingerless) for (const dz of [-0.019, 0, 0.019]) { const pts = []; for (let x = 0.022; x < knX - 0.004; x += 0.006) { const i = nearest(x, zc + dz * (0.75 + 0.25 * (x / knX)), true); if (i >= 0) pts.push(P3(i, off + 0.0008)); } run(pts, true); }
+      // side seam down the little-finger edge (the trank is folded at the index finger, sewn here)
+      { const pts = []; for (let x = -sh.cuff + 0.004; x < xTip - 0.012; x += 0.006) { let best = -1; let bz = 9; for (const i of rn.keys()) if (Math.abs(X(i) - x) < 0.005 && Math.abs(Y(i)) < 0.02 && Z(i) < bz) { bz = Z(i); best = i; } if (best >= 0) pts.push(P3(best, off + 0.0006)); } run(pts); }
+      // cuff hem / binding: a row of stitching round the edge
+      { const ring = []; for (const i of rn.keys()) if (Math.abs(X(i) + sh.cuff - 0.008) < 0.006) ring.push([Math.atan2(Y(i), Z(i) - zc), i]); ring.sort((a, b) => a[0] - b[0]); const pts = ring.map(([, i]) => P3(i, off + 0.0006)); if (pts.length > 6) { pts.push(pts[0].clone()); run(pts); } }
+      // fastening on the back of the wrist
+      const bw = nearest(-0.012, zc, true);
+      if (bw >= 0 && sh.bands?.length && sh.type !== 'work') { const p = P3(bw, off + 0.0022); const n = new THREE.Vector3(nor.getX(bw), nor.getY(bw), nor.getZ(bw)); const m = new THREE.Mesh(new THREE.SphereGeometry(0.0055, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#b9b9b9', metalness: 0.9, roughness: 0.3 })); m.position.copy(p); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n); add(m); }
+      if (sh.type === 'driving' && !sh.fingerless) { const g = []; for (const dz of [-0.026, -0.009, 0.009, 0.026]) { const i = nearest(knX - 0.006, zc + dz, true); if (i < 0) continue; const c = new THREE.CircleGeometry(0.0052, 14); const n = new THREE.Vector3(nor.getX(i), nor.getY(i), nor.getZ(i)); c.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n)); const p = P3(i, off + 0.0005); c.translate(p.x, p.y, p.z); g.push(c); } for (const c of g) add(new THREE.Mesh(c, new THREE.MeshBasicMaterial({ color: this.project?.look?.skin || '#8d939c', side: THREE.DoubleSide }))); }
+    }
+  }
+
   /** Materials for a constructed form (shoe, hat, bag): each named part in its own material and colour. */
   formMats(project, spec) {
     const gar = (project.garments || []).find((x) => x.id === spec.garment);
@@ -434,7 +488,7 @@ export class Viewer {
             const fN = mp && this._shellField && sampleField(this._shellField, mp[0], mp[1], mp[2], this._o4 ||= [0, 0, 0, 0]) ? this._o4 : null;
             const gl = fN ? Math.hypot(fN[1], fN[2], fN[3]) : 0;
             if (gl > 1e-7) N.push(fN[1] / gl, fN[2] / gl, fN[3] / gl); else N.push(nor.getX(i), nor.getY(i), nor.getZ(i));
-            UV.push((ang * 0.07) / 0.1, y / 0.1);
+            if (hand) UV.push(x / 0.1, (z + y * 0.6) / 0.1); else UV.push((ang * 0.07) / 0.1, y / 0.1);
           }
         }
         if (rg === regions[0]) for (const c of caps) { if (c.nrm) { c.tri.forEach((q, qi) => { P.push(q[0], q[1], q[2]); N.push(c.nrm[qi][0], c.nrm[qi][1], c.nrm[qi][2]); UV.push(q[1] / 0.1, q[0] / 0.1); }); continue; } { // true smooth normals: average the faces round every point of the toe
@@ -456,6 +510,7 @@ export class Viewer {
         this.avatarGroup.add(mesh);
         this._shellMeshes.push(mesh);
       }
+      if (hand && !sh.mitten && sh.fabric && !/knit|jersey|fleece|rib/.test(sh.fabric)) { try { this.gloveDetails(sh, pos, nor, ref, idx, wristX, L); } catch (e) { console.warn('glove details failed', e); } }
       if (sh.backSeam) {
         for (const sd of [1, -1]) {
           const pts = [];

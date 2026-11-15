@@ -139,7 +139,7 @@ export function buildGlove(o, prefix = '', fabric = 'leather-lambskin') {
     id: `${prefix}glove`, part: 'hand', type: o.type, mitten: Boolean(T.mitten), fingerless: Boolean(T.fingerless), cuff,
     // material thickness plus the lining: a lined winter glove is several millimetres thick
     thickness: Math.max(0.0009, (fab.thicknessMm || 0.7) / 1000 + lin[1] / 1000),
-    look: { ...fab.look, color, opacity: 1, patternScale: fab.look.patternScale || 6 },
+    look: { ...fab.look, color, opacity: 1, patternScale: (fab.look.patternScale || 6) * (T.knit ? 1 : 2.6) }, // glove leather is fine-grained
     fabric, bands: [], points: o.points === 'yes' && !T.knit && !T.mitten,
   };
   if (o.closure === 'rib-cuff' || T.knit) shell.bands.push({ from: -Math.min(cuff, 0.07), to: 0, look: { ...shell.look, pattern: 'rib', patternScale: 9 } });
