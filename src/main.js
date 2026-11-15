@@ -37,6 +37,7 @@ import { STITCH_TYPES, FONTS, THREADS_EMB, MOTIFS_EMB, rasterizeDesign, digitize
 import { LAYER_NAMES, listParts } from './core/project.js';
 import { initStudio } from './app/studio.js';
 import { makerNotes, makerBrief } from './core/jewelrymaker.js';
+import { FOLD_STYLES, foldPlan, foldedSize } from './core/folding.js';
 import { CONSTRUCTION_PRESETS, CANVAS, LINING_TYPES, LINING_MATERIALS, SEAM_FINISHES, LABEL_SET, SHOULDER_PADS, constructionOf, suggestConstruction } from './core/construction.js';
 import { HAIR_STYLES, FACIAL_STYLES, HAIR_COLORS } from './render/hair3d.js';
 import { layerOf } from './sim/cloth.js';
@@ -294,6 +295,7 @@ function renderHud() {
     h('button', { class: 'pill', onclick: () => (p.mode === 'jewelry' ? viewer.setProject(p) : viewer.frameGarment()) }, '⤢ Fit'),
     h('button', { class: 'pill', onclick: () => { viewer.setAutoOrbit(!viewer.autoOrbit); settings.set('orbit', viewer.autoOrbit); renderHud(); } }, viewer.autoOrbit ? '⟳ Orbit on' : '⟳ Orbit off'),
     p.mode !== 'jewelry' ? h('button', { class: `pill ${viewer.grabMode ? 'on' : ''}`, title: 'Pull mode: drag the cloth itself to pinch and tug it; it falls back naturally when you let go', onclick: () => { viewer.setGrab(!viewer.grabMode); renderHud(); toast(viewer.grabMode ? 'Pull mode: drag the cloth. Tap again to go back to orbiting.' : 'Orbit mode'); } }, viewer.grabMode ? '✋ Pulling' : '✋ Pull') : null,
+    p.mode !== 'jewelry' && viewer.folded ? h('button', { class: 'pill on', title: 'Put it back on the mannequin', onclick: () => { viewer.unfold(); renderHud(); } }, 'Unfold') : null,
     p.mode !== 'jewelry' && viewer.grabMode ? h('button', { class: `pill ${viewer.grabSym ? 'on' : ''}`, title: 'Symmetric pinching: the same spot on the other side of the body moves with your hand', onclick: () => { viewer.grabSym = !viewer.grabSym; renderHud(); } }, '⇋ Both sides') : null,
     p.mode !== 'jewelry' && viewer.grabMode ? h('button', { class: `pill ${viewer.ripMode ? 'on' : ''}`, title: 'Rip: click a seam to tear it open along its stitching', onclick: () => { studio(); viewer.ripMode = !viewer.ripMode; renderHud(); } }, '✂ Rip seam') : null,
     p.mode !== 'jewelry' && viewer.pins?.length ? h('button', { class: 'pill on', title: 'Shift+click in pull mode pins a spot of cloth in place', onclick: () => viewer.clearPins() }, `📌 Unpin ${viewer.pins.length}`) : null,
@@ -834,6 +836,15 @@ function cMake(el, p) {
   const design = p; p = atMakingSize(design); // files are written at the size you will actually make
   if (design.scale && design.scale !== 1) el.append(h('div', { class: 'tip' }, h('b', {}, `Miniature: ${Math.round(design.scale * 100)}% scale. `), 'Patterns, measurements and machine files below are written at that size (seam allowance 0.5 cm, hems 1 cm).'));
   { const cs = studio().costSection(p); if (cs) el.append(cs); }
+  // ---- folding and packing: the fold the packing line uses, played on the garment ----
+  { const style = p.production?.fold || 'retail'; const fp = foldPlan(p, style); const fs = foldedSize(p, fp);
+    if (fp) el.append(h('div', { class: 'sec' }, h('h3', {}, 'Folding and packing'),
+      h('div', { class: 'tip' }, 'How the finished piece is folded for its polybag, step by step for the packing line, and the size it ends up. Fold it in 3D to see it.'),
+      field('Fold', sel(style, Object.entries(FOLD_STYLES).map(([k, v]) => ({ value: k, label: v })), (v) => { store.dispatch({ type: 'set_production', fold: v }); })),
+      h('ol', { style: 'margin:6px 0;padding-left:18px;font-size:13px;line-height:1.5' }, fp.steps.map((s) => h('li', {}, s.text))),
+      fs ? h('div', { class: 'tip' }, h('b', {}, `Folded: about ${fs.width} × ${fs.length} × ${fs.height} cm. `), `${fs.note}.`) : null,
+      h('div', { class: 'grid2' }, h('button', { class: 'btn primary', onclick: () => { if (!viewer.fold(p, fp, () => toast('Folded'))) toast('Let the garment settle first'); renderHud(); } }, 'Fold it in 3D'), h('button', { class: 'btn', onclick: () => { viewer.unfold(); renderHud(); } }, 'Unfold'))));
+  }
   el.append(h('div', { class: 'sec' }, h('h3', {}, 'Files for manufacturers'),
     h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-bottom:8px' }, 'Each file opens in the viewer: read it, edit it, undo, reset or save your edits, print, then download to the folder you choose.'),
     h('div', { class: 'grid2' },

@@ -721,6 +721,7 @@ export function applyAction(project, action) {
       if (isNum(a.quantity)) pr.quantity = Math.max(1, Math.round(a.quantity));
       if (Array.isArray(a.sizes)) pr.sizes = a.sizes.map(String);
       if (a.baseSize) pr.baseSize = String(a.baseSize);
+      if (a.fold) pr.fold = String(a.fold);
       if (a.market) pr.market = String(a.market);
       if ('targetCost' in a) pr.targetCost = a.targetCost;
       break;

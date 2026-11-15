@@ -4,6 +4,7 @@
  * inspected). Presets are the industry's usual answer for each kind of garment; every field can
  * be changed. The choices flow into the cut list, bill of materials and tech pack.
  */
+import { foldPlan, foldedSize } from './folding.js';
 
 /** Shoulder pads. t = thickness at the shoulder point (cm), ext = how far it carries the shoulder past the bone (cm). */
 export const SHOULDER_PADS = {
@@ -125,5 +126,6 @@ export function constructionSheet(project) {
     ['Reinforcement', c.closureFinish || 'bar tacks at pocket corners, fly and belt loops'], ['Details included', c.extras.join('; ')],
     ['Fabric preparation', c.preShrink], ['Labels', `${c.labelSet.join('; ')}. Placement: ${c.labels}`], ['Pressing', c.pressing], ['Packing', c.packing],
     ['Quality', `AQL ${c.aql} (general inspection level II); measurement tolerance ±${c.tolerance} cm on body measurements, ±0.5 cm on small parts`],
+    ...(() => { const fp = foldPlan(project, project.production?.fold || 'retail'); const fs = foldedSize(project, fp); return fp && fs ? [['Folding', `${fp.label}: ${fp.steps.map((s, i) => `${i + 1}. ${s.text}`).join(' ')} Folded size about ${fs.width} × ${fs.length} × ${fs.height} cm. ${fs.note}.`]] : []; })(),
   ];
 }

@@ -28,6 +28,7 @@ import { buildHat } from './hats3d.js';
 import { buildBag } from './bags3d.js';
 import { buildHair } from './hair3d.js';
 import { buildBelt } from './belts3d.js';
+import { startFold, stopFold, tickFold } from './fold3d.js';
 import { tieKnot, bowTie, clothBand, TIE_KNOTS } from './neckwear.js';
 import { designBitmap, previewCanvas, loadArtwork, artworkReady, STITCH_TYPES } from '../make/embroidery.js';
 import { customBodyMesh, bodyField, sampleField } from '../sim/bodyfield.js';
@@ -213,6 +214,7 @@ export class Viewer {
     }
     this._frame++;
     // idle orbit at ~30 fps saves power
+    if (this._fold) tickFold(this);
     if (this._hairGroup?.userData.sway && this._hairGroup.parent) { this._hairGroup.userData.tick(performance.now() / 1000); if ((this._frame || 0) % 2 === 0) this.dirty = true; }
     if (this.dirty || (orbiting && this._frame % 2 === 0)) {
       this.renderer.render(this.scene, this.camera);
@@ -632,6 +634,7 @@ export class Viewer {
 
   /** Build meshes for a project + its simulation. */
   setProject(project, sim) {
+    if (this._fold && this.sim !== sim) { this._fold = null; this.avatarGroup.visible = true; if (this._table) this._table.visible = false; }
     this.project = project;
     this.clearGarment();
     this.showAvatar(project);
@@ -1484,6 +1487,15 @@ export class Viewer {
     const end = (e) => { if (!this._grab || e.pointerId !== this._grab.id) return; const pinned = new Set((this.pins || []).filter((q) => q.sim === this.sim).flatMap((q) => q.ids)); this._grab.ids.forEach((i, k) => { this.sim.inv[i] = pinned.has(i) ? 0 : this._grab.inv[k]; }); if (this._grab.mirror) this.sim.inv[this._grab.mirror.i] = this._grab.mirror.inv; this._grab = null; this.controls.enabled = true; this.simAwake = true; this._simFrames = Math.min(this._simFrames || 0, 420); this._still = 0; };
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
   }
+
+  /** Fold the garment for packing, step by step (plan from core/folding.js). */
+  fold(project, plan, onDone) {
+    if (!this._table) { this._table = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.04, 1.0), new THREE.MeshStandardMaterial({ color: '#c9b79c', roughness: 0.8 })); this._table.position.set(0, 0.73, 0); this._table.receiveShadow = true; this.scene.add(this._table); }
+    this._table.visible = true; this._grab = null;
+    const ok = startFold(this, project, plan, onDone); if (!ok) this._table.visible = false; return ok;
+  }
+  unfold() { stopFold(this); if (this._table) this._table.visible = false; this.frameGarment?.(); }
+  get folded() { return Boolean(this._fold); }
 
   /** Let go of every pinned spot. */
   clearPins() { for (const q of this.pins || []) { this.scene.remove(q.mk); if (q.sim === this.sim) q.ids.forEach((i, k) => { q.sim.inv[i] = q.inv[k]; }); } this.pins = []; this.simAwake = true; this._simFrames = 0; this._still = 0; this.dirty = true; this.onPins?.(0); }
