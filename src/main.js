@@ -36,6 +36,7 @@ import { TANNING, LEATHER_FINISHES, LEATHER_COLOURS, LEATHER_USE, leatherFit } f
 import { STITCH_TYPES, FONTS, THREADS_EMB, MOTIFS_EMB, rasterizeDesign, digitize, writeDST, embroiderySheet, loadArtwork } from './make/embroidery.js';
 import { LAYER_NAMES, listParts } from './core/project.js';
 import { initStudio } from './app/studio.js';
+import { CONSTRUCTION_PRESETS, CANVAS, LINING_TYPES, LINING_MATERIALS, SEAM_FINISHES, LABEL_SET, SHOULDER_PADS, constructionOf, suggestConstruction } from './core/construction.js';
 import { HAIR_STYLES, FACIAL_STYLES, HAIR_COLORS } from './render/hair3d.js';
 import { layerOf } from './sim/cloth.js';
 
@@ -389,7 +390,7 @@ function renderPanel() {
 const next = (label, step) => h('div', { style: 'margin-top:14px;display:flex;justify-content:flex-end' }, h('button', { class: 'btn primary', onclick: () => { ui.step = step; renderPanel(); } }, label));
 
 // ===== Clothing: Style =====
-const KEY_OPTS = { legwear: ['type', 'denier', 'pattern', 'color', 'color2', 'topBand'], brief: ['style', 'rise', 'legCut', 'waistband', 'pouch'], bra: ['style', 'band', 'cup', 'straps', 'closure', 'wire', 'padding'], top: ['fit', 'length', 'sleeve', 'cuff', 'neckline', 'collar', 'lapel', 'closure', 'insulation'], bottom: ['fit', 'inseam', 'rise', 'leg', 'waistband', 'hem', 'pockets'], skirt: ['length', 'flare', 'waistband', 'slit'], hat: ['style', 'height', 'brim', 'stiffener', 'billShape', 'closure'], bag: ['type', 'width', 'height', 'depth', 'handles', 'closure', 'hardware'], scarf: ['length', 'width', 'ends'], tie: ['width', 'length', 'tip', 'knot'] };
+const KEY_OPTS = { legwear: ['type', 'denier', 'pattern', 'color', 'color2', 'topBand'], brief: ['style', 'rise', 'legCut', 'waistband', 'pouch'], bra: ['style', 'band', 'cup', 'straps', 'closure', 'wire', 'padding'], top: ['fit', 'length', 'sleeve', 'cuff', 'neckline', 'collar', 'lapel', 'closure', 'shoulderPad', 'insulation'], bottom: ['fit', 'inseam', 'rise', 'leg', 'waistband', 'hem', 'pockets'], skirt: ['length', 'flare', 'waistband', 'slit'], hat: ['style', 'height', 'brim', 'stiffener', 'billShape', 'closure'], bag: ['type', 'width', 'height', 'depth', 'handles', 'closure', 'hardware'], scarf: ['length', 'width', 'ends'], tie: ['width', 'length', 'tip', 'knot'] };
 function cStyle(el, p) {
   const t = TEMPLATES[p.template];
   if (t?.why) el.append(h('div', { class: 'tip' }, h('b', {}, 'Industry default: '), t.why));
@@ -671,7 +672,29 @@ function customBlend() {
 }
 
 // ===== Clothing: Details =====
+// ---- the construction standard: what the factory does that the pattern does not show ----
+function constructionSection(p) {
+  if (!p.panels.length) return null;
+  const c = constructionOf(p); const sug = suggestConstruction(p); const set = (a) => store.dispatch({ type: 'set_construction', ...a });
+  const text = (k, label) => field(label, h('input', { class: 'inp', value: c[k] ?? '', onchange: (e) => set({ [k]: e.target.value }) }));
+  const pick = (k, label, vals) => field(label, sel(String(c[k]), [...new Set([String(c[k]), ...vals])].map((v) => ({ value: v, label: v })), (v) => set({ [k]: v })));
+  const pg = (p.garments || []).find((g) => g.generator === 'top' && g.options.sleeve !== 'none');
+  return h('div', { class: 'sec' }, h('h3', {}, 'Professional finish'),
+    h('div', { class: 'tip' }, 'Everything a factory does that a pattern does not show: interfacing, canvas, lining, stay tapes, seam finishes, hems, labels, pressing, packing and inspection. Pick the standard for this kind of garment, then change anything. It goes into the cut list, the bill of materials and the tech pack.'),
+    field('Construction standard', sel(c.preset, Object.entries(CONSTRUCTION_PRESETS).map(([k, v]) => ({ value: k, label: v.name + (k === sug ? ' (suggested)' : '') })), (v) => set({ preset: v }))),
+    !c.chosen ? h('div', { class: 'check' }, h('span', { class: 'info' }, '•'), h('span', {}, 'Suggested from the garment and its fabric. ', h('button', { class: 'btn sm', onclick: () => set({ preset: sug }) }, 'Use it'))) : h('div', { class: 'chips' }, h('button', { class: 'btn sm ghost', onclick: () => set({ reset: true }) }, 'Back to the suggestion')),
+    h('div', { class: 'list' }, [['Interfaced', c.interfacing.length ? `${c.interfacing.join(', ')} · ${c.interfacingType}` : 'nothing'], ['Stay tape', c.tape.join('; ') || 'none'], ['Reinforcement', c.closureFinish || 'bar tacks at stress points'], ['Also included', c.extras.join('; ') || '-'], ['Fabric preparation', c.preShrink]].map(([k, v]) => h('div', { class: 'row' }, h('div', { class: 'grow' }, h('div', { class: 't' }, k), h('div', { class: 's' }, v))))),
+    pg ? field('Shoulder pads', sel(pg.options.shoulderPad || 'none', Object.entries(SHOULDER_PADS).map(([k, v]) => ({ value: k, label: v.name })), (v) => store.dispatch({ type: 'set_option', garment: pg.id, key: 'shoulderPad', value: v }))) : null,
+    pg && SHOULDER_PADS[pg.options.shoulderPad]?.note ? h('div', { class: 'tip', style: 'margin-top:-4px' }, SHOULDER_PADS[pg.options.shoulderPad].note) : null,
+    h('div', { class: 'grid2' }, field('Front construction', sel(c.canvas, Object.entries(CANVAS).map(([k, v]) => ({ value: k, label: v })), (v) => set({ canvas: v }))), pick('lining', 'Lining', LINING_TYPES), pick('liningMaterial', 'Lining material', LINING_MATERIALS), text('pocketing', 'Pocket bags'), pick('seamFinish', 'Seam finish', SEAM_FINISHES), text('hem', 'Hems'),
+      field('Stitches per inch', h('input', { class: 'inp', type: 'number', min: 0, max: 24, value: c.spi, onchange: (e) => set({ spi: Number(e.target.value) }) })), text('labels', 'Label placement'), text('pressing', 'Pressing'), text('packing', 'Packing'),
+      field('Inspection (AQL)', sel(String(c.aql), ['1.0', '1.5', '2.5', '4.0'].map((v) => ({ value: v, label: `AQL ${v}${v === '2.5' ? ' (usual)' : v === '1.5' ? ' (premium)' : ''}` })), (v) => set({ aql: v }))), field('Measurement tolerance (± cm)', h('input', { class: 'inp', type: 'number', step: 0.1, min: 0.2, max: 3, value: c.tolerance, onchange: (e) => set({ tolerance: Number(e.target.value) }) }))),
+    h('h4', { style: 'margin:10px 0 4px' }, 'Labels and tags'),
+    LABEL_SET.map((l) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: c.labelSet.includes(l), onchange: (e) => set({ labelSet: e.target.checked ? [...c.labelSet, l] : c.labelSet.filter((x) => x !== l) }) }), h('span', {}, l))));
+}
+
 function cDetails(el, p) {
+  { const cs = constructionSection(p); if (cs) setTimeout(() => el.append(cs), 0); }
   { const ms = studio().measureSection(p); if (ms) setTimeout(() => el.append(ms), 0); }
   const cur = p.panels[0];
   const rec = recommendFor(cur?.fabric || 'cotton-jersey', p);

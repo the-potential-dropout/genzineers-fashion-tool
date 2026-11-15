@@ -63,6 +63,7 @@ import { SHOE_OPTIONS, buildShoe } from './shoes.js';
 import { HAT_OPTIONS as HAT_OPTIONS2, buildHat as buildHat2 } from './hats.js';
 import { BAG_OPTIONS as BAG_OPTIONS2, buildBag as buildBag2 } from './bags.js';
 import { BELT_OPTIONS, buildBelt } from './belts.js';
+import { SHOULDER_PADS, shoulderPadForms } from './construction.js';
 import { ZIPPER_DEFAULTS } from './trims.js';
 // Reference body comes from the selected size (o.__body); generators read it via bodyOf().
 const bodyOf = (o) => o.__body || DEFAULT_BODY;
@@ -100,6 +101,7 @@ export const TOP_OPTIONS = {
   fillWeight: { label: 'Fill weight (g/m²)', type: 'range', min: 40, max: 400, step: 10, default: 120 },
   quilting: { label: 'Quilting', type: 'select', values: ['channel', 'box', 'diamond', 'onion', 'chevron', 'welded', 'none'], default: 'channel' },
   lining: { label: 'Lining', type: 'select', values: ['none', 'half', 'full'], default: 'none' },
+  shoulderPad: { label: 'Shoulder pads', type: 'select', values: Object.keys(SHOULDER_PADS), default: 'none' },
   chestAdj: { label: 'Tailor: chest (cm, + let out / − take in)', type: 'range', min: -12, max: 20, step: 0.5, default: 0 },
   waistAdj: { label: 'Tailor: waist suppression (cm taken in)', type: 'range', min: 0, max: 16, step: 0.5, default: 0 },
   shoulderAdj: { label: 'Tailor: shoulder width (cm)', type: 'range', min: -4, max: 6, step: 0.5, default: 0 },
@@ -163,7 +165,7 @@ function topPanels(o) {
   const natural = (BODY.shoulderW || 46) / 2 - 3; // shoulder point of the body
   const shoulderX = sleeveless
     ? ({ full: natural - 0.5, tank: neckW + 6, 'a-shirt': neckW + 3.5, racer: neckW + 4, strap: neckW + 2.5 }[o.shoulder] ?? natural)
-    : natural + ({ slim: 0, regular: 0.6, relaxed: 2.2, oversized: 6 }[o.fit] ?? 0.6) + (o.shoulderAdj || 0) / 2;
+    : natural + ({ slim: 0, regular: 0.6, relaxed: 2.2, oversized: 6 }[o.fit] ?? 0.6) + (o.shoulderAdj || 0) / 2 + (SHOULDER_PADS[o.shoulderPad]?.ext || 0);
   const shoulderDrop = sleeveless && o.shoulder !== 'full' ? 1.2 : 3.2 + (shoulderX - neckW) * 0.1;
   const hemW = hw + o.flare;
   const tail = o.hem === 'curved' ? 6 : 0;
@@ -585,7 +587,9 @@ export function buildTop(o, prefix = '', fabric = 'cotton-jersey') {
     overlays.length = 0; overlays.push(...routed);
     for (const tr of trims) if (tr.panel === fid) tr.panel = id(tr.at && tr.at[0] < -t.ext - 0.01 && !tr.to ? 'front-l' : 'front-r');
   }
-  return { panels, seams, trims, overlays, collars };
+  // shoulder pads hold the cloth up and out at the shoulder: real forms the drape rests on
+  const pad = o.sleeve !== 'none' && o.shoulderPad && o.shoulderPad !== 'none' ? shoulderPadForms(o.shoulderPad, BODY, (BODY.shoulderW || 46) / 2 - 3) : { colliders: [], pieces: [] };
+  return { panels, seams, trims, overlays, collars, colliders: pad.colliders, pieces: pad.pieces };
 }
 
 // =====================================================================
