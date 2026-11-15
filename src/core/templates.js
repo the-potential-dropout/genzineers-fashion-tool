@@ -9,10 +9,12 @@
  */
 import { GENERATORS, defaultOptions } from './blocks.js';
 import { SHOE_TYPES } from './shoes.js';
+import { HAT_STYLES } from './hats.js';
+import { BAG_TYPES } from './bags.js';
 
 const g = (generator, options = {}, extra = {}) => ({ generator, options, ...extra });
 
-export const TEMPLATE_GROUPS = ['T-shirts & tanks', 'Shirts & polos', 'Sweats & hoodies', 'Jackets', 'Tailoring & suits', 'Coats', 'Dresses', 'Trousers & jeans', 'Shorts', 'Knitwear', 'Underwear & lingerie', 'Hosiery & socks', 'Gloves & mittens', 'Dress shoes', 'Loafers & slip-ons', 'Sneakers', 'Boots', 'Heels & flats', 'Sandals', 'Skirts', 'Accessories', 'Hats', 'Bags'];
+export const TEMPLATE_GROUPS = ['T-shirts & tanks', 'Shirts & polos', 'Sweats & hoodies', 'Jackets', 'Tailoring & suits', 'Coats', 'Dresses', 'Trousers & jeans', 'Shorts', 'Knitwear', 'Underwear & lingerie', 'Hosiery & socks', 'Gloves & mittens', 'Dress shoes', 'Loafers & slip-ons', 'Sneakers', 'Boots', 'Heels & flats', 'Sandals', 'Skirts', 'Accessories', 'Hats', 'Bags', 'Small leather goods'];
 
 export const TEMPLATES = {
   // ---------- T-shirts & tanks ----------
@@ -276,6 +278,14 @@ export function templateGarments(templateId) {
 /** Build panels/seams/trims/overlays for one garment spec. */
 // every shoe type is a template: a pair fitted to the mannequin's feet
 for (const [id, t] of Object.entries(SHOE_TYPES)) TEMPLATES[`shoe-${id}`] = { name: t.name, group: t.group, garments: [{ generator: 'shoe', options: { ...defaultOptions('shoe'), type: id }, fabric: t.fabric, stitch: 'lockstitch-301' }], why: t.why || `${t.construction.replace(/-/g, ' ')} construction, ${t.outsole.replace(/-/g, ' ')} sole.` };
+
+// every hat style that has no hand-written template gets one
+{ const have = new Set(Object.values(TEMPLATES).flatMap((t) => (t.garments || []).filter((x) => x.generator === 'hat').map((x) => x.options.style)));
+  for (const [id, t] of Object.entries(HAT_STYLES)) if (!have.has(id)) TEMPLATES[`hat-${id}`] = { name: t.name, group: 'Hats', garments: [{ generator: 'hat', options: { ...defaultOptions('hat'), style: id }, fabric: t.fabric, stitch: 'lockstitch-301' }], why: t.why || '' }; }
+{ const have = new Set(Object.values(TEMPLATES).flatMap((t) => (t.garments || []).filter((x) => x.generator === 'bag').map((x) => x.options.type)));
+  for (const [id, t] of Object.entries(BAG_TYPES)) if (!have.has(id)) TEMPLATES[`bag-${id}`] = { name: t.name, group: /wallet|card|holster/.test(id) ? 'Small leather goods' : 'Bags', garments: [{ generator: 'bag', options: { ...defaultOptions('bag'), type: id, width: t.width, height: t.height, depth: t.depth, shape: t.shape, handles: t.handles, closure: t.closure, base: t.base, pockets: t.pockets || 'none', feet: t.feet || 'no' }, fabric: t.fabric, stitch: 'lockstitch-301' }], why: '' }; }
+// templates written for the old hat block carried fixed heights: the style's own proportions are used unless a template sets them on purpose
+for (const t of Object.values(TEMPLATES)) for (const x of t.garments || []) if (x.generator === 'hat') { x.options = { ...defaultOptions('hat'), ...x.options, height: 0, brim: 0, stiffener: 'auto', billShape: 'auto', topper: x.options.topper && x.options.topper !== 'none' ? x.options.topper : 'auto', band: 'auto' }; }
 
 export function buildGarment(spec, body) {
   const gen = GENERATORS[spec.generator];

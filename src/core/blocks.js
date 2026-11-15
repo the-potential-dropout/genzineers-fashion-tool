@@ -60,6 +60,8 @@ function seam(pa, polyA, tagA, pb, polyB, tagB, stitch) {
 import { DEFAULT_BODY } from './sizes.js';
 import { LEGWEAR_OPTIONS, buildLegwear, GLOVE_OPTIONS, buildGlove } from './legwear.js';
 import { SHOE_OPTIONS, buildShoe } from './shoes.js';
+import { HAT_OPTIONS as HAT_OPTIONS2, buildHat as buildHat2 } from './hats.js';
+import { BAG_OPTIONS as BAG_OPTIONS2, buildBag as buildBag2 } from './bags.js';
 import { ZIPPER_DEFAULTS } from './trims.js';
 // Reference body comes from the selected size (o.__body); generators read it via bodyOf().
 const bodyOf = (o) => o.__body || DEFAULT_BODY;
@@ -1257,8 +1259,8 @@ export const GENERATORS = {
   skirt: { label: 'Skirt', options: SKIRT_OPTIONS, build: buildSkirt },
   scarf: { label: 'Scarf', options: SCARF_OPTIONS, build: buildScarf },
   tie: { label: 'Tie', options: TIE_OPTIONS, build: buildTie },
-  hat: { label: 'Hat / cap', options: HAT_OPTIONS, build: buildHat },
-  bag: { label: 'Bag', options: BAG_OPTIONS, build: buildBag },
+  hat: { label: 'Hat / cap', options: HAT_OPTIONS2, build: buildHat2 },
+  bag: { label: 'Bag, wallet, holster', options: BAG_OPTIONS2, build: buildBag2 },
   brief: { label: 'Underwear bottoms', options: BRIEF_OPTIONS, build: buildBrief },
   bra: { label: 'Bra / bralette', options: BRA_OPTIONS, build: buildBra },
   legwear: { label: 'Hosiery & socks', options: LEGWEAR_OPTIONS, build: buildLegwear },

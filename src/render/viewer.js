@@ -24,6 +24,8 @@ import { panelAnchor, layerRank } from '../sim/cloth.js';
 import { fabricTextures, distressTexture } from './textures.js';
 import { buildCollar } from './collars.js';
 import { buildShoe } from './shoes3d.js';
+import { buildHat } from './hats3d.js';
+import { buildBag } from './bags3d.js';
 import { tieKnot, bowTie, clothBand, TIE_KNOTS } from './neckwear.js';
 import { designBitmap, previewCanvas, loadArtwork, artworkReady, STITCH_TYPES } from '../make/embroidery.js';
 import { customBodyMesh, bodyField, sampleField } from '../sim/bodyfield.js';
@@ -231,6 +233,8 @@ export class Viewer {
       const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 1.3, 8), new THREE.MeshStandardMaterial({ color: '#888', metalness: 0.8, roughness: 0.3 }));
       rod.position.set(0, 0.65, -0.25); this.stand.add(rod);
       for (const c of project.colliders || []) this.stand.add(this.capsule(c, new THREE.MeshStandardMaterial({ color: '#cfcac2', transparent: true, opacity: 0.0 })));
+      if (project.bags?.length) { rod.visible = false; let x = 0; const key = JSON.stringify(project.bags) + JSON.stringify(project.partLooks || {});
+        try { for (const spec of project.bags) { const grp = buildBag(spec, this.formMats(project, spec)); grp.traverse((m) => { m.frustumCulled = false; if (m.isMesh) m.castShadow = true; }); grp.position.x = x; x += spec.width / 100 + 0.12; this.stand.add(grp); if (this._bagKey !== key) { this._bagKey = key; const c = grp.userData.centre; this.frame(new THREE.Vector3(c[0], c[1], c[2]), grp.userData.size * 1.7); } } } catch (e) { console.warn('bag failed', e); } }
       return;
     }
     const body = bodyFor(project);
@@ -253,6 +257,30 @@ export class Viewer {
   addShells(project, body) {
     try { this._addShells(project, body); } catch (e) { console.warn('hosiery layer failed', e); }
     try { this.addShoes(project); } catch (e) { console.warn('shoes failed', e); }
+    try { this.addHats(project); } catch (e) { console.warn('hats failed', e); }
+  }
+
+  /** Materials for a constructed form (shoe, hat, bag): each named part in its own material and colour. */
+  formMats(project, spec) {
+    const gar = (project.garments || []).find((x) => x.id === spec.garment);
+    const pseudo = { fabric: spec.fabric, fabricOverrides: {}, finish: gar?.finish || {}, garment: spec.garment };
+    const part = (id) => spec.parts.find((q) => q.id === id);
+    const fabOf = (id) => part(id)?.fabric || spec.fabric;
+    return { colorOf: (id) => part(id)?.color || (part(id)?.fabric ? resolveFabric(project, part(id).fabric).look.color : spec.color || resolveFabric(project, spec.fabric).look.color),
+      part: (id) => { const m = this.materialFor(project, pseudo, fabOf(id), 1, { fabric: fabOf(id), color: part(id)?.color || (part(id)?.fabric ? null : spec.color) }); m.side = THREE.DoubleSide; return m; } };
+  }
+
+  /** Hats built on the mannequin's own head. */
+  addHats(project) {
+    for (const o of this._hatObjs || []) { this.avatarGroup.remove(o); o.traverse((m) => { m.geometry?.dispose(); }); }
+    this._hatObjs = [];
+    const base = this._mannequinMesh; if (!base || !project?.hats?.length) return;
+    const g = base.geometry; const pos = g.userData.restAttr || g.attributes.position; const idx = g.index; const nT = idx ? idx.count / 3 : pos.count / 3;
+    let top = -9; for (let i = 0; i < pos.count; i++) top = Math.max(top, pos.getY(i));
+    const tris = [];
+    for (let t = 0; t < nT; t++) { const a = idx ? idx.getX(t * 3) : t * 3; const b = idx ? idx.getX(t * 3 + 1) : t * 3 + 1; const c = idx ? idx.getX(t * 3 + 2) : t * 3 + 2; if (pos.getY(a) < top - 0.3 || Math.abs(pos.getX(a)) > 0.15) continue; tris.push(pos.getX(a), pos.getY(a), pos.getZ(a), pos.getX(b), pos.getY(b), pos.getZ(b), pos.getX(c), pos.getY(c), pos.getZ(c)); }
+    for (const spec of project.hats) { const grp = buildHat(spec, new Float32Array(tris), this.formMats(project, spec)); grp.traverse((m) => { m.frustumCulled = false; }); this.avatarGroup.add(grp); this._hatObjs.push(grp); }
+    this.dirty = true;
   }
 
   /** Shoes and boots, lasted on the mannequin's own feet: every piece in its own material. */
@@ -311,7 +339,7 @@ export class Viewer {
       if (!sh.footless && !hand) {
         // envelope of the forefoot: for every slice along the foot and every direction round it,
         // the furthest the foot reaches. The sock lies on that envelope, bridging between the toes.
-        const z0 = toeZ - 0.085; const SL = 0.004; const NA = 20;
+        const z0 = toeZ - 0.085; const SL = 0.003; const NA = 36;
         for (const sd of [1, -1]) {
           const vs = []; for (let i = 0; i < pos.count; i++) if (ref[i * 3 + 1] < 0.085 && ref[i * 3 + 2] > z0 && Math.sign(ref[i * 3] || 1) === sd) vs.push(i);
           if (!vs.length) continue;
@@ -334,10 +362,11 @@ export class Viewer {
             R[k * NA + a] = Math.max(R[k * NA + a], (l + r) / 2 * 0.985);
           }
           // a clean knitted toe: one smooth cap swept from the ball of the foot to the tip
-          const k0 = Math.max(0, Math.round((z0 + 0.012 - zmin) / SL)); const pad = sh.thickness + 0.0016;
-          const ring = (k, sc) => { const out = []; for (let a = 0; a < NA; a++) { const th = (a / NA) * 2 * Math.PI - Math.PI; const rr = (R[k * NA + a] + pad) * sc; out.push([cx[k] + Math.cos(th) * rr, Math.max(0.0012, cy[k] + Math.sin(th) * rr), zmin + k * SL + (sc < 1 ? (1 - sc) * 0.006 : 0)]); } return out; };
-          const rings = []; for (let k = k0; k < nz; k++) rings.push(ring(k, 1));
-          rings.push(ring(nz - 1, 0.72), ring(nz - 1, 0.36)); const tip = [cx[nz - 1], cy[nz - 1], zmin + (nz - 1) * SL + 0.0075];
+          const k0 = Math.max(0, Math.round((z0 + 0.012 - zmin) / SL)); const pad0 = sh.thickness + 0.0016; let pad = pad0;
+          const ring = (k, sc) => { const out = []; for (let a = 0; a < NA; a++) { const th = (a / NA) * 2 * Math.PI - Math.PI; const rr = (R[k * NA + a] + pad) * sc; out.push([cx[k] + Math.cos(th) * rr, Math.max(0.0012, cy[k] + Math.sin(th) * rr), zmin + k * SL + (sc < 1 ? Math.sqrt(1 - sc * sc) * 0.0085 : 0)]); } return out; };
+          const rings = []; for (let k = k0; k < nz; k++) { pad = sh.thickness + 0.0016 * Math.min(1, (k - k0) / 8); rings.push(ring(k, 1)); } pad = pad0; // the pouch leaves the foot gradually: no step where it starts
+          for (let q = 1; q <= 7; q++) rings.push(ring(nz - 1, Math.cos((q / 8) * Math.PI / 2))); const tip = [cx[nz - 1], cy[nz - 1], zmin + (nz - 1) * SL + 0.0085];
+          for (let it = 0; it < 2; it++) for (let q = 1; q + 1 < rings.length; q++) for (let a = 0; a < NA; a++) for (let c3 = 0; c3 < 2; c3++) rings[q][a][c3] = (rings[q - 1][a][c3] + 2 * rings[q][a][c3] + rings[q + 1][a][c3]) / 4; // no steps between slices
           const tri = [];
           for (let q = 0; q + 1 < rings.length; q++) for (let a = 0; a < NA; a++) { const b2 = (a + 1) % NA; tri.push(rings[q][a], rings[q + 1][a], rings[q][b2], rings[q][b2], rings[q + 1][a], rings[q + 1][b2]); }
           const lastR = rings[rings.length - 1]; for (let a = 0; a < NA; a++) tri.push(lastR[a], tip, lastR[(a + 1) % NA]);
@@ -408,7 +437,10 @@ export class Viewer {
             UV.push((ang * 0.07) / 0.1, y / 0.1);
           }
         }
-        if (rg === regions[0]) for (const c of caps) { if (c.nrm) { c.tri.forEach((q, qi) => { P.push(q[0], q[1], q[2]); N.push(c.nrm[qi][0], c.nrm[qi][1], c.nrm[qi][2]); UV.push(q[1] / 0.1, q[0] / 0.1); }); continue; } for (const q of c.tri) { const k = Math.min(c.nz - 1, Math.max(0, Math.round((q[2] - c.zmin) / c.SL))); let nx = q[0] - c.cx[k]; let ny = q[1] - c.cy[k]; const nl = Math.hypot(nx, ny) || 1; P.push(q[0], q[1], q[2]); N.push(nx / nl * 0.94, ny / nl * 0.94, 0.34); UV.push((Math.atan2(ny, nx) * 0.07) / 0.1, q[1] / 0.1); } }
+        if (rg === regions[0]) for (const c of caps) { if (c.nrm) { c.tri.forEach((q, qi) => { P.push(q[0], q[1], q[2]); N.push(c.nrm[qi][0], c.nrm[qi][1], c.nrm[qi][2]); UV.push(q[1] / 0.1, q[0] / 0.1); }); continue; } { // true smooth normals: average the faces round every point of the toe
+            const acc = new Map(); const key = (q) => `${Math.round(q[0] * 2e4)},${Math.round(q[1] * 2e4)},${Math.round(q[2] * 2e4)}`;
+            for (let t = 0; t + 2 < c.tri.length; t += 3) { const a = c.tri[t]; const b = c.tri[t + 1]; const d = c.tri[t + 2]; const ux = b[0] - a[0]; const uy = b[1] - a[1]; const uz = b[2] - a[2]; const vx = d[0] - a[0]; const vy = d[1] - a[1]; const vz = d[2] - a[2]; let fx = uy * vz - uz * vy; let fy = uz * vx - ux * vz; let fz = ux * vy - uy * vx; const k = Math.min(c.nz - 1, Math.max(0, Math.round((a[2] - c.zmin) / c.SL))); if (fx * (a[0] - c.cx[k]) + fy * (a[1] - c.cy[k]) + fz * 0.3 < 0) { fx = -fx; fy = -fy; fz = -fz; } for (const q of [a, b, d]) { const kk = key(q); const o = acc.get(kk) || [0, 0, 0]; o[0] += fx; o[1] += fy; o[2] += fz; acc.set(kk, o); } }
+            for (const q of c.tri) { const o = acc.get(key(q)); const nl = Math.hypot(o[0], o[1], o[2]) || 1; const k = Math.min(c.nz - 1, Math.max(0, Math.round((q[2] - c.zmin) / c.SL))); P.push(q[0], q[1], q[2]); N.push(o[0] / nl, o[1] / nl, o[2] / nl); UV.push((Math.atan2(q[1] - c.cy[k], q[0] - c.cx[k]) * 0.07) / 0.1, q[1] / 0.1); } } }
         if (!P.length) continue;
         const sg = new THREE.BufferGeometry();
         sg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
