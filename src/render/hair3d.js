@@ -31,12 +31,12 @@ export const HAIR_STYLES = {
   afro: H('Afro', { top: 9, side: 8, back: 8, flow: 'radial', curl: 0.75, pitch: 1.5, stiff: 1, lift: 1, mess: 1.6, width: 3.6, count: 7000, mass: 0.9 }),
   'big-afro': H('Big afro', { top: 16, side: 15, back: 15, flow: 'radial', curl: 0.9, pitch: 1.8, stiff: 1, lift: 1, mess: 1.6, width: 4, count: 8000, mass: 0.92 }),
   bob: H('Bob (chin length)', { top: 27, side: 24, back: 22, flow: 'side', part: 0.02, stiff: 0.3, tuck: 1, count: 3600, width: 3 }),
-  'bob-fringe': H('Bob with a fringe', { top: 27, side: 24, back: 22, flow: 'side', part: 0, stiff: 0.3, tuck: 1, fringe: 8.5, count: 3800, width: 3 }),
+  'bob-fringe': H('Bob with a fringe', { top: 27, side: 24, back: 22, flow: 'side', part: 0, stiff: 0.3, tuck: 1, fringe: 5.6, count: 3800, width: 3 }),
   lob: H('Long bob (shoulder length)', { top: 36, side: 33, back: 31, flow: 'side', part: 0.025, stiff: 0.25, count: 3600, width: 3 }),
   'long-straight': H('Long and straight', { top: 60, side: 56, back: 54, flow: 'side', part: 0, stiff: 0.18, count: 3800, width: 3.2, mess: 0.05 }),
   'long-wavy': H('Long and wavy', { top: 58, side: 54, back: 52, flow: 'side', part: 0.02, curl: 0.75, pitch: 11, stiff: 0.2, count: 3800, width: 3.2 }),
-  'long-curly': H('Long curls', { top: 48, side: 44, back: 42, flow: 'side', part: 0.02, curl: 1.3, pitch: 3.6, stiff: 0.3, count: 4200, width: 2.8, lift: 0.7 }),
-  'long-fringe': H('Long with a fringe', { top: 58, side: 54, back: 52, flow: 'side', part: 0, stiff: 0.18, fringe: 9, count: 4000, width: 3.2 }),
+  'long-curly': H('Long curls', { top: 48, side: 44, back: 42, flow: 'side', part: 0.02, curl: 1.15, pitch: 4.2, stiff: 0.3, count: 2300, width: 4.4, lift: 0.7 }),
+  'long-fringe': H('Long with a fringe', { top: 58, side: 54, back: 52, flow: 'side', part: 0, stiff: 0.18, fringe: 5.8, count: 4000, width: 3.2 }),
   ponytail: H('Ponytail', { tie: [0.085, Math.PI], tail: 38, flow: 'tie', stiff: 0.25, count: 3200 }),
   'high-ponytail': H('High ponytail', { tie: [0.03, Math.PI * 0.94], tail: 46, flow: 'tie', stiff: 0.25, count: 3200 }),
   'low-ponytail': H('Low ponytail', { tie: [0.165, Math.PI], tail: 34, flow: 'tie', stiff: 0.22, count: 3200 }),
@@ -71,20 +71,20 @@ export const HAIR_COLORS = [['#0c0b0b', 'Black'], ['#241711', 'Darkest brown'], 
 
 const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const rng = (seed) => { let s = seed >>> 0; return () => { s = (s + 0x6d2b79f5) >>> 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
-const HL = [[0, 0.06], [0.62, 0.05], [1.02, 0.062], [1.2, 0.128], [1.36, 0.1], [1.72, 0.098], [2.05, 0.15], [2.5, 0.2], [Math.PI, 0.205]];
+const HL = [[0, 0.06], [0.7, 0.05], [1.0, 0.058], [1.24, 0.088], [1.42, 0.136], [1.58, 0.106], [1.92, 0.1], [2.2, 0.15], [2.6, 0.2], [Math.PI, 0.205]]; // depth below the crown of the hairline, by angle from the front: brow, temple, sideburn, over the ear, nape
 const hairline = (a) => { a = Math.abs(a); for (let i = 1; i < HL.length; i++) if (a <= HL[i][0]) { const t = (a - HL[i - 1][0]) / (HL[i][0] - HL[i - 1][0]); return HL[i - 1][1] + (HL[i][1] - HL[i - 1][1]) * (t * t * (3 - 2 * t)); } return 0.205; };
 
 /** Cut the region mask > 0 out of a triangle soup (9 numbers per triangle, with matching normals); returns triangles with interpolated normals. */
 function cutTris(tris, nors, mf) {
-  const out = []; const on = [];
+  const out = []; const on = []; const ms = [];
   for (let t = 0; t < tris.length; t += 9) {
     const m = [0, 1, 2].map((k) => mf(tris[t + k * 3], tris[t + k * 3 + 1], tris[t + k * 3 + 2]));
     if (m[0] <= 0 && m[1] <= 0 && m[2] <= 0) continue;
     const poly = [];
     for (let e = 0; e < 3; e++) { const a = t + e * 3; const b = t + ((e + 1) % 3) * 3; const ma = m[e]; const mb = m[(e + 1) % 3]; if (ma > 0) poly.push([a, a, 0]); if ((ma > 0) !== (mb > 0)) poly.push([a, b, ma / (ma - mb)]); }
-    for (let q = 1; q + 1 < poly.length; q++) for (const [a, b, s] of [poly[0], poly[q], poly[q + 1]]) for (let c = 0; c < 3; c++) { out.push(tris[a + c] + (tris[b + c] - tris[a + c]) * s); on.push(nors[a + c] + (nors[b + c] - nors[a + c]) * s); }
+    for (let q = 1; q + 1 < poly.length; q++) for (const [a, b, s] of [poly[0], poly[q], poly[q + 1]]) { for (let c = 0; c < 3; c++) { out.push(tris[a + c] + (tris[b + c] - tris[a + c]) * s); on.push(nors[a + c] + (nors[b + c] - nors[a + c]) * s); } const ia = (a - t) / 3; const ib = (b - t) / 3; ms.push(Math.max(0, m[ia] + (m[ib] - m[ia]) * s)); }
   }
-  return { tris: out, nors: on };
+  return { tris: out, nors: on, ms };
 }
 
 /** Evenly scattered roots on a triangle soup: [x,y,z,nx,ny,nz] each. */
@@ -111,7 +111,7 @@ export function buildHair(look, tris, field, opts = {}) {
   let top = -9; for (let k = 1; k < tris.length; k += 3) top = Math.max(top, tris[k]);
   let zc = 0; let n0 = 0; let noseZ = -9; let noseD = 0.15;
   for (let k = 0; k < tris.length; k += 3) { const d = top - tris[k + 1]; if (d < 0.12) { zc += tris[k + 2]; n0++; } if (d > 0.1 && d < 0.2 && Math.abs(tris[k]) < 0.012 && tris[k + 2] > noseZ) { noseZ = tris[k + 2]; noseD = d; } }
-  zc /= n0 || 1;
+  { let z0 = 9; let z1 = -9; for (let k = 0; k < tris.length; k += 3) { const d = top - tris[k + 1]; if (d > 0.03 && d < 0.1) { z0 = Math.min(z0, tris[k + 2]); z1 = Math.max(z1, tris[k + 2]); } } zc = z1 > z0 ? (z0 + z1) / 2 : zc / (n0 || 1); } // the middle of the skull front to back (an average would be pulled forward by the face's dense mesh)
   const nors = new Float32Array(tris.length); { const acc = new Map(); const key = (k) => `${Math.round(tris[k] * 5e4)},${Math.round(tris[k + 1] * 5e4)},${Math.round(tris[k + 2] * 5e4)}`;
     for (let t = 0; t < tris.length; t += 9) { const ux = tris[t + 3] - tris[t]; const uy = tris[t + 4] - tris[t + 1]; const uz = tris[t + 5] - tris[t + 2]; const vx = tris[t + 6] - tris[t]; const vy = tris[t + 7] - tris[t + 1]; const vz = tris[t + 8] - tris[t + 2]; const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx]; for (let q = 0; q < 3; q++) { const kk = key(t + q * 3); const o = acc.get(kk) || [0, 0, 0]; o[0] += n[0]; o[1] += n[1]; o[2] += n[2]; acc.set(kk, o); } }
     for (let k = 0; k < tris.length; k += 3) { const o = acc.get(key(k)); const l = Math.hypot(o[0], o[1], o[2]) || 1; const sgn = o[0] * tris[k] + o[1] * (tris[k + 1] - (top - 0.11)) + o[2] * (tris[k + 2] - zc) < 0 ? -1 : 1; nors[k] = (o[0] / l) * sgn; nors[k + 1] = (o[1] / l) * sgn; nors[k + 2] = (o[2] / l) * sgn; } }
@@ -122,16 +122,16 @@ export function buildHair(look, tris, field, opts = {}) {
   const ribbons = { pos: [], nor: [], uv: [], col: [], idx: [] };
   const centre = new THREE.Vector3(0, top - 0.1, zc);
   /** Add one lock as a ribbon: pts (Vector3[]), width (m), colour, how free it is to move (0..1). */
-  const addLock = (pts, width, col, tipCol, free, taper = 0.75) => {
+  const addLock = (pts, width, col, tipCol, free, taper = 0.75, fixed = false) => {
     const n = pts.length; if (n < 2) return; const base = ribbons.pos.length / 3; const tmp = new THREE.Vector3(); const side = new THREE.Vector3(); const out = new THREE.Vector3();
-    for (let i = 0; i < n; i++) { const t = i / (n - 1); tmp.subVectors(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)]).normalize(); out.subVectors(pts[i], centre); out.y *= 0.5; out.normalize(); side.crossVectors(tmp, out); if (side.lengthSq() < 1e-6) side.set(1, 0, 0); side.normalize(); const nn = new THREE.Vector3().crossVectors(side, tmp).normalize(); const w = width * 0.5 * (1 - taper * Math.pow(t, 2.2));
+    for (let i = 0; i < n; i++) { const t = i / (n - 1); tmp.subVectors(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)]).normalize(); out.subVectors(pts[i], centre); out.y *= 0.5; out.normalize(); if (fixed) side.set(out.z, 0, -out.x); else side.crossVectors(tmp, out); if (side.lengthSq() < 1e-6) side.set(1, 0, 0); side.normalize(); const nn = new THREE.Vector3().crossVectors(side, tmp).normalize(); const w = width * 0.5 * (1 - taper * Math.pow(t, 2.2));
       const c = col.clone().lerp(tipCol, sstep(0.45, 1, t)).multiplyScalar(0.72 + 0.28 * Math.min(1, t * 3));
       for (const s of [-1, 1]) { ribbons.pos.push(pts[i].x + side.x * w * s, pts[i].y + side.y * w * s, pts[i].z + side.z * w * s); ribbons.nor.push(nn.x + side.x * s * 0.35, nn.y + side.y * s * 0.35, nn.z + side.z * s * 0.35); ribbons.uv.push(free, t); ribbons.col.push(c.r, c.g, c.b); } }
     for (let i = 0; i + 1 < n; i++) { const a = base + i * 2; ribbons.idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
   };
   /** Grow a lock from a root: follows its direction, bends under its weight, stays outside the body. */
   const grow = (root, nrm, len, dir0, P, rnd) => {
-    const seg = Math.min(0.012, Math.max(0.0025, len / 5)); const nS = Math.max(2, Math.min(64, Math.round(len / seg))); const pts = [new THREE.Vector3(root[0], root[1], root[2])]; const dir = dir0.clone().normalize(); const p = pts[0].clone(); const g = new THREE.Vector3(0, -1, 0); const clear = (P.clear ?? 0.0022) + rnd() * (P.layer ?? 0.004); const grad = new THREE.Vector3();
+    const seg = Math.min(P.curl ? Math.max(0.0036, P.pitch / 100 / 10) : 0.012, Math.max(0.0025, len / 5)); const nS = Math.max(2, Math.min(P.curl ? 116 : 64, Math.round(len / seg))); const pts = [new THREE.Vector3(root[0], root[1], root[2])]; const dir = dir0.clone().normalize(); const p = pts[0].clone(); const g = new THREE.Vector3(0, -1, 0); const clear = (P.clear ?? 0.0022) + rnd() * (P.layer ?? 0.004); const grad = new THREE.Vector3();
     for (let i = 0; i < nS; i++) {
       const t = i / nS; dir.addScaledVector(g, (1 - P.stiff) * (0.16 + 0.5 * t) * (P.grav ?? 1)).normalize();
       if (P.tuck && t > 0.7) dir.addScaledVector(new THREE.Vector3(-p.x, 0, -(p.z - zc)).normalize(), 0.12 * P.tuck).normalize();
@@ -145,7 +145,7 @@ export function buildHair(look, tris, field, opts = {}) {
     return pts;
   };
   const tangent = (v, n) => v.clone().addScaledVector(n, -v.dot(n));
-  const shell = (cut, color, off, opacity = 1) => { if (!cut.tris.length) return; const pos = new Float32Array(cut.tris.length); for (let k = 0; k < pos.length; k++) pos[k] = cut.tris[k] + cut.nors[k] * off; const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(cut.nors), 3)); group.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color, roughness: 0.85, transparent: opacity < 1, opacity, depthWrite: opacity >= 1, side: THREE.DoubleSide }))); };
+  const shell = (cut, color, off, opacity = 1, fade = 0.009) => { if (!cut.tris.length) return; const pos = new Float32Array(cut.tris.length); for (let k = 0; k < pos.length; k++) pos[k] = cut.tris[k] + cut.nors[k] * off; const nV = pos.length / 3; const col = new Float32Array(nV * 4); for (let v = 0; v < nV; v++) { col[v * 4] = color.r; col[v * 4 + 1] = color.g; col[v * 4 + 2] = color.b; col[v * 4 + 3] = opacity * (fade && cut.ms ? sstep(0, fade, cut.ms[v]) : 1); } const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(cut.nors), 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 4)); const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, alphaHash: true, side: THREE.DoubleSide })); group.add(m); }; // dithered, not blended: the edge breaks up into dots like a real hairline, and it sorts correctly against the skin
   const ropes = []; // thick locks, braids, buns: round strands
 
   // ================= scalp hair =================
@@ -154,9 +154,9 @@ export function buildHair(look, tris, field, opts = {}) {
     const scalpM = (x, y, z) => { const d = top - y; const a = angOf(x, z); return Math.min(hairline(a) - d, hatCut(y), style.strip ? style.strip + 0.03 * sstep(0.12, 0.2, d) - Math.abs(x) : 1); };
     const scalp = cutTris(tris, nors, scalpM);
     const full = style.strip || style.fadeAt ? cutTris(tris, nors, (x, y, z) => Math.min(hairline(angOf(x, z)) - (top - y), hatCut(y))) : scalp;
-    shell(full, C.clone().multiplyScalar(0.55), 0.0006, style.strip || style.fadeAt || style.top < 1 ? 0.55 : 1);
+    shell(full, C.clone().multiplyScalar(0.4), 0.0014, style.strip || style.fadeAt || style.top < 1 ? 0.6 : 1);
     if (style.strip) shell(scalp, C.clone().multiplyScalar(0.55), 0.0009);
-    if (style.mass) shell(scalp, C.clone().multiplyScalar(0.5), (style.side / 100) * style.mass);
+    if (style.mass) { const mg = cutTris(tris, nors, (x, y, z) => scalpM(x, y, z) + 0.004); const off = (style.side / 100) * style.mass; const pos = new Float32Array(mg.tris.length); for (let k = 0; k < pos.length; k += 3) { const lump = 1 + 0.07 * Math.sin(mg.tris[k] * 90 + mg.tris[k + 1] * 70) * Math.cos(mg.tris[k + 2] * 80); const edge = 0.45 + 0.55 * sstep(0, 0.03, mg.ms[k / 3]); pos[k] = mg.tris[k] + mg.nors[k] * off * lump * edge; pos[k + 1] = mg.tris[k + 1] + mg.nors[k + 1] * off * lump * edge; pos[k + 2] = mg.tris[k + 2] + mg.nors[k + 2] * off * lump * edge; } const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(mg.nors), 3)); group.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: C.clone().multiplyScalar(0.42), roughness: 1, side: THREE.DoubleSide }))); }
     const lenAt = (x, y, z) => { const d = top - y; const a = Math.abs(angOf(x, z)); const sideW = sstep(0.045, 0.1, d) * (1 - sstep(2.2, 2.75, a) * 0.0); const backW = sstep(1.9, 2.6, a) * sstep(0.05, 0.12, d); let L = style.top * (1 - sideW) + (style.side * (1 - backW) + style.back * backW) * sideW; if (style.fadeAt) L = Math.min(L, d > style.fadeAt ? style.side * (1 - sstep(style.fadeAt, style.fadeAt + 0.06, d) * 0.6) : style.top); if (style.fringe && a < 0.75 && d < 0.085) L = Math.min(L, style.fringe); return L / 100; };
     const tieP = style.tie ? (sx) => { const a = style.tie[2] ? sx * style.tie[1] : style.tie[1]; let r = 0.13; const y = top - style.tie[0]; const o = new THREE.Vector3(); for (let it = 0; it < 60; it++) { o.set(Math.sin(a) * r, y, zc + Math.cos(a) * r); const d = SD(o.x, o.y, o.z); if (!Number.isFinite(d) || d < 0.004) break; r -= Math.max(0.001, d * 0.7); } return o; } : null;
     const roots = scatter(scalp, style.count, rnd);
@@ -174,6 +174,11 @@ export function buildHair(look, tris, field, opts = {}) {
       else if (style.flow === 'tie') { const tp = tieP(p.x >= 0 ? 1 : -1); flow = tp.clone().sub(p); L = Math.min(Math.max(0.01, flow.length() * 1.12), 0.4); P = { stiff: 0.97, clear: 0.0016, layer: 0.002, grav: 0.2, toward: tp }; }
       else flow = new THREE.Vector3(Math.sin(a) * 0.25, -1, Math.cos(a) * 0.12);
       if (L < 0.002) continue;
+      if (style.mass) { // one coil: a small spring lying on the outside of the hair's mass
+        const lump = 1 + 0.07 * Math.sin(p.x * 90 + p.y * 70) * Math.cos(p.z * 80); const edge = 0.45 + 0.55 * sstep(0, 0.03, scalpM(p.x, p.y, p.z)); const c0 = p.clone().addScaledVector(n, (style.side / 100) * style.mass * lump * edge - 0.002 + rnd() * 0.006);
+        const ax = new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).addScaledVector(n, 0.9).normalize(); const u = new THREE.Vector3().crossVectors(ax, Math.abs(ax.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).normalize(); const v2 = new THREE.Vector3().crossVectors(ax, u); const R = (style.curl / 100) * (0.55 + rnd() * 0.5); const turns = 1.4 + rnd() * 1.6; const rise = style.pitch / 100 * 0.32; const pts = []; const a0 = rnd() * 6.28;
+        for (let q = 0; q <= 16; q++) { const th = a0 + (q / 16) * turns * Math.PI * 2; pts.push(c0.clone().addScaledVector(u, Math.cos(th) * R).addScaledVector(v2, Math.sin(th) * R).addScaledVector(ax, (q / 16) * turns * rise)); }
+        const sh2 = 0.72 + rnd() * 0.5; addLock(pts, (style.width / 1000) * (0.55 + rnd() * 0.5), C.clone().multiplyScalar(sh2), tipC.clone().multiplyScalar(sh2), 0, 0.35); continue; }
       flow.x += (rnd() - 0.5) * style.mess * 1.6; flow.y += (rnd() - 0.5) * style.mess; flow.z += (rnd() - 0.5) * style.mess * 1.6;
       const lift = Math.min(1, style.lift) * (style.flow === 'radial' || style.flow === 'up' ? 1 : 0.35);
       const dir = tangent(flow, n).normalize().multiplyScalar(1 - lift).addScaledVector(style.flow === 'up' || style.flow === 'quiff' ? flow.clone().normalize() : n, lift + 0.08);
@@ -184,7 +189,8 @@ export function buildHair(look, tris, field, opts = {}) {
         pts.push(P.toward.clone().add(new THREE.Vector3((rnd() - 0.5) * 0.01, (rnd() - 0.5) * 0.01, (rnd() - 0.5) * 0.004)));
       } else pts = grow(r, n, L, dir, P, rnd);
       const shade = 0.8 + rnd() * 0.32; const free = P.toward ? 0 : Math.min(1, Math.max(0, (L - 0.05) / 0.25));
-      addLock(pts, (style.width / 1000) * (0.7 + rnd() * 0.7) * (L < 0.02 ? 0.8 : L > 0.2 ? 1.5 : 1), C.clone().multiplyScalar(shade), tipC.clone().multiplyScalar(shade), free, L < 0.03 ? 0.9 : 0.6);
+      if (!P.toward && L > 0.09 && style.curl < 0.5 && rnd() < 0.3) addLock(pts.map((q) => q.clone().addScaledVector(n, -0.0012)), (style.width / 1000) * 3.4, C.clone().multiplyScalar(shade * 0.62), tipC.clone().multiplyScalar(shade * 0.7), free, 0.45);
+      addLock(pts, (style.width / 1000) * (0.7 + rnd() * 0.7) * (L < 0.02 ? 0.8 : L > 0.2 ? 1.5 : 1), C.clone().multiplyScalar(shade), tipC.clone().multiplyScalar(shade), free, L < 0.03 ? 0.9 : 0.6, style.curl >= 0.9 && L > 0.1);
     }
     // ---- tails, buns, plaits
     if (style.tie) for (const sx of style.tie[2] ? [1, -1] : [1]) {
@@ -211,12 +217,18 @@ export function buildHair(look, tris, field, opts = {}) {
       if (facial.chin) m = Math.max(m, Math.min(d - (dm + 0.012), dc + 0.03 - d, facial.chin - a, r - 0.06));
       return m; };
     const face = cutTris(tris, nors, faceM);
-    if (facial.shade) shell(face, FC.clone().multiplyScalar(0.7), 0.0004, Math.min(0.85, 0.3 * facial.shade + (facial.len > 0.8 ? 0.45 : 0)));
-    for (const r of scatter(face, facial.count, rnd)) { const n = new THREE.Vector3(r[3], r[4], r[5]); const d = top - r[1]; const mou = d < dm - 0.002 && Math.abs(r[0]) < 0.05; let L = (facial.len / 100) * (0.75 + rnd() * 0.5); if (mou) L = Math.min(L, facial.handlebar ? 0.022 : 0.012); if (facial.point && d > dc - 0.01) L *= 1.7;
+    shell(face, FC.clone().multiplyScalar(0.75), 0.0009, Math.min(0.9, 0.32 * (facial.shade || 0.8) + (facial.len > 0.8 ? 0.5 : 0)), 0.014);
+    for (const r of scatter(face, Math.round(facial.count * 1.6), rnd)) { const n = new THREE.Vector3(r[3], r[4], r[5]); const d = top - r[1]; const mou = d < dm - 0.002 && Math.abs(r[0]) < 0.05; const inside = sstep(0, 0.011, faceM(r[0], r[1], r[2])); if (rnd() > 0.25 + 0.75 * inside) continue; let L = (facial.len / 100) * (0.75 + rnd() * 0.5) * (0.35 + 0.65 * inside); if (mou) L = Math.min(L, facial.handlebar ? 0.022 : 0.012); if (facial.point && d > dc - 0.01) L *= 1.7;
       const flow = mou ? new THREE.Vector3(Math.sign(r[0] || 1) * (facial.handlebar ? 1.2 : 0.8), facial.handlebar ? 0.25 * Math.abs(r[0]) * 30 - 0.2 : -0.5, 0.2) : new THREE.Vector3(r[0] * (facial.point ? -2 : 1.5), -1, 0.25);
       const dir = tangent(flow, n).normalize().multiplyScalar(L > 0.02 ? 0.85 : 0.5).addScaledVector(n, L > 0.02 ? 0.25 : 0.6);
       const pts = grow(r, n, L, dir, { stiff: L > 0.04 ? 0.45 : 0.9, clear: 0.0012, layer: L > 0.03 ? 0.01 : 0.002, curl: facial.wave || (L > 0.012 ? 0.12 : 0), pitch: 1.6 }, rnd); const sh = 0.75 + rnd() * 0.4; addLock(pts, 0.0014 + (L > 0.02 ? 0.0012 : 0), FC.clone().multiplyScalar(sh), FC.clone().multiplyScalar(sh * 1.1), L > 0.05 ? 0.5 : 0, 0.85); }
   }
+
+  // ---- eyebrows: short hairs along the brow ridge, sweeping outwards
+  if (look.brows !== 'none') { const rnd = rng(4242); const BC = new THREE.Color(look.facialColor || look.hairColor || '#3b2416').multiplyScalar(0.8); const bd = noseD - (opts.female ? 0.06 : 0.05);
+    const browM = (x, y, z) => { const d = top - y; const ax = Math.abs(x); const arch = bd - 0.006 * Math.sin(Math.PI * Math.min(1, Math.max(0, (ax - 0.012) / 0.044))); return Math.min((opts.female ? 0.0034 : 0.0048) * (1 - 0.45 * sstep(0.03, 0.058, ax)) - Math.abs(d - arch), ax - 0.011, 0.058 - ax, z - zc - 0.045); };
+    const brow = cutTris(tris, nors, browM); shell(brow, BC.clone().multiplyScalar(0.8), 0.0006, opts.female ? 0.3 : 0.45, 0.003);
+    for (const r of scatter(brow, opts.female ? 360 : 520, rnd)) { const n = new THREE.Vector3(r[3], r[4], r[5]); const sx = r[0] >= 0 ? 1 : -1; const dir = tangent(new THREE.Vector3(sx, 0.35 - Math.abs(r[0]) * 9, 0), n).normalize().multiplyScalar(0.9).addScaledVector(n, 0.18); const pts = grow(r, n, 0.005 + rnd() * 0.004, dir, { stiff: 1, clear: 0.0006, layer: 0.0006 }, rnd); const sh = 0.8 + rnd() * 0.4; addLock(pts, 0.0009, BC.clone().multiplyScalar(sh), BC.clone().multiplyScalar(sh), 0, 0.9); } }
 
   // ---- geometry
   if (ribbons.idx.length) {

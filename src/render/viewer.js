@@ -370,7 +370,7 @@ export class Viewer {
     for (let t = 0; t < nT; t++) { const a = idx ? idx.getX(t * 3) : t * 3; const b = idx ? idx.getX(t * 3 + 1) : t * 3 + 1; const c = idx ? idx.getX(t * 3 + 2) : t * 3 + 2; if (pos.getY(a) < top - 0.3 || Math.abs(pos.getX(a)) > 0.15) continue; tris.push(pos.getX(a), pos.getY(a), pos.getZ(a), pos.getX(b), pos.getY(b), pos.getZ(b), pos.getX(c), pos.getY(c), pos.getZ(c)); }
     const hat = project.hats?.[0]; const hatDepth = hat ? (hat.kind === 'knit' ? 0.118 : hat.kind === 'beret' ? 0.085 : hat.deep ? 0.125 : hat.kind === 'bucket' ? 0.104 : hat.kind === 'visor' ? 0 : 0.098) : 0;
     let field = null; try { field = bodyField(bodyFor(project)); } catch { /* without the field hair hangs straight */ }
-    this._hairGroup = buildHair(look, new Float32Array(tris), field, { hatDepth });
+    this._hairGroup = buildHair(look, new Float32Array(tris), field, { hatDepth, female: bodyFor(project).mannequin === 'female' });
     this.avatarGroup.add(this._hairGroup); this.dirty = true;
   }
 
