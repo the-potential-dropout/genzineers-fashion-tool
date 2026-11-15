@@ -192,6 +192,7 @@ export class Viewer {
         g.ids.forEach((i, k) => { const x = g.target.x + g.off[k].x; const y = Math.max(0.01, g.target.y + g.off[k].y); const z = g.target.z + g.off[k].z; this.sim.inv[i] = 0; P[i * 3] += (x - P[i * 3]) * g.gain; P[i * 3 + 1] += (y - P[i * 3 + 1]) * g.gain; P[i * 3 + 2] += (z - P[i * 3 + 2]) * g.gain; Q[i * 3] = P[i * 3]; Q[i * 3 + 1] = P[i * 3 + 1]; Q[i * 3 + 2] = P[i * 3 + 2]; });
         if (g.mirror) { const i = g.mirror.i; const x = -g.target.x; const y = Math.max(0.01, g.target.y); const z = g.target.z; this.sim.inv[i] = 0; P[i * 3] += (x - P[i * 3]) * g.gain; P[i * 3 + 1] += (y - P[i * 3 + 1]) * g.gain; P[i * 3 + 2] += (z - P[i * 3 + 2]) * g.gain; Q[i * 3] = P[i * 3]; Q[i * 3 + 1] = P[i * 3 + 1]; Q[i * 3 + 2] = P[i * 3 + 2]; }
       }
+      if (this.sim.panels.some((q) => q.panel.insulation)) { const P = this.sim.pos; const Nn = this.sim.nor; for (const pan of this.sim.panels) { const ins = pan.panel.insulation; if (!ins || !Nn) continue; const k = 0.00022 * Math.min(2.5, (ins.weight || 100) / 100); for (let i = pan.offset; i < pan.offset + pan.count; i++) { if (this.sim.inv[i] === 0) continue; let nx = Nn[i * 3]; let ny = Nn[i * 3 + 1]; let nz = Nn[i * 3 + 2]; if (nx * P[i * 3] * 0.3 + nz * P[i * 3 + 2] < 0) { nx = -nx; ny = -ny; nz = -nz; } P[i * 3] += nx * k; P[i * 3 + 1] += ny * k * 0.5; P[i * 3 + 2] += nz * k; } } } // down and fibre fill press the shell outwards
       const mv = this.sim.step(1 / 60);
       this.onStep?.(mv);
       this.updateGarment();

@@ -187,6 +187,27 @@ export function patternSVG(project) {
 }
 
 /** DXF (R12 ASCII, mm). Layer 1 = cut line, 8 = sew line, 7 = grain line (AAMA-style layers). */
+/**
+ * Plotter file (HPGL, 40 units per mm): pieces laid across the paper width, cut line on pen 1,
+ * stitch line on pen 2, grain line and a label on each piece. Opens on pen and cutting plotters.
+ */
+export function patternHPGL(project, paperWidthCm = 150) {
+  const U = 400; const out = ['IN;', 'SP1;']; let x = 1; let y = 1; let rowH = 0; const q = (v) => Math.round(v * U);
+  const path = (pts, ox, oy) => { out.push(`PU${q(pts[0][0] + ox)},${q(pts[0][1] + oy)};`); out.push(`PD${[...pts.slice(1), pts[0]].map((p) => `${q(p[0] + ox)},${q(p[1] + oy)}`).join(',')};`); out.push('PU;'); };
+  for (const pc of cutList(project)) for (let n = 0; n < 1; n++) {
+    const cut = pc.kind === 'piece' ? pc.points : offsetPoly(pc.points, 1); const b = bbox(cut);
+    if (x + b.w > paperWidthCm && x > 1) { x = 1; y += rowH + 1.5; rowH = 0; }
+    const ox = x - b.x0; const oy = y - b.y0;
+    out.push('SP1;'); path(cut, ox, oy);
+    if (pc.kind !== 'piece') { out.push('SP2;'); path(pc.points, ox, oy); }
+    const cx = b.x0 + b.w / 2; out.push('SP2;', `PU${q(cx + ox)},${q(b.y0 + b.h * 0.25 + oy)};PD${q(cx + ox)},${q(b.y0 + b.h * 0.75 + oy)};PU;`);
+    out.push(`PU${q(b.x0 + ox + 1)},${q(b.y0 + oy + Math.min(3, b.h * 0.4))};SI0.3,0.4;LB${`${pc.name} x${pc.qty} ${pc.fabric}`.replace(/[^ -~]/g, '').slice(0, 60)}${String.fromCharCode(3)};`);
+    x += b.w + 1.5; rowH = Math.max(rowH, b.h);
+  }
+  out.push('SP0;', 'PU0,0;');
+  return out.join('\n');
+}
+
 export function patternDXF(project) {
   const out = ['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES'];
   let ox = 0;

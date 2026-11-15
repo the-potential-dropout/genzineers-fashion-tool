@@ -58,6 +58,12 @@ Real cloth physics in Rust/WebAssembly · real construction methods · factory-r
 - Version history (automatic copies you can restore), search everything with Ctrl+K.
 - Pull the cloth, pin it (Shift+click), pinch both sides at once, rip a seam open with frayed edges, measure the body at any height.
 
+### Hats, bags, gloves
+- 30 hat styles built on the mannequin's head: panelled caps with taped seams, eyelets, bills with rows of stitching and back closures; blocked felt and straw hats with creases, pinches, curled brims, bands and bows; knits, buckets, berets, flat caps.
+- 31 bags and small leather goods assembled from panels, gussets, base, flap or zip, piping, handles with tabs, rivets and rings, straps with adjusters and snap hooks, chains, feet.
+- Gloves with fourchettes, set-in thumb, side seam, three points and cuff hem.
+- Nested marker (true outlines, grain kept), plotter file (HPGL), arm poses, filled panels that puff out.
+
 ### Jewelry
 - Chain links are dimensioned so **neighbouring links never intersect** (verified by an automated interference test for every chain type): true twisted, diamond-cut **Cuban and curb** links, cable, rolo, mariner, paperclip, box, and swept rope / wheat / snake chains; the **signet ring** is one solid with tapered shoulders and a flat face.
 Rings, chains (19 link types incl. cable, curb, Cuban, figaro, rope, box, franco, byzantine, paperclip, tennis), necklaces, pendants, bracelets, bangles, cuffs and earrings, with clasps, bails and backs; 34 gems with real refractive index & dispersion; 17 cuts incl. custom; 14 settings; **karat control** (purity, density, colour, hallmark), platings; custom outlines for pendants, stones, links and signets; **import CAD parts** (STL, OBJ, GLB, 3MF, PLY, FBX, DAE, STEP, IGES, .blend) and resize, stretch and distort them to fit; metal weight & carat estimates; STL export for casting.

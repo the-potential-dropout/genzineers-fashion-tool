@@ -150,6 +150,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
     const mk = opt.mode === 'marker';
     const sheet = mk ? opt.fabricWidth : Math.max(150, Math.sqrt(total * 90) * 1.25);
     const gapX = mk ? 2 : 14; const gapY = mk ? 2 : 16; // marker: pieces sit 1 cm apart beyond their seam allowances
+    if (mk && pans.length) { nestMarker(pans, sheet); return; }
     let x = mk ? 1.5 : 0; let y = mk ? 1.5 : 0; let rowH = 0; let area = 0;
     for (const pan of pans) {
       const xs = pan.points.map((q) => q[0]); const ys = pan.points.map((q) => q[1]);
@@ -163,8 +164,36 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
     layout.W = mk ? sheet : Math.max(...layout.map((L) => L.x0 + L.w), 10); layout.H = y + rowH + (mk ? 1.5 : 0);
     marker = mk && pans.length ? { length: layout.H, efficiency: area / (sheet * layout.H), area } : null;
   }
-  const toScreen = (L, [px, py]) => [(L.ox + px) * view.s + view.x, (L.oy - py) * view.s + view.y];
-  const toLocal = (L, sx, sy) => [(sx - view.x) / view.s - L.ox, L.oy - (sy - view.y) / view.s];
+  /**
+   * Nested marker: every piece keeps its grain (it may only be turned end for end) and is slid up
+   * against the true outlines of the pieces already laid, so curves interlock: a sleeve head nests
+   * into an armhole, a crotch curve into a waist. Pieces sit 1 cm apart.
+   */
+  function nestMarker(pans, sheet) {
+    const CELL = 0.5; const cols = Math.max(4, Math.floor(sheet / CELL)); const sky = new Float32Array(cols).fill(1); let area = 0; const oneWay = opt.oneWay === true;
+    const prof = (pan) => { const xs = pan.points.map((q) => q[0]); const ys = pan.points.map((q) => q[1]); const minX = Math.min(...xs); const maxX = Math.max(...xs); const minY = Math.min(...ys); const maxY = Math.max(...ys); const wc = Math.max(1, Math.ceil((maxX - minX) / CELL)); const lo = new Float32Array(wc).fill(1e9); const hi = new Float32Array(wc).fill(-1e9); const n = pan.points.length;
+      for (let i = 0; i < n; i++) { const a = pan.points[i]; const b = pan.points[(i + 1) % n]; const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / (CELL * 0.5))); for (let k = 0; k <= steps; k++) { const px = a[0] + ((b[0] - a[0]) * k) / steps; const py = a[1] + ((b[1] - a[1]) * k) / steps; const c = Math.min(wc - 1, Math.max(0, Math.floor((px - minX) / CELL))); if (py < lo[c]) lo[c] = py; if (py > hi[c]) hi[c] = py; } }
+      for (let c = 0; c < wc; c++) if (lo[c] > 1e8) { lo[c] = c ? lo[c - 1] : minY; hi[c] = c ? hi[c - 1] : maxY; }
+      let A = 0; for (let i = 0; i < n; i++) { const a = pan.points[i]; const b = pan.points[(i + 1) % n]; A += a[0] * b[1] - b[0] * a[1]; }
+      return { pan, minX, maxX, minY, maxY, wc, lo, hi, w: maxX - minX, h: maxY - minY, A: Math.abs(A) / 2 }; };
+    const items = pans.map(prof).sort((a, b) => b.A - a.A);
+    for (const it of items) {
+      area += it.A; let best = null; const pad = 2; // one cell either side: 1 cm between neighbours
+      for (const flip of oneWay ? [false] : [false, true]) {
+        // distance from the top of the piece to its upper and lower outline, per column, as laid
+        const top = new Float32Array(it.wc + 2 * pad); const bot = new Float32Array(it.wc + 2 * pad);
+        for (let c = 0; c < it.wc + 2 * pad; c++) { let t = 1e9; let b = -1e9; for (let d = -pad; d <= pad; d++) { const k = c - pad + d; if (k < 0 || k >= it.wc) continue; const src = flip ? it.wc - 1 - k : k; const tt = flip ? it.lo[src] - it.minY : it.maxY - it.hi[src]; const bb = flip ? it.hi[src] - it.minY : it.maxY - it.lo[src]; if (tt < t) t = tt; if (bb > b) b = bb; } top[c] = t > 1e8 ? it.h : t; bot[c] = b < -1e8 ? 0 : b; }
+        for (let x = 0; x + it.wc + 2 * pad <= cols || x === 0; x++) { let y = 1; for (let c = 0; c < it.wc + 2 * pad && x + c < cols; c++) { const need = sky[x + c] - top[c]; if (need > y) y = need; } const score = y + it.h + x * 0.002; if (!best || score < best.score) best = { x, y, flip, top, bot, score }; if (x + it.wc + 2 * pad >= cols) break; }
+      }
+      for (let c = 0; c < it.wc + 2 * best.pad || c < best.bot.length; c++) { if (best.x + c >= cols || c >= best.bot.length) break; const v = best.y + best.bot[c] + 1; if (v > sky[best.x + c]) sky[best.x + c] = v; }
+      const x0 = (best.x + 2) * CELL; // the pad columns on the left
+      layout.push(best.flip ? { id: it.pan.id, flip: true, ox: x0 + it.maxX, oy: best.y - it.minY, w: it.w, h: it.h, x0, y0: best.y } : { id: it.pan.id, ox: x0 - it.minX, oy: best.y + it.maxY, w: it.w, h: it.h, x0, y0: best.y });
+    }
+    layout.W = sheet; layout.H = Math.max(...layout.map((L) => L.y0 + L.h)) + 1;
+    marker = { length: layout.H, efficiency: area / (sheet * layout.H), area, nested: true };
+  }
+  const toScreen = (L, [px, py]) => (L.flip ? [(L.ox - px) * view.s + view.x, (L.oy + py) * view.s + view.y] : [(L.ox + px) * view.s + view.x, (L.oy - py) * view.s + view.y]);
+  const toLocal = (L, sx, sy) => (L.flip ? [L.ox - (sx - view.x) / view.s, (sy - view.y) / view.s - L.oy] : [(sx - view.x) / view.s - L.ox, L.oy - (sy - view.y) / view.s]);
   const toSheet = (sx, sy) => [(sx - view.x) / view.s, -(sy - view.y) / view.s];
 
   function fit() {
@@ -203,7 +232,7 @@ export function createPatternEditor(canvas, store, { toast = () => {}, grade = n
     if (opt.mode === 'marker' && marker) {
       const x0 = view.x; const y0 = view.y; const w = opt.fabricWidth * view.s; const hgt = marker.length * view.s;
       g.fillStyle = 'rgba(47,107,255,.05)'; g.fillRect(x0, y0, w, hgt); g.strokeStyle = '#2f6bff'; g.lineWidth = 1.5; g.strokeRect(x0, y0, w, hgt);
-      g.fillStyle = '#2f6bff'; g.font = '600 12px sans-serif'; g.fillText(`Fabric ${opt.fabricWidth} cm wide · ${(marker.length / 100).toFixed(2)} m needed for one garment · simple layout ${(marker.efficiency * 100).toFixed(0)}% efficient (a nested production marker is typically 80-88%)`, x0, y0 - 8);
+      g.fillStyle = '#2f6bff'; g.font = '600 12px sans-serif'; g.fillText(`Fabric ${opt.fabricWidth} cm wide · ${(marker.length / 100).toFixed(2)} m needed for one garment · nested marker, ${(marker.efficiency * 100).toFixed(0)}% of the cloth used (grain kept; pieces may be turned end for end, 1 cm apart)`, x0, y0 - 8);
     }
     const sizes = opt.grading && grade ? grade(p) : null;
     for (const pan of shown(p)) {

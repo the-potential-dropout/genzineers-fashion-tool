@@ -29,6 +29,7 @@ export const ACTION_DOCS = {
   set_cost: '{ key: fabricId | "trim:<name>", price } price per metre / per piece, or { costing: { labourRate, overheadPct, marginPct, dutyPct, freight, currency } }',
   save_colorway: '{ name } keep the current colours and materials as a colourway', apply_colorway: '{ id }', remove_colorway: '{ id }',
   rip_seam: '{ seam, ripped? } tear a seam open; ripped:false sews it back',
+  set_pose: '{ armAngle } 90 = T-pose, 45 = A-pose, 20 = arms relaxed at the sides',
   set_part_look: '{ key or keys:[...], fabric?, color?, clear? } give one sub-piece (collar, cuff, pocket, placket, lapel, strap; keys from summary.parts) its own material and colour',
   add_pocket: '{ panel, at: [x,y] cm (top centre of the opening), pocket: "<pocket id>", width?, height?, angle? deg, closure?: none|button|snap|zip|velcro|magnet, mirror? } add an outside or inside pocket (catalog pockets)',
   remove_pocket: '{ id: "<pocket id from the project>" }',
@@ -599,6 +600,10 @@ export function applyAction(project, action) {
     case 'remove_overlay':
       p.overlays = p.overlays.filter((o) => o.id !== a.id);
       break;
+    case 'set_pose': { // a = { armAngle } degrees from the body: 90 = T-pose, 45 = A-pose, 20 = relaxed
+      if (!isNum(a.armAngle)) throw new Error('armAngle (20-90) needed'); p.armAngle = Math.max(18, Math.min(90, a.armAngle)); regradeProject(p);
+      break;
+    }
     case 'set_size': {
       if (a.chart) { if (!SIZE_CHARTS[a.chart]) throw new Error(`unknown size chart "${a.chart}"`); p.sizeChart = a.chart; }
       const chart = SIZE_CHARTS[p.sizeChart || 'unisex'];

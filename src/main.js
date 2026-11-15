@@ -20,7 +20,7 @@ import { JEWELRY_TEMPLATES, JEWELRY_GROUPS, METALS, GEMS, CUTS, SETTINGS, LINKS,
 import { PROVIDERS, IMAGE_PROVIDERS, chat, generateImage } from './ai/providers.js';
 import { SCOPES, systemPrompt, parseActions, filterActions } from './ai/assistant.js';
 import { connectBridge } from './ai/bridge.js';
-import { techPackHTML, patternSVG, patternDXF, tiledPrintHTML, bomCSV, GUIDE, rfqTemplates, atMakingSize } from './make/production.js';
+import { techPackHTML, patternSVG, patternDXF, patternHPGL, tiledPrintHTML, bomCSV, GUIDE, rfqTemplates, atMakingSize } from './make/production.js';
 import { importMannequin, ensureMannequin } from './app/mannequin.js';
 import { viewFile, saveAs, editedText } from './app/fileviewer.js';
 import { parseDXF, parseSVG, piecesToActions, MODEL_EXT, readAs } from './io/import.js';
@@ -511,6 +511,7 @@ function bodyEditor(p, chart) {
   return h('details', { style: 'margin-top:8px', open: Boolean(p.customBody) }, h('summary', {}, p.customBody ? `Custom body${p.bodyShape ? ` · ${BODY_SHAPES[p.bodyShape]?.name}` : ''}` : 'Body type & custom measurements'), h('div', {},
     h('div', { class: 'chips scrollx', style: 'margin-bottom:8px' }, Object.entries(BODY_SHAPES).map(([k, b]) => h('button', { class: `chip ${p.bodyShape === k ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'set_size', shape: k }) }, b.name))),
     h('div', { class: 'grid2' }, BODY_FIELDS.map(([k, label, min, max]) => field(label, h('input', { type: 'range', min, max, step: k === 'weight' || k === 'height' ? 1 : 0.5, value: cur[k], onchange: (e) => setM(k, Number(e.target.value)), oninput: (e) => (e.target.closest('label').querySelector('b').textContent = e.target.value) }), h('b', {}, cur[k])))),
+    field('Pose (arms)', h('div', { class: 'chips' }, [[90, 'T-pose'], [65, 'Arms out'], [45, 'A-pose'], [30, 'Lowered'], [20, 'Relaxed']].map(([a, n]) => h('button', { class: `chip ${(p.armAngle ?? 45) === a ? 'on' : ''}`, onclick: () => store.dispatch({ type: 'set_pose', armAngle: a }) }, n)))),
     h('div', { class: 'chips' }, h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'set_size', size: p.size || 'M' }) }, 'Reset to size chart')),
     h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:6px' }, 'cm unless noted. The mannequin, its collision body and every pattern re-draft to these measurements.')));
 }
@@ -808,6 +809,7 @@ function cMake(el, p) {
     h('div', { class: 'grid2' },
       h('button', { class: 'btn primary', onclick: () => openDoc(techPackHTML(p, { image: viewer.snapshot(1000) }), `${name}-techpack.html`) }, 'Tech pack (PDF)'),
       h('button', { class: 'btn', onclick: () => viewFile(`${name}.dxf`, 'application/dxf', patternDXF(p)) }, 'Pattern DXF (CAD)'),
+      h('button', { class: 'btn', title: 'HPGL for pen and cutting plotters: cut lines on pen 1, stitch lines on pen 2, labels', onclick: () => viewFile(`${name}.plt`, 'text/plain', patternHPGL(p)) }, 'Plotter file (HPGL)'),
       h('button', { class: 'btn', onclick: () => viewFile(`${name}.svg`, 'image/svg+xml', patternSVG(p)) }, 'Pattern SVG'),
       h('button', { class: 'btn', onclick: () => openDoc(tiledPrintHTML(p, 'A4'), `${name}-A4.html`) }, 'Print at home (A4)'),
       h('button', { class: 'btn', onclick: () => openDoc(tiledPrintHTML(p, 'Letter'), `${name}-letter.html`) }, 'Print at home (Letter)'),
@@ -1057,7 +1059,7 @@ async function manufacturingPack() {
     put('01-tech-pack.html', techPackHTML(p, { image: viewer.snapshot(1000) }));
     put('02-bill-of-materials.csv', bomCSV(p));
     put('03-sewing-operations.csv', operationsCSV(p));
-    put('pattern/pattern.dxf', patternDXF(p)); put('pattern/pattern.svg', patternSVG(p));
+    put('pattern/pattern.plt', patternHPGL(p)); put('pattern/pattern.dxf', patternDXF(p)); put('pattern/pattern.svg', patternSVG(p));
     put('pattern/print-at-home-A4.html', tiledPrintHTML(p, 'A4'));
     for (const f of knitFiles(p)) put(f.file, f.text);
     for (const g of (p.garments || []).filter((x) => x.knit?.motif && x.knit.motif !== 'none')) put(`knit/${g.id}-colourwork-chart.svg`, knitChartSVG(g.knit));
