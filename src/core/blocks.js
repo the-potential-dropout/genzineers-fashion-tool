@@ -62,6 +62,7 @@ import { LEGWEAR_OPTIONS, buildLegwear, GLOVE_OPTIONS, buildGlove } from './legw
 import { SHOE_OPTIONS, buildShoe } from './shoes.js';
 import { HAT_OPTIONS as HAT_OPTIONS2, buildHat as buildHat2 } from './hats.js';
 import { BAG_OPTIONS as BAG_OPTIONS2, buildBag as buildBag2 } from './bags.js';
+import { BELT_OPTIONS, buildBelt } from './belts.js';
 import { ZIPPER_DEFAULTS } from './trims.js';
 // Reference body comes from the selected size (o.__body); generators read it via bodyOf().
 const bodyOf = (o) => o.__body || DEFAULT_BODY;
@@ -1266,6 +1267,7 @@ export const GENERATORS = {
   legwear: { label: 'Hosiery & socks', options: LEGWEAR_OPTIONS, build: buildLegwear },
   glove: { label: 'Gloves & mittens', options: GLOVE_OPTIONS, build: buildGlove },
   shoe: { label: 'Shoes & boots', options: SHOE_OPTIONS, build: buildShoe },
+  belt: { label: 'Belt', options: BELT_OPTIONS, build: buildBelt },
 };
 
 export function defaultOptions(gen) {

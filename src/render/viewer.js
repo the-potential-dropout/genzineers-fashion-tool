@@ -26,6 +26,8 @@ import { buildCollar } from './collars.js';
 import { buildShoe } from './shoes3d.js';
 import { buildHat } from './hats3d.js';
 import { buildBag } from './bags3d.js';
+import { buildHair } from './hair3d.js';
+import { buildBelt } from './belts3d.js';
 import { tieKnot, bowTie, clothBand, TIE_KNOTS } from './neckwear.js';
 import { designBitmap, previewCanvas, loadArtwork, artworkReady, STITCH_TYPES } from '../make/embroidery.js';
 import { customBodyMesh, bodyField, sampleField } from '../sim/bodyfield.js';
@@ -204,12 +206,14 @@ export class Viewer {
         this.simAwake = false;
         if (this.project?.shells?.length && this._mannequinMesh && !this._shellMeshes?.length) this.addShells(this.project, bodyFor(this.project));
         this.coverBody();
+        if (this.project?.belts?.length) { try { this.addBelts(this.project); } catch (e) { console.warn('belt failed', e); } }
         this.onSleep?.();
       }
       this.dirty = true;
     }
     this._frame++;
     // idle orbit at ~30 fps saves power
+    if (this._hairGroup?.userData.sway && this._hairGroup.parent) { this._hairGroup.userData.tick(performance.now() / 1000); if ((this._frame || 0) % 2 === 0) this.dirty = true; }
     if (this.dirty || (orbiting && this._frame % 2 === 0)) {
       this.renderer.render(this.scene, this.camera);
       this.dirty = false;
@@ -259,6 +263,8 @@ export class Viewer {
     try { this._addShells(project, body); } catch (e) { console.warn('hosiery layer failed', e); }
     try { this.addShoes(project); } catch (e) { console.warn('shoes failed', e); }
     try { this.addHats(project); } catch (e) { console.warn('hats failed', e); }
+    try { this.addHair(project); } catch (e) { console.warn('hair failed', e); }
+    try { this.addBelts(project); } catch (e) { console.warn('belt failed', e); }
   }
 
   /**
@@ -323,6 +329,49 @@ export class Viewer {
     const fabOf = (id) => part(id)?.fabric || spec.fabric;
     return { colorOf: (id) => part(id)?.color || (part(id)?.fabric ? resolveFabric(project, part(id).fabric).look.color : spec.color || resolveFabric(project, spec.fabric).look.color),
       part: (id) => { const m = this.materialFor(project, pseudo, fabOf(id), 1, { fabric: fabOf(id), color: part(id)?.color || (part(id)?.fabric ? null : spec.color) }); m.side = THREE.DoubleSide; return m; } };
+  }
+
+  /** Belts worn round the body, over whatever is worn at that height. */
+  addBelts(project) {
+    for (const o of this._beltObjs || []) { this.avatarGroup.remove(o); o.traverse((m) => { m.geometry?.dispose(); }); }
+    this._beltObjs = [];
+    if (!project?.belts?.length || project.display?.avatar === false || !this._mannequinMesh) return;
+    const body = bodyFor(project); let f = null; try { f = bodyField(body); } catch { return; }
+    const o4 = [0, 0, 0, 0]; const overClothes = (project.garments || []).some((g) => ['bottom', 'skirt', 'top'].includes(g.generator));
+    project.belts.forEach((spec, bi) => {
+      let y = (spec.position === 'waist' ? body.naturalWaistY : body.waistY - 0.012) - (spec.position === 'waist' ? 0 : spec.width / 2000);
+      const NP = 144; const R = new Float32Array(NP); const cloth = new Float32Array(NP);
+      // through the loops of what is actually worn: the belt sits in the waistband of the settled trousers or skirt
+      if (this.sim) { const low = this.sim.panels.filter((q) => ['bottom', 'skirt'].includes((project.garments || []).find((g) => g.id === q.panel.garment)?.generator)); const P = this.sim.pos;
+        if (low.length && spec.position !== 'waist') { const ys = []; for (const pan of low) for (let i = pan.offset; i < pan.offset + pan.count; i++) ys.push(P[i * 3 + 1]); ys.sort((a, b) => b - a); const topY = ys[Math.floor(ys.length * 0.02)] ?? y; y = topY - 0.019 - Math.max(0, spec.width / 2000 - 0.019); }
+        const band = Math.max(0.012, spec.width / 2000); for (const pan of this.sim.panels) for (let i = pan.offset; i < pan.offset + pan.count; i++) { if (Math.abs(P[i * 3 + 1] - y) > band) continue; const a = Math.atan2(P[i * 3], P[i * 3 + 2]); const k = ((Math.round((a / (Math.PI * 2)) * NP) % NP) + NP) % NP; const r = Math.hypot(P[i * 3], P[i * 3 + 2]); if (r > cloth[k]) cloth[k] = r; } }
+      const clear = (overClothes && !this.sim ? 0.0075 : 0.0015) + spec.thick / 2000 + bi * 0.006;
+      for (let i = 0; i < NP; i++) { const a = (i / NP) * Math.PI * 2; let r = 0.45; for (let it = 0; it < 90; it++) { const d = sampleField(f, Math.sin(a) * r, y, Math.cos(a) * r, o4) ? o4[0] : 0.05; if (d < 0.001) break; r -= Math.max(0.0008, d * 0.8); if (r <= 0.02) break; } R[i] = Math.max(r + clear, cloth[i] ? cloth[i] + 0.0022 + spec.thick / 2000 + bi * 0.006 : 0); }
+      for (let it = 0; it < 12; it++) for (let i = 0; i < NP; i++) { const l = R[(i + NP - 1) % NP]; const r = R[(i + 1) % NP]; if (R[i] < (l + r) / 2) R[i] = (l + r) / 2; } // a belt bridges hollows: it cannot follow the body inwards
+      for (let it = 0; it < 2; it++) { const c = R.slice(); for (let i = 0; i < NP; i++) R[i] = (c[(i + NP - 1) % NP] + 2 * c[i] + c[(i + 1) % NP]) / 4; }
+      const pts = []; const nrm = []; for (let i = 0; i < NP; i++) { const a = (i / NP) * Math.PI * 2; pts.push(new THREE.Vector3(Math.sin(a) * R[i], y, Math.cos(a) * R[i])); }
+      for (let i = 0; i < NP; i++) { const t = pts[(i + 1) % NP].clone().sub(pts[(i + NP - 1) % NP]).normalize(); nrm.push(new THREE.Vector3(t.z, 0, -t.x)); }
+      const grp = buildBelt(spec, { pts, nrm }, this.formMats(project, spec), () => { this.dirty = true; });
+      this.avatarGroup.add(grp); this._beltObjs.push(grp);
+    });
+    this.dirty = true;
+  }
+
+  /** Hair and facial hair grown on the mannequin's head (kept under a hat's band when one is worn). */
+  addHair(project) {
+    const look = project?.look || {}; const key = JSON.stringify([look.hair, look.hairColor, look.hairTip, look.hairMove, look.facialHair, look.facialColor, this._mannequinKey, (project?.hats || []).map((h) => h.style + h.wear)]);
+    if (this._hairGroup && this._hairKey === key && this._hairGroup.parent === this.avatarGroup) return;
+    if (this._hairGroup) { this.avatarGroup.remove(this._hairGroup); this._hairGroup.traverse((m) => { m.geometry?.dispose(); }); this._hairGroup = null; }
+    this._hairKey = key;
+    const base = this._mannequinMesh; if (!base || project?.display?.avatar === false || (!look.hair && !look.facialHair)) return;
+    const g = base.geometry; const pos = g.userData.restAttr || g.attributes.position; const idx = g.index; const nT = idx ? idx.count / 3 : pos.count / 3;
+    let top = -9; for (let i = 0; i < pos.count; i++) top = Math.max(top, pos.getY(i));
+    const tris = [];
+    for (let t = 0; t < nT; t++) { const a = idx ? idx.getX(t * 3) : t * 3; const b = idx ? idx.getX(t * 3 + 1) : t * 3 + 1; const c = idx ? idx.getX(t * 3 + 2) : t * 3 + 2; if (pos.getY(a) < top - 0.3 || Math.abs(pos.getX(a)) > 0.15) continue; tris.push(pos.getX(a), pos.getY(a), pos.getZ(a), pos.getX(b), pos.getY(b), pos.getZ(b), pos.getX(c), pos.getY(c), pos.getZ(c)); }
+    const hat = project.hats?.[0]; const hatDepth = hat ? (hat.kind === 'knit' ? 0.118 : hat.kind === 'beret' ? 0.085 : hat.deep ? 0.125 : hat.kind === 'bucket' ? 0.104 : hat.kind === 'visor' ? 0 : 0.098) : 0;
+    let field = null; try { field = bodyField(bodyFor(project)); } catch { /* without the field hair hangs straight */ }
+    this._hairGroup = buildHair(look, new Float32Array(tris), field, { hatDepth });
+    this.avatarGroup.add(this._hairGroup); this.dirty = true;
   }
 
   /** Hats built on the mannequin's own head. */
@@ -621,6 +670,7 @@ export class Viewer {
   /** Re-apply looks only (no physics rebuild). */
   refreshLooks(project) {
     this.project = project;
+    try { this.addHair(project); } catch (e) { console.warn('hair failed', e); }
     if (this._mannequinMat) { this._mannequinMat.color.set(project.look?.skin || '#9aa1ab'); }
     for (const m of this.panelMeshes) { const pan = project.panels.find((p) => p.id === m.userData.panelId); if (pan) { m.material.dispose(); m.material = this.materialFor(project, pan); } }
     if (this.sim) { for (const o of this.overlays) this.garment.remove(o.mesh); for (const t of this.trimObjs) this.garment.remove(t.obj); for (const s of this.stitchLines) this.garment.remove(s.line); this.overlays = []; this.trimObjs = []; this.stitchLines = []; this.buildOverlays(project, this.sim); this.buildTrims(project, this.sim); this.buildStitches(project, this.sim); this.updateGarment(); }

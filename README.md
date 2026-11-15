@@ -64,6 +64,10 @@ Real cloth physics in Rust/WebAssembly · real construction methods · factory-r
 - Gloves with fourchettes, set-in thumb, side seam, three points and cuff hem.
 - Nested marker (true outlines, grain kept), plotter file (HPGL), arm poses, filled panels that puff out.
 
+### Hair and belts
+- 34 hairstyles grown on the mannequin's head as thousands of locks that bend under their weight and rest on the head and shoulders: cuts, fades, afros, bobs, long straight, wavy and curly, ponytails, buns, braids, box braids, locs, cornrows. Any colour, ombre ends, and a breeze or wind setting. 11 facial hair styles.
+- 20 belt types worn in the settled waistband: sized like real belts, holes and the hole in use, tips, keepers, stitching, tooling, studs and conchos; frame, plate, ratchet, clamp, reversible and web buckles, with your own artwork engraved, embossed or enamelled on the buckle.
+
 ### Jewelry
 - Chain links are dimensioned so **neighbouring links never intersect** (verified by an automated interference test for every chain type): true twisted, diamond-cut **Cuban and curb** links, cable, rolo, mariner, paperclip, box, and swept rope / wheat / snake chains; the **signet ring** is one solid with tapered shoulders and a flat face.
 Rings, chains (19 link types incl. cable, curb, Cuban, figaro, rope, box, franco, byzantine, paperclip, tennis), necklaces, pendants, bracelets, bangles, cuffs and earrings, with clasps, bails and backs; 34 gems with real refractive index & dispersion; 17 cuts incl. custom; 14 settings; **karat control** (purity, density, colour, hallmark), platings; custom outlines for pendants, stones, links and signets; **import CAD parts** (STL, OBJ, GLB, 3MF, PLY, FBX, DAE, STEP, IGES, .blend) and resize, stretch and distort them to fit; metal weight & carat estimates; STL export for casting.

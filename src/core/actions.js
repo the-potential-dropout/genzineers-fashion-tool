@@ -88,7 +88,7 @@ export function catalog() {
   const o = (obj, fn) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, fn(v)]));
   return {
     templates: o(TEMPLATES, (v) => `${v.name} [${v.group}${v.audience ? `, ${v.audience}` : ''}]`),
-    generators: o(GENERATORS, (g) => o(g.options, (x) => (x.type === 'select' ? x.values : x.type === 'color' ? '#rrggbb' : `${x.min}..${x.max}`))),
+    generators: o(GENERATORS, (g) => o(g.options, (x) => (x.type === 'select' ? x.values : x.type === 'color' ? '#rrggbb' : x.type === 'image' ? 'image data URL' : `${x.min}..${x.max}`))),
     fabrics: o(FABRICS, (v) => `${v.name} (${v.category}, ${v.fiber}, ${v.weightGsm}gsm)`),
     fabricFamilies: o(FABRIC_FAMILIES, (v) => v.variants),
     pockets: o(POCKETS, (v) => `${v.name} [${v.where}] ${v.uses}`),
@@ -211,7 +211,7 @@ export function applyAction(project, action) {
     }
     case 'set_look': {
       p.look = { ...(p.look || {}) };
-      for (const k of ['skin', 'hair', 'hairColor', 'facialHair']) if (k in a) { if (a[k] == null || a[k] === 'none') delete p.look[k]; else p.look[k] = a[k]; }
+      for (const k of ['skin', 'hair', 'hairColor', 'hairTip', 'hairMove', 'facialHair', 'facialColor']) if (k in a) { if (a[k] == null || a[k] === 'none') delete p.look[k]; else p.look[k] = a[k]; }
       result = 'mannequin look updated';
       break;
     }

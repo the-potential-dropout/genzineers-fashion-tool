@@ -72,7 +72,7 @@ export function mergeGarment(p, g) {
   for (const o of out.overlays) p.overlays.push({ id: uid('ov'), ...o });
   // pieces that are cut and made up but fitted rather than draped (glove tranks, fourchettes, thumbs...)
   p.pieces = [...(p.pieces || []).filter((k) => k.garment !== g.id), ...(out.pieces || []).map((k, i) => ({ id: `${g.id}-pc${i}`, garment: g.id, ...k }))];
-  p.garmentForms = { ...(p.garmentForms || {}), [g.id]: { colliders: out.colliders || [], display: out.display || {}, meta: out.meta || {}, shells: out.shells || [], collars: out.collars || [], props: (out.props || []).map((x) => ({ ...x, garment: g.id })), shoes: (out.shoes || []).map((x) => ({ ...x, garment: g.id })), hats: (out.hats || []).map((x) => ({ ...x, garment: g.id })), bags: (out.bags || []).map((x) => ({ ...x, garment: g.id })) } };
+  p.garmentForms = { ...(p.garmentForms || {}), [g.id]: { colliders: out.colliders || [], display: out.display || {}, meta: out.meta || {}, shells: out.shells || [], collars: out.collars || [], props: (out.props || []).map((x) => ({ ...x, garment: g.id })), shoes: (out.shoes || []).map((x) => ({ ...x, garment: g.id })), hats: (out.hats || []).map((x) => ({ ...x, garment: g.id })), bags: (out.bags || []).map((x) => ({ ...x, garment: g.id })), belts: (out.belts || []).map((x) => ({ ...x, garment: g.id })) } };
   syncForms(p);
   // shoes change how the body stands (sole under the foot, heel pitch): everything else is re-drafted to the new stance
   const st = Object.values(p.garmentForms).map((f) => f.meta?.stance).filter(Boolean)[0] || { sole: 0, heel: 0 };
@@ -100,7 +100,7 @@ export function applyPartLooks(p) {
     const L = looks[c.key];
     if (L && (L.fabric || L.color)) { c.look = L; c.fabric = L.fabric || c._base.fabric || undefined; } else { delete c.look; if (c._base.fabric) c.fabric = c._base.fabric; else delete c.fabric; }
   });
-  for (const [gid, f] of Object.entries(p.garmentForms || {})) for (const sh of [...(f.shoes || []), ...(f.hats || []), ...(f.bags || [])]) for (const part of sh.parts || []) {
+  for (const [gid, f] of Object.entries(p.garmentForms || {})) for (const sh of [...(f.shoes || []), ...(f.hats || []), ...(f.bags || []), ...(f.belts || [])]) for (const part of sh.parts || []) {
     part.key = `shoe:${gid}:${part.id}`; if (part._base === undefined) part._base = { fabric: part.fabric ?? null };
     const L = looks[part.key]; part.fabric = L?.fabric || part._base.fabric; if (L?.color) part.color = L.color; else delete part.color;
   }
@@ -116,7 +116,7 @@ export function listParts(p) {
   const out = [];
   for (const o of p.overlays || []) { if (o.hidden || o.kind === 'distress' || o.kind === 'pleat' || o.kind === 'vent' || o.kind === 'yoke-line') continue; const host = p.panels.find((x) => x.id === o.panel); out.push({ key: o.key, kind: o.kind, garment: host?.garment, name: `${nm(o.kind)}${o.style ? ` (${o.style})` : ''}`, on: host?.name || '', fabric: o.look?.fabric || null, color: o.look?.color || null, base: o._base?.fabric || host?.fabric }); }
   for (const [gid, f] of Object.entries(p.garmentForms || {})) for (const c of f.collars || []) out.push({ key: c.key, kind: c.kind, garment: gid, name: `${nm(c.kind)}${c.style ? ` (${c.style})` : ''}`, on: 'neckline', fabric: c.look?.fabric || null, color: c.look?.color || null, base: c._base?.fabric || p.panels.find((x) => x.garment === gid)?.fabric });
-  for (const [gid, f] of Object.entries(p.garmentForms || {})) for (const sh of [...(f.shoes || []), ...(f.hats || []), ...(f.bags || [])]) for (const part of sh.parts || []) out.push({ key: part.key, kind: 'shoe-part', garment: gid, name: part.name, on: sh.kind, fabric: (p.partLooks || {})[part.key]?.fabric || null, color: part.color || null, base: part._base?.fabric || (p.garments || []).find((x) => x.id === gid)?.fabric });
+  for (const [gid, f] of Object.entries(p.garmentForms || {})) for (const sh of [...(f.shoes || []), ...(f.hats || []), ...(f.bags || []), ...(f.belts || [])]) for (const part of sh.parts || []) out.push({ key: part.key, kind: 'shoe-part', garment: gid, name: part.name, on: sh.kind, fabric: (p.partLooks || {})[part.key]?.fabric || null, color: part.color || null, base: part._base?.fabric || (p.garments || []).find((x) => x.id === gid)?.fabric });
   for (const k of p.pieces || []) { if (k.part) continue; out.push({ key: k.key, kind: 'piece', garment: k.garment, name: k.name, on: '', fabric: (p.partLooks || {})[k.key]?.fabric || null, color: k.color || null, base: k._base?.fabric }); }
   return out;
 }
@@ -131,6 +131,7 @@ export function syncForms(p) {
   p.shoes = forms.flatMap((f) => f.shoes || []);
   p.hats = forms.flatMap((f) => f.hats || []);
   p.bags = forms.flatMap((f) => f.bags || []);
+  p.belts = forms.flatMap((f) => f.belts || []);
   if (!forms.some((f) => f.meta?.stance) && p.stance && !p._restance) delete p.stance;
   p.props = forms.flatMap((f) => f.props || []); // tied / moulded pieces drawn as solid forms (tie knots, bow ties)
   // show the body if any garment is worn; bags-only projects show a product stand
