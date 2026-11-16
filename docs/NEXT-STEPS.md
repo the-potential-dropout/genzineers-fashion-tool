@@ -66,6 +66,14 @@ site stays fully static.
 - Bags: weave straight across each cut panel; duffel straps and handles on one line.
 - Cowboy hat: real cattleman crease depths and brim roll.
 
+### Strap and handle attachments (v0.11.3)
+- Tabs (chapes) are strips folded round the ring's bottom bar (or over the handle end where there is no ring),
+  laid on the bag and sewn through both layers with a stitched box (box-X on webbing), riveted where the bag is.
+- Handle and strap ends go round the ring's top bar (or a snap hook's eye) and fold back flat on themselves,
+  box-stitched. Tabs over a handle end are cut wider than the handle.
+- Shoulder straps from side rings lie flat against the bag at each end and turn flat over the shoulder.
+- Flap bags with top handles carry one handle behind the flap's hinge.
+
 ### Tests (`npm test`)
 `jitter-test` (settled cloth is still), `layer-test` (layers never cross, tucked or not), `pull-test` (seams hold,
 garment returns to the body) run with the existing suites.
