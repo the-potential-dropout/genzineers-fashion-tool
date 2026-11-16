@@ -67,7 +67,7 @@ export const LEGWEAR_OPTIONS = {
 export function legwearTop(type, mannequin = 'male') {
   const L = MANNEQUINS[mannequin].landmarks;
   const top = LEGWEAR_TYPES[type]?.top || 'waist';
-  return { waist: L.waistY - 0.07, thigh: L.crotchY - 0.07, overknee: L.crotchY * 0.62, knee: L.crotchY * 0.53, crew: L.crotchY * 0.33, quarter: L.crotchY * 0.13, ankle: L.crotchY * 0.1, noshow: 0.055 }[top];
+  return { waist: L.waistY - 0.07, thigh: L.crotchY - 0.07, overknee: L.crotchY * 0.72, knee: L.crotchY * 0.53, crew: L.crotchY * 0.33, quarter: L.crotchY * 0.13, ankle: L.crotchY * 0.1, noshow: 0.055 }[top];
 }
 
 const opacityFor = (den) => Math.min(0.97, 0.12 + 0.82 * (1 - Math.exp(-Number(den) / 35)));
@@ -79,6 +79,7 @@ export function buildLegwear(o, prefix = '') {
   const shell = {
     id: `${prefix}legwear`,
     type: o.type,
+    sock,
     footless: Boolean(LEGWEAR_TYPES[o.type]?.footless),
     look: {
       color: o.color, roughness: sock ? 0.9 : 0.45, sheen: sock ? 0.3 : 0.8, sheenColor: '#ffffff', opacity, metalness: o.pattern === 'lurex' ? 0.5 : 0,

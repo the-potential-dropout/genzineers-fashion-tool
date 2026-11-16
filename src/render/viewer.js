@@ -24,6 +24,7 @@ import { panelAnchor, layerRank } from '../sim/cloth.js';
 import { fabricTextures, distressTexture } from './textures.js';
 import { buildCollar } from './collars.js';
 import { buildShoe, strand } from './shoes3d.js';
+import { buildSock } from './sock3d.js';
 import { buildHat } from './hats3d.js';
 import { buildBag } from './bags3d.js';
 import { buildHair } from './hair3d.js';
@@ -454,7 +455,7 @@ export class Viewer {
   }
 
   _addShells(project, body) {
-    for (const m of this._shellMeshes || []) { this.avatarGroup.remove(m); m.geometry.dispose(); }
+    for (const m of this._shellMeshes || []) { this.avatarGroup.remove(m); m.traverse((o) => o.geometry?.dispose()); }
     this._shellMeshes = [];
     const base = this._mannequinMesh;
     if (!base || !project?.shells?.length) return;
@@ -465,8 +466,29 @@ export class Viewer {
     // foot extents for toe / heel reinforcement
     let toeZ = -9; let heelZ = 9;
     for (let i = 0; i < pos.count; i++) if (ref[i * 3 + 1] < 0.05) { toeZ = Math.max(toeZ, ref[i * 3 + 2]); heelZ = Math.min(heelZ, ref[i * 3 + 2]); }
+    const shellMat = (look, fit = {}) => {
+      const tex = fabricTextures({ look }, look.print ? { print: { design: look.print, colors: look.patternColors, scale: 0.15 } } : {}, null, () => this.addShells(this.project, body), look.patternScale || 8);
+      // fit.tile: one texture tile this wide (m); fit.round: the knit's round (m), held to a whole number of repeats
+      let srep = fit.tile ? 0.1 / fit.tile : (look.patternScale || 8) / (tex.k || 1); const map = tex.map.clone(); let sx = srep;
+      if (fit.round) sx = Math.max(1, Math.round((fit.round / 0.1) * srep)) / (fit.round / 0.1);
+      map.repeat.set(sx, srep); map.wrapS = map.wrapT = THREE.RepeatWrapping; map.needsUpdate = true;
+      const cutout = look.pattern === 'fishnet' || look.pattern === 'lace';
+      return new THREE.MeshPhysicalMaterial({ map, color: '#ffffff', roughness: look.roughness, sheen: look.sheen, sheenColor: new THREE.Color(look.sheenColor || '#fff'), metalness: look.metalness || 0, transparent: (look.opacity ?? 1) < 1 || cutout, opacity: look.opacity ?? 1, alphaTest: cutout ? 0.35 : 0, depthWrite: (look.opacity ?? 1) >= 0.9, side: THREE.DoubleSide });
+    };
     for (const sh of project.shells) {
       const hand = sh.part === 'hand';
+      if (sh.sock && !hand) {
+        // socks are knitted tubes swept through the leg and foot (see sock3d.js), not a layer on the skin
+        const topRef = legwearTop(sh.type, body.mannequin); const nT = idx ? idx.count / 3 : pos.count / 3;
+        for (const sd of [1, -1]) {
+          const yTop = gradePoint(body, sd * L.legX, topRef, 0)[1]; const tris = [];
+          for (let t = 0; t < nT; t++) { const a = idx ? idx.getX(t * 3) : t * 3; const b = idx ? idx.getX(t * 3 + 1) : t * 3 + 1; const c = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+            if (pos.getX(a) * sd < 0.02 || pos.getX(b) * sd < 0.02 || pos.getX(c) * sd < 0.02) continue; if (pos.getY(a) > yTop + 0.06 && pos.getY(b) > yTop + 0.06 && pos.getY(c) > yTop + 0.06) continue;
+            tris.push(pos.getX(a), pos.getY(a), pos.getZ(a), pos.getX(b), pos.getY(b), pos.getZ(b), pos.getX(c), pos.getY(c), pos.getZ(c)); }
+          try { const grp = buildSock(sh, new Float32Array(tris), sd, yTop, shellMat); this.avatarGroup.add(grp); this._shellMeshes.push(grp); } catch (e) { console.warn('sock failed', e); }
+        }
+        continue;
+      }
       const top = hand ? 0 : legwearTop(sh.type, body.mannequin);
       // gloves: find the wrist (the narrowest part of the forearm) on this mannequin
       let wristX = L.armStartX + 0.53;
@@ -1408,7 +1430,7 @@ export class Viewer {
     // everything that covers skin: cloth particles and hosiery / sock shells
     const pts = [];
     if (this.sim && this.project?.mode !== 'jewelry') { const P = this.sim.pos; for (let i = 0; i < P.length; i += 3) pts.push(P[i], P[i + 1], P[i + 2]); }
-    for (const m of this._shellMeshes || []) { const p = m.geometry?.attributes?.position; if (!p || !m.isMesh) continue; for (let i = 0; i < p.count; i += 2) pts.push(p.getX(i), p.getY(i), p.getZ(i)); }
+    for (const m0 of this._shellMeshes || []) m0.traverse((m) => { const p = m.geometry?.attributes?.position; if (!p || !m.isMesh) return; for (let i = 0; i < p.count; i += 2) pts.push(p.getX(i), p.getY(i), p.getZ(i)); });
     if (!pts.length) { pos.copy(rest); if (this.pressInShoes(pos, rest, nor)) { pos.needsUpdate = true; g.userData.covered = true; this.dirty = true; return; } if (g.userData.covered) { pos.needsUpdate = true; g.userData.covered = false; this.dirty = true; } return; }
     const R = 0.032; const inv = 1 / R; const hash = new Map();
     const key = (x, y, z) => (x + 512) + (y + 512) * 1024 + (z + 512) * 1048576;

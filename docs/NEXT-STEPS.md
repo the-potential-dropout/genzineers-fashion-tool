@@ -1,6 +1,6 @@
 # Next steps
 
-Working list for the cloth simulation and assembly work. Updated 2026-11-16 (v0.11.5).
+Working list for the cloth simulation and assembly work. Updated 2026-11-16 (v0.11.6).
 
 Standing rules for all of it: full quality, nothing simplified; every product assembled from its real
 components the way it is made; physics from material properties; core features work without AI; the
@@ -125,6 +125,21 @@ site stays fully static.
 - **Cut list:** half sock, full sock or removable insole, and the cork-latex bottom filler on welted shoes.
 - **Fixed a v0.11.4 regression:** a comment added mid-line in the viewer cut off the rest of that line, so the step
   that keeps feet inside closed shoes stopped running (it threw at runtime; the build still passed).
+
+### Socks knitted as socks (v0.11.6)
+- **One seamless tube** (`src/render/sock3d.js`) swept through exact sections of the wearer's leg and foot, each made
+  convex (stretched knit bridges the hollow behind the ankle bone and between the toes): leg rings, a fan round the
+  heel, foot sections, a toe pocket pulled smooth over the toes. Replaces the old skin layer for socks, which had
+  sawtoothed tops, a split toe cap and swirling patterns. Tights and stockings keep the skin layer.
+- **Parts cut cleanly from the tube:** rib welt with a rolled top edge (folded double), leg, Y-heel pocket bounded by
+  the diagonal gusset lines (about 6.8 cm up the back, 7.8 cm along the sole), toe pocket closed by a linked seam ridge
+  across the top of the toes. Ankle socks have the heel tab; no-show liners are cut low round the heel and sides and
+  cover the toes.
+- **Knit coordinates:** a fixed number of needles (the ankle's round), so the knit stretches over the calf; patterns go
+  round a whole number of repeats (no step where the rounds meet); rows follow the leg and, through the heel, each
+  needle's own column (the instep knits straight on while the heel's short rows are added at the back).
+- **Patterns at real size:** argyle diamonds about 4.5 x 7 cm on the leg with a plain foot; stripes in 2 cm bands.
+- Over-the-knee socks now reach above the knee.
 
 ### Tests (`npm test`)
 `jitter-test` (settled cloth is still), `layer-test` (layers never cross, tucked or not), `pull-test` (seams hold,

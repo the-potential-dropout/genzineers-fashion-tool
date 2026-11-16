@@ -1,6 +1,6 @@
 {
   "name": "genzineers-fashion-tool",
-  "version": "0.11.5",
+  "version": "0.11.6",
   "private": true,
   "description": "Design, simulate, assemble and produce clothing, hats and bags. Web + desktop. By Genzineers.",
   "type": "module",
