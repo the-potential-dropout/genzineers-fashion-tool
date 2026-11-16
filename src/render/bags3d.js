@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { NA, gridFrom, layPiece, clip, geoOf, isoLines, merge, strand, seatM, buckle } from './shoes3d.js';
 import { BAG_HW } from '../core/bags.js';
+import { buildBackpack } from './backpack3d.js';
 
 const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -29,6 +30,7 @@ const dGeo = (w, t) => { const arc = new THREE.TorusGeometry(w / 2, t, 8, 18, Ma
 function snapHook(t = 0.0016) { const body = new THREE.CylinderGeometry(0.0042, 0.0034, 0.022, 10); body.translate(0, -0.011, 0); const eye = new THREE.TorusGeometry(0.0075, t, 8, 16); eye.translate(0, 0.0075, 0); const hook = new THREE.TorusGeometry(0.008, t * 1.15, 8, 16, Math.PI * 1.55); hook.rotateZ(Math.PI * 0.75); hook.translate(0, -0.03, 0); const gate = new THREE.CylinderGeometry(t * 0.8, t * 0.8, 0.014, 6); gate.rotateZ(0.5); gate.translate(-0.005, -0.028, 0); return merge([body, eye, hook, gate]); }
 
 export function buildBag(spec, mats) {
+  if (spec.pack) return buildBackpack(spec, mats);
   const group = new THREE.Group();
   const W = spec.width / 200; const H = spec.height / 100; const D = spec.depth / 200; const soft = spec.soft || 0; const barrel = spec.barrel;
   const hwCol = BAG_HW[spec.hardware] || '#c8c8c8'; const metal = new THREE.MeshStandardMaterial({ color: hwCol, metalness: 0.92, roughness: spec.hardware === 'matte-black' ? 0.55 : 0.26 });
