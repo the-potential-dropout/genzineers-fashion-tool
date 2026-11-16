@@ -500,6 +500,34 @@ function cStyle(el, p) {
       h('div', { class: 'grow' }, h('div', { class: 't' }, x.name || GENERATORS[x.generator].label.split(' /')[0]), h('div', { class: 's' }, x.layer == null ? `Layer: ${LAYER_NAMES[layerOf(p, { garment: x.id })]} (auto)` : `Layer: ${LAYER_NAMES[x.layer]}`)),
       sel(x.layer == null ? 'auto' : String(x.layer), [{ value: 'auto', label: 'Auto layer' }, ...LAYER_NAMES.map((n, i) => ({ value: String(i), label: n }))], (v) => store.dispatch({ type: 'set_layer', garment: x.id, layer: v === 'auto' ? null : Number(v) })),
       h('button', { class: 'btn sm', onclick: () => store.dispatch({ type: 'remove_garment', garment: x.id }) }, 'Remove')))) : null));
+  // ---- every fastening of the outfit, piece by piece: each zip, each button, each fly on its own ----
+  {
+    const fast = [];
+    for (const x of gs) {
+      const o = x.options || {}; const w = x.wear || {}; const W = (patch) => store.dispatch({ type: 'set_wear', garment: x.id, ...patch });
+      const nm = x.name || TEMPLATES[x.template]?.name || GENERATORS[x.generator].label.split(' /')[0]; const ctl = [];
+      const openable = x.generator === 'top' && o.closure && !['none', 'half-zip', 'lace-up-front', 'lace-up-back'].includes(o.closure);
+      const zip = openable && ['zip', 'two-way-zip', 'asymmetric-zip'].includes(o.closure);
+      if (zip) {
+        ctl.push(h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: w.open || 0, title: 'How far the zip is undone from the top', onchange: (e) => W({ open: Number(e.target.value) }) }), h('b', { style: 'font-size:12px' }, `${Math.round((w.open || 0) * 100)}% open`));
+        ctl.push(h('button', { class: `chip ${!w.open ? 'on' : ''}`, onclick: () => W({ open: 0 }) }, 'Zipped'), h('button', { class: `chip ${w.open >= 1 ? 'on' : ''}`, onclick: () => W({ open: 1 }) }, 'Unzipped'));
+      } else if (openable) {
+        const rowsB = [...new Set((p.trims || []).filter((t) => t.btn != null && p.panels.some((q) => q.id === t.panel && q.garment === x.id)).map((t) => t.btn))].sort((a, b) => a - b);
+        const isOpen = (b) => w.buttons === 'none' || (typeof w.buttons === 'object' && w.buttons[b] === false);
+        for (const b of rowsB) ctl.push(h('button', { class: `chip ${isOpen(b) ? '' : 'on'}`, title: `Button ${b + 1} from the top: ${isOpen(b) ? 'undone' : 'done up'} (click to change)`, onclick: () => W(w.buttons === 'none' ? { buttons: Object.fromEntries(rowsB.map((r) => [r, r === b])) } : { toggleButton: b }) }, `${b + 1} ${isOpen(b) ? '○' : '●'}`));
+        ctl.push(h('button', { class: 'chip', onclick: () => W({ buttons: 'all', open: 0 }) }, 'All done up'), h('button', { class: 'chip', onclick: () => W({ buttons: 'none' }) }, 'All undone'));
+      }
+      if (x.generator === 'bottom' && o.fly && o.fly !== 'none') ctl.push(h('button', { class: `chip ${w.fly === 'open' ? '' : 'on'}`, onclick: () => W({ fly: w.fly === 'open' ? 'closed' : 'open' }) }, w.fly === 'open' ? (o.fly === 'button' ? 'Fly unbuttoned' : 'Fly unzipped') : (o.fly === 'button' ? 'Fly buttoned' : 'Fly zipped')));
+      if (ctl.length) fast.push({ x, nm, ctl, zip, openable });
+    }
+    if (fast.length) {
+      const all = (done) => store.dispatch(fast.flatMap(({ x, zip, openable }) => [...(zip ? [{ type: 'set_wear', garment: x.id, open: done ? 0 : 1 }] : openable ? [{ type: 'set_wear', garment: x.id, ...(done ? { buttons: 'all', open: 0 } : { buttons: 'none' }) }] : []), ...(x.generator === 'bottom' && x.options?.fly && x.options.fly !== 'none' ? [{ type: 'set_wear', garment: x.id, fly: done ? 'closed' : 'open' }] : [])]));
+      el.append(h('div', { class: 'sec' }, h('h3', {}, 'Fastenings, piece by piece'),
+        h('div', { class: 'chips', style: 'margin-bottom:6px' }, h('button', { class: 'btn sm', onclick: () => all(true) }, 'Fasten everything'), h('button', { class: 'btn sm', onclick: () => all(false) }, 'Undo everything')),
+        h('div', { class: 'list' }, fast.map(({ nm, ctl }) => h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px' }, h('div', { class: 't', style: 'min-width:120px' }, nm), h('div', { class: 'chips' }, ctl)))),
+        h('div', { class: 's', style: 'font-size:12px;color:var(--muted);margin-top:6px' }, 'Each button is numbered from the top (● done up, ○ undone). You can also click a button, zipper or fly on the garment itself.')));
+    }
+  }
   el.append(next('Next: materials →', 'materials'));
 }
 

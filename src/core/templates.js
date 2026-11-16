@@ -266,6 +266,8 @@ export function templateGarments(templateId) {
   return t.garments.map((gm, i) => ({
     id: `g${i}`,
     generator: gm.generator,
+    template: TEMPLATES[templateId] ? templateId : 'crew-tee',
+    ...(t.garments.length === 1 ? { name: t.name } : {}),
     options: { ...defaultOptions(gm.generator), ...gm.options },
     fabric: gm.fabric,
     sleeveFabric: gm.sleeveFabric,
