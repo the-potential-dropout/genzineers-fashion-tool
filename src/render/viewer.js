@@ -1482,13 +1482,18 @@ export class Viewer {
       for (let i = 0; i < NA; i++) push(cen[0], P[(i + 1) % NA], P[i]);
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
       const box = new THREE.Box3().setFromBufferAttribute(g.attributes.position); box.expandByScalar(0.01); const yTop = cen[0].y - 0.004;
+      // only where a piece of the shoe actually covers the foot (upper, lining, straps): bare skin in an open shoe is left as it is
+      const cov = new Map(); const CC = 0.015; const ck = (x, y, z) => `${Math.floor(x / CC)},${Math.floor(y / CC)},${Math.floor(z / CC)}`; const tv = new THREE.Vector3();
+      grp.traverse((m) => { const ga = m.isMesh && m.userData.shell && m.geometry?.attributes?.position; if (!ga) return; for (let i = 0; i < ga.count; i++) { tv.fromBufferAttribute(ga, i).applyMatrix4(m.matrixWorld); cov.set(ck(tv.x, tv.y, tv.z), 1); } });
+      const covered = (q) => { const ix = Math.floor(q.x / CC); const iy = Math.floor(q.y / CC); const iz = Math.floor(q.z / CC); for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) if (cov.has(`${ix + a},${iy + b},${iz + c}`)) return true; return false; };
       const rc = new THREE.Raycaster(); const dir = new THREE.Vector3(0.0123, -0.0071, 1).normalize(); const p = new THREE.Vector3();
       for (let v = 0; v < rest.count; v++) {
-        p.set(rest.getX(v), rest.getY(v), rest.getZ(v)); if (!box.containsPoint(p) || p.y > yTop) continue;
+        p.set(rest.getX(v), rest.getY(v), rest.getZ(v)); if (!box.containsPoint(p) || p.y > yTop || !covered(p)) continue;
         rc.set(p, dir); const hits = rc.intersectObject(mesh, false); if (hits.length % 2 === 1) continue; // inside
-        // outside: to the nearest point of the last, then 3 mm in towards the centre of that section
+        // outside: drawn straight in towards the centre of the nearest section until it lies 3 mm inside the leather
         let bi = 0; let bd = 9; for (let i = 0; i < K * NA; i++) { const d = P[i].distanceToSquared(p); if (d < bd) { bd = d; bi = i; } }
-        const q = P[bi].clone(); const c = cen[Math.floor(bi / NA)]; const t = q.clone().sub(c); const l = t.length(); q.addScaledVector(t, -Math.min(0.003, l * 0.3) / (l || 1));
+        const c = cen[Math.floor(bi / NA)]; const rP = p.distanceTo(c); const rL = P[bi].distanceTo(c); const target = Math.max(0.002, rL - 0.003);
+        if (rP <= target) continue; const q = c.clone().add(p.clone().sub(c).multiplyScalar(target / rP));
         out.push([v, q.x, q.y, q.z]);
       }
     }
