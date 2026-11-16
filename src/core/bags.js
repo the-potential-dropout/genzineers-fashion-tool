@@ -83,6 +83,8 @@ export function bagSpec(o) {
   s.piping = o.piping && o.piping !== 'auto' ? o.piping : s.base === 'structured' && leather ? 'raw edge, painted' : s.soft > 0.6 ? 'turned (seam inside)' : leather ? 'piped' : 'bound';
   s.quiltStyle = o.quilt && o.quilt !== 'auto' ? o.quilt : t.quilt ? 'diamond' : 'none';
   s.corners = o.corners === 'yes';
+  // a flap bag carries one top handle behind the flap's hinge, so the flap closes freely under it (satchel, briefcase, top-handle bag)
+  if (s.flap && s.handles === 'top-handles') s.oneHandle = true;
   s.pack = !!t.pack && s.handles === 'backpack';
   if (s.pack) { s.lifters = o.lifters === 'yes' || (o.lifters !== 'no' && s.height >= 46); s.sternum = o.sternum !== 'no'; s.bottle = o.bottlePockets !== 'no'; s.compress = o.compression !== 'no'; if (!o.pockets) s.pockets = 'front-zip'; }
   return s;
