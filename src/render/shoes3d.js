@@ -16,6 +16,8 @@ import * as THREE from 'three';
 import { TOE_SHAPES, HEELS, CONSTRUCTIONS, SOLE_MATERIALS, METALS, LACES } from '../core/shoes.js';
 
 export const NA = 64; // points round each section
+/** Marks a mesh as part of the shoe's body (upper pieces, lining, footbed, sole): what the foot is inside. Trims (laces, tassels, buckles, bows) are not. */
+const shell = (m) => { m.userData.shell = true; return m; };
 const sstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const smax = (a, b, k) => 0.5 * (a + b + Math.sqrt((a - b) * (a - b) + k * k));
 const smin = (a, b, k) => -smax(-a, -b, k);
@@ -321,16 +323,16 @@ function buildBottom(spec, G, group, upperColor) {
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return g; };
   const capG = (y, up) => { const pos = []; const idx = []; for (let i = 0; i < n; i++) pos.push(L[i], y(i), zs[i], R[i], y(i), zs[i]); for (let i = 0; i + 1 < n; i++) { const a = i * 2; if (up) idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); else idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return g; };
   const runner = spec.midsole === 'eva' && unit && (spec.rocker || spec.toeSpring > 1.1 || /chunky|runner|trainer/.test(spec.type));
-  bands.forEach(([mat, yA, yB], bi) => { const last = bi === bands.length - 1; const prof = mat === weltMat ? PROF.square : last ? (spec.outsole === 'leather' ? PROF.square : PROF.bevel) : foxUp && !runner ? PROF.cup : runner ? PROF.sculpt : spec.outsole === 'leather' || spec.midsole === 'leather' ? PROF.square : PROF.round; group.add(new THREE.Mesh(wall(yA, yB, bands.length === 1 && spec.outsole !== 'leather' ? PROF.round : prof), mat)); });
+  bands.forEach(([mat, yA, yB], bi) => { const last = bi === bands.length - 1; const prof = mat === weltMat ? PROF.square : last ? (spec.outsole === 'leather' ? PROF.square : PROF.bevel) : foxUp && !runner ? PROF.cup : runner ? PROF.sculpt : spec.outsole === 'leather' || spec.midsole === 'leather' ? PROF.square : PROF.round; group.add(shell(new THREE.Mesh(wall(yA, yB, bands.length === 1 && spec.outsole !== 'leather' ? PROF.round : prof), mat))); });
   const footbed = new THREE.MeshStandardMaterial({ color: spec.liningColor || '#c9a27a', roughness: 0.8, side: THREE.DoubleSide });
-  group.add(new THREE.Mesh(capG((i) => top[i] + (weltT ? 0 : foxUp) * 0 + 0.0002, true), spec.cut === 'open' ? footbed : weltT ? weltMat : midMat));
+  group.add(shell(new THREE.Mesh(capG((i) => top[i] + (weltT ? 0 : foxUp) * 0 + 0.0002, true), spec.cut === 'open' ? footbed : weltT ? weltMat : midMat)));
   if (foxUp) { // the rim of a cup sole / foxing closes onto the upper
     const rim = []; const ri = []; for (let i = 0; i < n; i++) { const c = (L[i] + R[i]) / 2; const wI = Math.max(0, (R[i] - L[i]) / 2 - ext - 0.0005); rim.push(L[i], top[i] + foxUp, zs[i], c - wI, top[i] + foxUp - 0.001, zs[i], R[i], top[i] + foxUp, zs[i], c + wI, top[i] + foxUp - 0.001, zs[i]); }
     for (let i = 0; i + 1 < n; i++) { const a = i * 4; const b = a + 4; ri.push(a, a + 1, b, a + 1, b + 1, b, a + 2, b + 2, a + 3, a + 3, b + 2, b + 3); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(rim, 3)); g.setIndex(ri); g.computeVertexNormals(); group.add(new THREE.Mesh(g, midMat));
   }
   { const k = spec.outsole === 'leather' ? 0.0007 : 0.0032; const L0 = L.slice(); const R0 = R.slice(); const z0 = zs.slice(); for (let i = 0; i < n; i++) { const hw = (R0[i] - L0[i]) / 2; const q = Math.min(k, hw * 0.6); L[i] = L0[i] + nrmL[i][0] * q; R[i] = R0[i] + nrmR[i][0] * q; }
-    group.add(new THREE.Mesh(capG((i) => bot[i] + recess, false), outsoleMat)); for (let i = 0; i < n; i++) { L[i] = L0[i]; R[i] = R0[i]; zs[i] = z0[i]; } }
+    group.add(shell(new THREE.Mesh(capG((i) => bot[i] + recess, false), outsoleMat))); for (let i = 0; i < n; i++) { L[i] = L0[i]; R[i] = R0[i]; zs[i] = z0[i]; } }
   const lineMat = (col) => new THREE.LineBasicMaterial({ color: col });
   const loop = (y, col, inset = 0) => { const pts = []; for (let i = 0; i < n; i++) pts.push(new THREE.Vector3(L[i] + inset - 0.0003, y(i), zs[i])); for (let i = n - 1; i >= 0; i--) pts.push(new THREE.Vector3(R[i] - inset + 0.0003, y(i), zs[i])); pts.push(pts[0]); return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat(col)); };
   if (C.foxing) { group.add(loop((i) => top[i] + foxUp * 0.55, spec.stitchColor || '#1b1b1b')); group.add(loop((i) => top[i] + foxUp * 0.45, spec.stitchColor || '#1b1b1b')); }
@@ -451,7 +453,7 @@ export function buildShoe(spec, tris, sd, mats) {
   const lay = (id, mask, layer, { stitch = true, edge = true, bulge = 0, rowsN = spec.stitchRows, matId = id, keep = null } = {}) => {
     const off = bulge ? (a, b, t) => { const m = mask[a] + (mask[b] - mask[a]) * t; return 0.0009 * layer + bulge * Math.sin(Math.PI * Math.max(0, Math.min(1, m / (bulge * 7)))); } : 0.0009 * layer;
     const c = clip(G, mask, off); if (!c.pos.length) return null;
-    const mesh = new THREE.Mesh(geoOf(c), mats.part(matId)); mesh.renderOrder = layer; group.add(mesh); pieces.push(id);
+    const mesh = new THREE.Mesh(geoOf(c), mats.part(matId)); mesh.renderOrder = layer; shell(mesh); group.add(mesh); pieces.push(id);
     const col = new THREE.Color(mats.colorOf(matId));
     if (edge) for (const line of isoLines(G, mask, 0.0002, 0.0009 * layer + 0.0003, keep)) group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(line.map((q) => q.p)), new THREE.LineBasicMaterial({ color: col.clone().multiplyScalar(0.42) })));
     if (stitch) for (let r = 0; r < rowsN; r++) for (const line of isoLines(G, mask, 0.0028 + r * 0.0022, 0.0009 * layer + 0.0005, keep)) { const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(line.map((q) => q.p)), new THREE.LineDashedMaterial({ color: stitchCol || col.clone().lerp(new THREE.Color('#ffffff'), 0.35).getStyle(), dashSize: 0.0026, gapSize: 0.0011 })); ln.computeLineDistances(); group.add(ln); }
@@ -459,7 +461,7 @@ export function buildShoe(spec, tris, sd, mats) {
   };
   // base upper with its inside (lining) and the thickness of the top line
   lay(baseId, baseMask, 0, { stitch: spec.cut !== 'open' ? false : true, edge: true });
-  if (spec.cut !== 'open') { const c = clip(G, exist, -edgeT); const lm = new THREE.MeshStandardMaterial({ color: spec.liningColor || '#c9a27a', roughness: 0.85, side: THREE.DoubleSide }); if (part('lining')?.fabric && /shearling|fur/.test(part('lining').fabric)) lm.color.set(part('lining').color || '#efe6d2'); group.add(new THREE.Mesh(geoOf(c), lm)); }
+  if (spec.cut !== 'open') { const c = clip(G, exist, -edgeT); const lm = new THREE.MeshStandardMaterial({ color: spec.liningColor || '#c9a27a', roughness: 0.85, side: THREE.DoubleSide }); if (part('lining')?.fabric && /shearling|fur/.test(part('lining').fabric)) lm.color.set(part('lining').color || '#efe6d2'); group.add(shell(new THREE.Mesh(geoOf(c), lm))); }
   { // top-line rim: the cut edge has thickness
     const rim = []; const rn = [];
     for (const line of isoLines(G, baseMask, 0, 0)) for (let q = 0; q + 1 < line.length; q++) { const a = line[q]; const b = line[q + 1]; const ai = a.p.clone().addScaledVector(a.n, -edgeT); const bi = b.p.clone().addScaledVector(b.n, -edgeT); for (const p of [a.p, b.p, ai, b.p, bi, ai]) rim.push(p.x, p.y, p.z); const nn = new THREE.Vector3().subVectors(b.p, a.p).cross(a.n).normalize(); for (let s = 0; s < 6; s++) rn.push(nn.x, nn.y, nn.z); }

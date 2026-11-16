@@ -263,7 +263,7 @@ export class Viewer {
   /** Hosiery & socks: skin-tight layers that follow the graded mannequin surface. */
   addShells(project, body) {
     try { this._addShells(project, body); } catch (e) { console.warn('hosiery layer failed', e); }
-    try { this.addShoes(project); } catch (e) { console.warn('shoes failed', e); }
+    try { this.addShoes(project); this.coverBody(); } catch (e) { console.warn('shoes failed', e); }
     try { this.addHats(project); } catch (e) { console.warn('hats failed', e); }
     try { this.addHair(project); } catch (e) { console.warn('hair failed', e); }
     if (!this.sim || !this.simAwake) { try { this.addBelts(project); } catch (e) { console.warn('belt failed', e); } } // a belt is put on over settled clothes
@@ -1409,7 +1409,7 @@ export class Viewer {
     const pts = [];
     if (this.sim && this.project?.mode !== 'jewelry') { const P = this.sim.pos; for (let i = 0; i < P.length; i += 3) pts.push(P[i], P[i + 1], P[i + 2]); }
     for (const m of this._shellMeshes || []) { const p = m.geometry?.attributes?.position; if (!p || !m.isMesh) continue; for (let i = 0; i < p.count; i += 2) pts.push(p.getX(i), p.getY(i), p.getZ(i)); }
-    if (!pts.length) { if (g.userData.covered) { pos.copy(rest); pos.needsUpdate = true; g.userData.covered = false; this.dirty = true; } return; }
+    if (!pts.length) { pos.copy(rest); if (this.pressInShoes(pos, rest, nor)) { pos.needsUpdate = true; g.userData.covered = true; this.dirty = true; return; } if (g.userData.covered) { pos.needsUpdate = true; g.userData.covered = false; this.dirty = true; } return; }
     const R = 0.032; const inv = 1 / R; const hash = new Map();
     const key = (x, y, z) => (x + 512) + (y + 512) * 1024 + (z + 512) * 1048576;
     for (let i = 0; i < pts.length; i += 3) { const k = key(Math.floor(pts[i] * inv), Math.floor(pts[i + 1] * inv), Math.floor(pts[i + 2] * inv)); const a = hash.get(k); if (a) a.push(i); else hash.set(k, [i]); }
@@ -1423,7 +1423,45 @@ export class Viewer {
       const k = u <= 0 ? 0 : maxIn * Math.min(1, u * 1.8) * Math.min(1, u * 1.8) * (3 - 2 * Math.min(1, u * 1.8));
       pos.setXYZ(v, x - nor.getX(v) * k, y - nor.getY(v) * k, z - nor.getZ(v) * k);
     }
+    this.pressInShoes(pos, rest, nor);
     pos.needsUpdate = true; g.userData.covered = true; this.dirty = true;
+  }
+
+  /**
+   * A foot in a shoe is inside it: wherever skin would reach the shoe's surface from inside, the soft tissue is
+   * pressed in by the upper, so it stays a few millimetres inside the lining. Only skin lying under a piece of the
+   * shoe is pressed (each skin point must project onto the surface, not past its edge), so the ankle above the collar,
+   * open toes and the gaps of a sandal are untouched. Returns true if anything was pressed.
+   */
+  pressInShoes(pos, rest, nor) {
+    const objs = this._shoeObjs || []; if (!objs.length) return false;
+    const S = []; const N = []; let yTop = -9;
+    const vv = new THREE.Vector3(); const nn = new THREE.Vector3(); const nm = new THREE.Matrix3();
+    for (const grp of objs) {
+      grp.updateMatrixWorld(true); const s0 = S.length;
+      grp.traverse((m) => { const ga = m.isMesh && m.userData.shell && m.geometry?.attributes; if (!ga?.position || !ga.normal) return; nm.getNormalMatrix(m.matrixWorld); for (let i = 0; i < ga.position.count; i++) { vv.fromBufferAttribute(ga.position, i).applyMatrix4(m.matrixWorld); nn.fromBufferAttribute(ga.normal, i).applyMatrix3(nm).normalize(); S.push(vv.x, vv.y, vv.z); N.push(nn.x, nn.y, nn.z); if (vv.y > yTop) yTop = vv.y; } });
+      // which side of each surface is the outside: the side facing away from the shoe's centre at that point
+      // along the foot (centre of the shoe's 1 cm slab there). Sole, toe box, heel counter and lining all agree.
+      const slab = new Map(); for (let i = s0; i < S.length; i += 3) { const k = Math.floor(S[i + 2] * 100); const c = slab.get(k) || [0, 0, 0, 0]; c[0] += S[i]; c[1] += S[i + 1]; c[2] += S[i + 2]; c[3]++; slab.set(k, c); }
+      for (let i = s0; i < S.length; i += 3) { const c = slab.get(Math.floor(S[i + 2] * 100)); const ox = S[i] - c[0] / c[3]; const oy = S[i + 1] - c[1] / c[3]; if (N[i] * ox + N[i + 1] * oy < 0) { N[i] = -N[i]; N[i + 1] = -N[i + 1]; N[i + 2] = -N[i + 2]; } }
+    }
+    if (!S.length) return false;
+    const C = 0.02; const inv = 1 / C; const hash = new Map(); const key = (x, y, z) => (x + 512) + (y + 512) * 1024 + (z + 512) * 1048576;
+    for (let i = 0; i < S.length; i += 3) { const k = key(Math.floor(S[i] * inv), Math.floor(S[i + 1] * inv), Math.floor(S[i + 2] * inv)); const a = hash.get(k); if (a) a.push(i); else hash.set(k, [i]); }
+    const inside = 0.003; let any = false;
+    for (let v = 0; v < rest.count; v++) {
+      const x = pos.getX(v); const y = pos.getY(v); const z = pos.getZ(v); if (y > yTop + 0.01) continue;
+      const cx = Math.floor(x * inv); const cy = Math.floor(y * inv); const cz = Math.floor(z * inv);
+      let best = -1; let bd = 0.02 * 0.02;
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) { const list = hash.get(key(cx + a, cy + b, cz + c)); if (!list) continue; for (const i of list) { const dx = x - S[i]; const dy = y - S[i + 1]; const dz = z - S[i + 2]; const q = dx * dx + dy * dy + dz * dz; if (q < bd) { bd = q; best = i; } } }
+      if (best < 0) continue;
+      const dx = x - S[best]; const dy = y - S[best + 1]; const dz = z - S[best + 2];
+      const nx = N[best]; const ny = N[best + 1]; const nz = N[best + 2];
+      const sd = dx * nx + dy * ny + dz * nz; const lat = Math.sqrt(Math.max(0, bd - sd * sd));
+      if (lat > 0.006 || sd < -inside) continue; // past the edge of the piece, or already well inside
+      const k = Math.min(0.03, sd + inside); pos.setXYZ(v, x - nor.getX(v) * k, y - nor.getY(v) * k, z - nor.getZ(v) * k); any = true;
+    }
+    return any;
   }
 
   /** Press a polyline onto the body surface (distance field of the real mannequin) at `lift` above the skin. */
