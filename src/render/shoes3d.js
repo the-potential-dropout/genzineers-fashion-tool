@@ -17,7 +17,7 @@ import { TOE_SHAPES, HEELS, CONSTRUCTIONS, SOLE_MATERIALS, METALS, LACES } from 
 
 export const NA = 64; // points round each section
 /** A closed polar section (radius per equal angle step) made convex: the hull of its points, read back along every angle. */
-function convexPolar(R) {
+export function convexPolar(R) {
   const n = R.length; const pts = R.map((r, i) => { const a = (i / n) * Math.PI * 2; return [Math.sin(a) * r, Math.cos(a) * r]; });
   const srt = pts.slice().sort((p, q) => p[0] - q[0] || p[1] - q[1]); const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); const lo = []; const hi = [];
   for (const q of srt) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
@@ -194,6 +194,22 @@ function buildLast(spec, tris, sd, seat0) {
     for (const p of ring) { const ys = seatAt(Math.max(zB, p[2])); const h = p[1] - ys; if (h < 0) { p[1] = ys; continue; } if (h >= LB) continue;
       const dx = p[0] - c[0]; const dy = p[1] - c[1]; const dz = p[2] - c[2]; const up = dy / (Math.hypot(dx, dy, dz) || 1); const w = (1 - sstep(-0.1, 0.45, up)) * (1 - sstep(0.3, 0.65, h / topH));
       const t = h / LB; p[1] = lerp(p[1], ys + LB * t * t * (2 - t), w); } } // same height and slope where the pull ends: no ridge along the side
+  // heel seat: on a last the heel stands on a flat seat out to its full outline, its sides rising almost straight from it
+  // (the foot's heel bone is round underneath). Every point of the heel is lowered by the height of the last's own
+  // surface beneath it, fading out a few cm up: the widest outline of the heel comes down onto the seat, the back and
+  // sides become the counter's near-vertical walls, and the sole, heel block and upper all meet on one edge
+  { const C = 0.002; const zEnd = zH + 0.04; let x0 = 9; let x1 = -9; for (const ring of rings) for (const p of ring) if (p[2] < zEnd) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); }
+    const nx = Math.max(1, Math.ceil((x1 - x0) / C) + 1); const nz = Math.max(1, Math.ceil((zEnd - zBack + 0.01) / C) + 1); const hb = new Float32Array(nx * nz).fill(Infinity);
+    const hOf = (p) => p[1] - seatAt(Math.max(zB, p[2]));
+    const tri = (a, b, c) => { const ha = hOf(a); const hb2 = hOf(b); const hc = hOf(c); const ix0 = Math.max(0, Math.floor((Math.min(a[0], b[0], c[0]) - x0) / C)); const ix1 = Math.min(nx - 1, Math.ceil((Math.max(a[0], b[0], c[0]) - x0) / C)); const iz0 = Math.max(0, Math.floor((Math.min(a[2], b[2], c[2]) - zBack + 0.01) / C)); const iz1 = Math.min(nz - 1, Math.ceil((Math.max(a[2], b[2], c[2]) - zBack + 0.01) / C));
+      const d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]); if (Math.abs(d) < 1e-12) return;
+      for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) { const x = x0 + ix * C; const z = zBack - 0.01 + iz * C; const l1 = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / d; const l2 = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / d; const l3 = 1 - l1 - l2; if (l1 < -0.02 || l2 < -0.02 || l3 < -0.02) continue; const h = l1 * ha + l2 * hb2 + l3 * hc; const q = ix * nz + iz; if (h < hb[q]) hb[q] = h; } };
+    for (let k = 0; k + 1 < rings.length; k++) { if (Math.min(rings[k][0][2], rings[k + 1][0][2]) > zEnd + 0.02 && st[k].kind === 2) continue; for (let i = 0; i < NA; i++) { const a = rings[k][i]; const b = rings[k][(i + 1) % NA]; const c = rings[k + 1][i]; const d2 = rings[k + 1][(i + 1) % NA]; tri(a, b, c); tri(b, d2, c); } }
+    const under = (x, z) => { const ix = Math.round((x - x0) / C); const iz = Math.round((z - zBack + 0.01) / C); if (ix >= 0 && iz >= 0 && ix < nx && iz < nz && Number.isFinite(hb[ix * nz + iz])) return hb[ix * nz + iz]; let m = Infinity; for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const qx = ix + a; const qz = iz + b; if (qx < 0 || qz < 0 || qx >= nx || qz >= nz) continue; m = Math.min(m, hb[qx * nz + qz]); } return m; };
+    const Hm = 0.035; let D = rings.map((ring) => ring.map((p) => { if (p[2] > zEnd + 0.01) return 0; const h = hOf(p); if (h > 0.12) return 0; const u = under(p[0], p[2]); if (!Number.isFinite(u) || u <= 0) return 0; const wz = 1 - sstep(zH - 0.005, zEnd, p[2]); return Math.min(u, h) * (1 - sstep(0, Hm, h - u)) * wz; }));
+    // the drop is eased over the surface (round each section and between sections) so neighbouring points move together
+    for (let it = 0; it < 6; it++) D = D.map((row, k) => row.map((d, i) => { const a = D[Math.max(0, k - 1)][i]; const b = D[Math.min(D.length - 1, k + 1)][i]; return (a + b + row[(i + 1) % NA] + row[(i - 1 + NA) % NA] + 4 * d) / 8; }));
+    for (let k = 0; k < rings.length; k++) for (let i = 0; i < NA; i++) { const p = rings[k][i]; if (D[k][i] > 0) p[1] = Math.max(seatAt(Math.max(zB, p[2])), p[1] - D[k][i]); } }
   const K = rings.length; const N = K * NA + 1;
   const tipR = rings[K - 1]; const tip = [0, 0, zTip]; for (const p of tipR) { tip[0] += p[0] / NA; tip[1] += p[1] / NA; }
   // ---- vertex arrays and per-vertex coordinates
@@ -336,13 +352,16 @@ const soleLook = (id, color) => { const m = SOLE_MATERIALS[id] || SOLE_MATERIALS
  * insole has none of it; a rubber flip-flop a little; cork-latex and moulded EVA beds all of it. Wherever the foot
  * stands over it the bed is held 1.2 mm under the skin of the sole, so it is shaped to the foot and never through it.
  */
-function footbedShape(spec, G, zs, L, R, top) {
+function footbedShape(spec, G, zs, L, R, top, closed = false) {
   const insole = spec.insole;
-  const A = spec.midsole === 'cork' || insole === 'cork-leather' || insole === 'moulded-cork' ? 1 : spec.construction === 'moulded' && spec.straps !== 'thong' ? 0.7 : spec.straps === 'thong' || spec.outsole === 'eva' ? 0.35 : insole === 'eva-ortholite' || insole === 'memory-foam' ? 0.45 : 0;
+  // inside a closed shoe: a leather sock lies flat on the insole; a removable foam insole has a heel cup and arch and its own
+  // thickness (4 mm at the heel, 3 at the ball); shearling is a deep pile
+  const base = closed ? ({ 'eva-ortholite': 0.0035, 'memory-foam': 0.004, shearling: 0.004, 'cork-leather': 0.003, 'moulded-cork': 0.003 }[insole] || 0.0008) : 0;
+  const A = closed ? ({ 'eva-ortholite': 0.45, 'memory-foam': 0.5, shearling: 0.2, 'cork-leather': 0.75, 'moulded-cork': 0.75 }[insole] || 0) : spec.midsole === 'cork' || insole === 'cork-leather' || insole === 'moulded-cork' ? 1 : spec.construction === 'moulded' && spec.straps !== 'thong' ? 0.7 : spec.straps === 'thong' || spec.outsole === 'eva' ? 0.35 : insole === 'eva-ortholite' || insole === 'memory-foam' ? 0.45 : 0;
   const n = zs.length; const NU = 25; const msign = G.sd > 0 ? -1 : 1; // u = -1 on the L edge; medial is toward the body's centre
   // the underside of the foot as a height field (1 cm cells), read by vertical rays
   const T = G.tris; const C = 0.01; const cells = new Map();
-  if (A > 0 && T) for (let t = 0; t < T.length; t += 9) { if (Math.max(T[t + 1], T[t + 4], T[t + 7]) > top[0] + 0.08) continue; const x0 = Math.floor(Math.min(T[t], T[t + 3], T[t + 6]) / C); const x1 = Math.floor(Math.max(T[t], T[t + 3], T[t + 6]) / C); const z0 = Math.floor(Math.min(T[t + 2], T[t + 5], T[t + 8]) / C); const z1 = Math.floor(Math.max(T[t + 2], T[t + 5], T[t + 8]) / C); for (let a = x0; a <= x1; a++) for (let b = z0; b <= z1; b++) { const k = a * 4096 + b; if (!cells.has(k)) cells.set(k, []); cells.get(k).push(t); } }
+  if ((A > 0 || base > 0) && T) for (let t = 0; t < T.length; t += 9) { if (Math.max(T[t + 1], T[t + 4], T[t + 7]) > top[0] + 0.08) continue; const x0 = Math.floor(Math.min(T[t], T[t + 3], T[t + 6]) / C); const x1 = Math.floor(Math.max(T[t], T[t + 3], T[t + 6]) / C); const z0 = Math.floor(Math.min(T[t + 2], T[t + 5], T[t + 8]) / C); const z1 = Math.floor(Math.max(T[t + 2], T[t + 5], T[t + 8]) / C); for (let a = x0; a <= x1; a++) for (let b = z0; b <= z1; b++) { const k = a * 4096 + b; if (!cells.has(k)) cells.set(k, []); cells.get(k).push(t); } }
   const footY = (x, z) => { const list = cells.get(Math.floor(x / C) * 4096 + Math.floor(z / C)); if (!list) return Infinity; let best = Infinity;
     for (const t of list) { const ax = T[t]; const az = T[t + 2]; const bx = T[t + 3]; const bz = T[t + 5]; const cx = T[t + 6]; const cz = T[t + 8]; const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz); if (Math.abs(d) < 1e-12) continue; const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d; const l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d; const l3 = 1 - l1 - l2; if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue; const y = l1 * T[t + 1] + l2 * T[t + 4] + l3 * T[t + 7]; if (y < best) best = y; }
     return best; };
@@ -354,7 +373,7 @@ function footbedShape(spec, G, zs, L, R, top) {
     const latArch = 0.004 * g(f, 0.45, 0.1) * sstep(0.2, 0.9, -um);
     const met = 0.003 * g(f, 0.63, 0.06) * g(u, 0, 0.4);
     const bar = 0.006 * g(f, 0.8, 0.035) * (1 - sstep(0.55, 0.9, au));
-    return A * (cup + side + arch + latArch + met + bar); };
+    return base * lerp(1, 0.78, sstep(0.3, 0.7, f)) + A * (cup + side + arch + latArch + met + (closed ? 0 : bar)); };
   const H = []; const lim = []; // [i][q], q = 0..NU-1 across from L to R; lim: how high the foot allows
   for (let i = 0; i < n; i++) { const row = []; const lr = []; const f = (zs[i] - G.zB) / G.Lf;
     for (let q = 0; q < NU; q++) { const u = (q / (NU - 1)) * 2 - 1; const x = L[i] + (R[i] - L[i]) * (q / (NU - 1)); const h = design(f, u);
@@ -405,7 +424,11 @@ function buildBottom(spec, G, group, upperColor) {
     const outBy = new Float32Array(M); for (const q of ev) { let bi = 0; let bd = 9; for (let i = 0; i < M; i++) { const d = Math.hypot(q[0] - sm[i][0], q[1] - sm[i][1]); if (d < bd) { bd = d; bi = i; } } const o = (q[0] - sm[bi][0]) * nrm[bi][0] + (q[1] - sm[bi][1]) * nrm[bi][1]; if (o > outBy[bi]) outBy[bi] = o; }
     // one even set-out all round (the welt or sole edge projection), enough to cover the upper's edge everywhere it can
     const ob = Array.from(outBy).sort((p, q) => p - q); const off = ext + Math.min(0.001, ob[Math.floor(ob.length * 0.5)] || 0);
-    sm = sm.map((q, i) => [q[0] + nrm[i][0] * off, q[1] + nrm[i][1] * off]);
+    // where the smoothing drew the curve inside the upper's real edge (round a tight heel), it is set out by that much
+    // more there, eased along the edge, so the sole always covers the feather edge
+    const need = new Float32Array(M); { const wd = Math.max(1, Math.round(win / 2)); for (let i = 0; i < M; i++) { let m = 0; for (let d = -wd; d <= wd; d++) m = Math.max(m, outBy[(i + d + M) % M]); need[i] = m; } }
+    const extra = Array.from(need, (_, i) => { let a = 0; let w = 0; for (let d = -win; d <= win; d++) { const wt = 1 - Math.abs(d) / (win + 1); a += need[(i + d + M) % M] * wt; w += wt; } return Math.max(0, a / w - off + ext); });
+    sm = sm.map((q, i) => [q[0] + nrm[i][0] * (off + extra[i]), q[1] + nrm[i][1] * (off + extra[i])]);
     // each side of the sole read as its own edge from heel to toe, kept monotone along the foot
     const iMin = sm.reduce((bi, q, i) => (q[1] < sm[bi][1] ? i : bi), 0); const iMax = sm.reduce((bi, q, i) => (q[1] > sm[bi][1] ? i : bi), 0);
     const chain = (dir) => { const c = []; let zz = -9; for (let i = iMin; ; i = (i + dir + M) % M) { const q = sm[i]; if (q[1] > zz) { c.push(q); zz = q[1]; } if (i === iMax) break; } return c; };
@@ -448,23 +471,67 @@ function buildBottom(spec, G, group, upperColor) {
     sculpt: [[0, 0.0026], [0.1, 0.0008], [0.3, 0.0002], [0.55, -0.0012], [0.8, -0.0026], [0.93, -0.0022], [1, -0.0008]], // foam midsole flaring out to the ground
     round: [[0, 0.0016], [0.1, 0.0004], [0.3, 0], [0.7, 0], [0.9, 0.0005], [1, 0.0018]],
   };
-  const wall = (yA, yB, prof = PROF.square) => { const pos = []; const idx = []; const m = prof.length;
-    for (let i = 0; i < n; i++) for (const side of [0, 1]) for (const [v, ins] of prof) { const nn = side ? nrmR[i] : nrmL[i]; const x0 = side ? R[i] : L[i]; const hw = (R[i] - L[i]) / 2; const k = Math.min(ins, hw * 0.6); pos.push(x0 + nn[0] * k, yA(i, side) + (yB(i, side) - yA(i, side)) * v, zs[i] + nn[1] * k); }
+  // where a separate heel is attached the sole's edge is cut square and flush with it: no roll-under over the heel seat
+  const zBrS = (HEELS[spec.heel] || HEELS.flat).breast * G.L; const heelFlush = zs.map((z, i) => (unit ? 1 : sstep(zBrS - 0.002, zBrS + 0.02, zr[i])));
+  const wall = (yA, yB, prof = PROF.square, flush = false) => { const pos = []; const idx = []; const m = prof.length;
+    for (let i = 0; i < n; i++) for (const side of [0, 1]) for (const [v, ins] of prof) { const nn = side ? nrmR[i] : nrmL[i]; const x0 = side ? R[i] : L[i]; const hw = (R[i] - L[i]) / 2; const k = Math.min(ins, hw * 0.6) * (flush && v > 0.4 ? heelFlush[i] : 1); pos.push(x0 + nn[0] * k, yA(i, side) + (yB(i, side) - yA(i, side)) * v, zs[i] + nn[1] * k); }
     for (let i = 0; i + 1 < n; i++) for (const side of [0, 1]) for (let q = 0; q + 1 < m; q++) { const a = (i * 2 + side) * m + q; const b = ((i + 1) * 2 + side) * m + q; if (side) idx.push(a, a + 1, b, a + 1, b + 1, b); else idx.push(a, b, a + 1, a + 1, b, b + 1); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return g; };
   const capG = (y, up) => { const pos = []; const idx = []; for (let i = 0; i < n; i++) pos.push(L[i], y(i), zs[i], R[i], y(i), zs[i]); for (let i = 0; i + 1 < n; i++) { const a = i * 2; if (up) idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); else idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return g; };
   const runner = spec.midsole === 'eva' && unit && (spec.rocker || spec.toeSpring > 1.1 || /chunky|runner|trainer/.test(spec.type));
   const footbed = new THREE.MeshStandardMaterial({ color: spec.liningColor || (spec.midsole === 'cork' ? '#8a6a4a' : '#c9a27a'), roughness: spec.midsole === 'cork' ? 0.95 : 0.8, side: THREE.DoubleSide });
   for (const b of bands) if (!b[0]) b[0] = footbed;
-  bands.forEach(([mat, yA, yB], bi) => { const last = bi === bands.length - 1; const prof = mat === weltMat ? PROF.square : last ? (spec.outsole === 'leather' ? PROF.square : PROF.bevel) : foxUp && !runner ? PROF.cup : runner ? PROF.sculpt : spec.outsole === 'leather' || spec.midsole === 'leather' ? PROF.square : PROF.round; group.add(shell(new THREE.Mesh(wall(yA, yB, bands.length === 1 && spec.outsole !== 'leather' ? PROF.round : prof), mat))); });
-  { const m = shell(new THREE.Mesh(bed ? bed.geometry(0.0002) : capG((i) => top[i] + 0.0002, true), spec.cut === 'open' ? footbed : weltT ? weltMat : midMat)); if (bed) m.userData.footbed = true; group.add(m); }
+  bands.forEach(([mat, yA, yB], bi) => { const last = bi === bands.length - 1; const prof = mat === weltMat ? PROF.square : last ? (spec.outsole === 'leather' ? PROF.square : PROF.bevel) : foxUp && !runner ? PROF.cup : runner ? PROF.sculpt : spec.outsole === 'leather' || spec.midsole === 'leather' ? PROF.square : PROF.round; group.add(shell(new THREE.Mesh(wall(yA, yB, bands.length === 1 && spec.outsole !== 'leather' ? PROF.round : prof, last), mat))); });
+  // the insole board's top: leather on welted and Blake shoes, a non-woven sock on strobel, board on cemented and moulded
+  const insoleMat = new THREE.MeshStandardMaterial({ color: C.welt || spec.construction === 'blake' || spec.construction === 'stitchdown' ? '#a9794b' : spec.construction === 'strobel' ? '#d9d6cf' : '#b9ad97', roughness: 0.9, side: THREE.DoubleSide });
+  { const m = shell(new THREE.Mesh(bed ? bed.geometry(0.0002) : capG((i) => top[i] + 0.0002, true), spec.cut === 'open' ? footbed : insoleMat)); if (bed) m.userData.footbed = true; group.add(m); }
+  // ---- inside a closed shoe: what the foot stands on, laid over the insole inside the upper's edge (the lasting margin
+  // and lining take about 1.6 mm past the feather edge)
+  if (spec.cut !== 'open' && spec.insole && spec.insole !== 'none') {
+    const inset = ext + 0.0016; const I = []; for (let i = 0; i < n; i++) if (zs[i] >= zs[0] + inset && zs[i] <= zs[n - 1] - inset && R[i] - L[i] > 2 * inset + 0.004) I.push(i);
+    if (I.length > 8) {
+      const zsI = I.map((i) => zs[i]); const LI = I.map((i) => L[i] + inset); const RI = I.map((i) => R[i] - inset); const topI = I.map((i) => top[i]); const m = I.length;
+      const sock = footbedShape(spec, G, zsI, LI, RI, topI, true); const NU = sock.NU; const Hs = sock.H; const lift = 0.0004;
+      const kind = spec.sock || 'full';
+      const col = spec.liningColor || (kind === 'half' ? '#dcc3a0' : null) || { 'eva-ortholite': '#34363b', 'memory-foam': '#4b525c', shearling: '#efe6d2', 'cork-leather': '#8a6a4a', 'moulded-cork': '#8a6a4a' }[spec.insole] || '#c9a27a';
+      const sockMat = new THREE.MeshStandardMaterial({ color: col, roughness: spec.insole === 'shearling' ? 1 : kind === 'removable' ? 0.92 : 0.7, side: THREE.DoubleSide });
+      const at = (x, z) => { if (z <= zsI[0] || z >= zsI[m - 1]) return null; let lo = 0; let hi = m - 1; while (hi - lo > 1) { const md = (lo + hi) >> 1; if (zsI[md] <= z) lo = md; else hi = md; } const t = (z - zsI[lo]) / (zsI[hi] - zsI[lo] || 1); const Lx = LI[lo] + (LI[hi] - LI[lo]) * t; const Rx = RI[lo] + (RI[hi] - RI[lo]) * t; const fu = Math.max(0, Math.min(NU - 1.0001, ((x - Lx) / Math.max(1e-6, Rx - Lx)) * (NU - 1))); const q = Math.floor(fu); const sq = fu - q; const h0 = Hs[lo][q] * (1 - sq) + Hs[lo][q + 1] * sq; const h1 = Hs[hi][q] * (1 - sq) + Hs[hi][q + 1] * sq; return topI[lo] + (topI[hi] - topI[lo]) * t + h0 * (1 - t) + h1 * t + lift; };
+      // the half sock of a welted or Blake shoe covers the heel to a curved front edge; the insole leather shows in front
+      const zCut = kind === 'half' ? G.zBack + 0.45 * G.L : Infinity; const iCut = kind === 'half' ? Math.max(4, zsI.findIndex((z) => z > zCut) - 1) : m - 1;
+      const pos = []; const idx = []; const yAt = (j, q) => topI[j] + Hs[j][q] + lift;
+      for (let j = 0; j <= iCut; j++) for (let q = 0; q < NU; q++) { const u = (q / (NU - 1)) * 2 - 1; let z = zsI[j]; if (kind === 'half' && j === iCut) z += 0.012 * (1 - u * u); pos.push(LI[j] + (RI[j] - LI[j]) * (q / (NU - 1)), yAt(j, q), z); }
+      for (let j = 0; j < iCut; j++) for (let q = 0; q + 1 < NU; q++) { const a = j * NU + q; const b = a + NU; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+      // its edge has thickness all round (a foam insole shows a clear wall; leather a thin cut edge)
+      const per = []; for (let q = 0; q < NU; q++) per.push([0, q]); for (let j = 1; j <= iCut; j++) per.push([j, NU - 1]); for (let q = NU - 2; q >= 0; q--) per.push([iCut, q]); for (let j = iCut - 1; j >= 1; j--) per.push([j, 0]);
+      const w0 = pos.length / 3; for (const [j, q] of per) { const v = (j * NU + q) * 3; pos.push(pos[v], pos[v + 1], pos[v + 2], pos[v], topI[j] + 0.0002, pos[v + 2]); }
+      for (let k = 0; k < per.length; k++) { const a = w0 + k * 2; const b = w0 + ((k + 1) % per.length) * 2; idx.push(a, a + 1, b, b, a + 1, b + 1); }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+      const sm = new THREE.Mesh(geo, sockMat); sm.userData.footbed = true; shell(sm); group.add(sm);
+      const lineMat2 = (c, dashed) => (dashed ? new THREE.LineDashedMaterial({ color: c, dashSize: 0.0024, gapSize: 0.0012 }) : new THREE.LineBasicMaterial({ color: c }));
+      const pathOn = (pts, c, dashed) => { const P3 = pts.map(([x, z]) => { const y = at(x, z); return y == null ? null : new THREE.Vector3(x, y + 0.0009, z); }).filter(Boolean); if (P3.length < 2) return; const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(P3), lineMat2(c, dashed)); if (dashed) ln.computeLineDistances(); group.add(ln); };
+      const darker = new THREE.Color(col).multiplyScalar(0.55).getStyle();
+      if (kind === 'half') { // stitched 4 mm in from its edge, round the heel and across the front
+        const e = 0.004; const pts = []; for (let j = iCut; j >= 0; j--) pts.push([LI[j] + e, zsI[j] + (j === 0 ? e : 0)]); for (let j = 0; j <= iCut; j++) pts.push([RI[j] - e, zsI[j] + (j === 0 ? e : 0)]);
+        for (let q = NU - 2; q >= 1; q--) { const u = (q / (NU - 1)) * 2 - 1; pts.push([LI[iCut] + (RI[iCut] - LI[iCut]) * (q / (NU - 1)), zsI[iCut] + 0.012 * (1 - u * u) - e]); }
+        pts.push(pts[0]); pathOn(pts, spec.stitchColor || darker, true);
+        // the cut front edge, skived thin
+        const fe = []; for (let q = 0; q < NU; q++) { const u = (q / (NU - 1)) * 2 - 1; fe.push(new THREE.Vector3(LI[iCut] + (RI[iCut] - LI[iCut]) * (q / (NU - 1)), yAt(iCut, q) + 0.0006, zsI[iCut] + 0.012 * (1 - u * u))); } group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(fe), lineMat2(darker, false)));
+      }
+      if (kind === 'removable') { // perforated forefoot and a printed panel at the heel
+        const dots = []; const f0 = G.zB + 0.6 * G.Lf; const f1 = G.zB + 0.9 * G.Lf; let row = 0;
+        for (let z = f0; z < f1; z += 0.0065, row++) { const j = zsI.findIndex((q) => q >= z); if (j < 1) continue; const lx = LI[j]; const rx = RI[j]; for (let x = lx + 0.009 + (row % 2) * 0.00325; x < rx - 0.009; x += 0.0065) { const y = at(x, z); if (y == null) continue; const c = new THREE.CircleGeometry(0.0008, 8); c.rotateX(-Math.PI / 2); c.translate(x, y + 0.0003, z); dots.push(c); } }
+        if (dots.length) group.add(new THREE.Mesh(merge(dots), new THREE.MeshBasicMaterial({ color: '#151515' })));
+        const zh = G.zB + 0.1 * G.Lf; const j = zsI.findIndex((q) => q >= zh); if (j > 0) { const cx = (LI[j] + RI[j]) / 2; const hw = (RI[j] - LI[j]) * 0.28; const hl = 0.016; const pts = []; for (let a = 0; a <= 40; a++) { const th = (a / 40) * Math.PI * 2; const ct = Math.cos(th); const st2 = Math.sin(th); const k = 6; pts.push([cx + hw * Math.sign(ct) * Math.pow(Math.abs(ct), 2 / k), zh + hl * Math.sign(st2) * Math.pow(Math.abs(st2), 2 / k)]); } pathOn(pts, new THREE.Color(col).lerp(new THREE.Color('#ffffff'), 0.45).getStyle(), false); }
+      }
+    }
+  }
   if (bed) group.userData.bed = { zs: zs.slice(), L: L.slice(), R: R.slice(), top: top.slice(), H: bed.H, NU: bed.NU }; // what the bare foot stands on
   if (foxUp) { // the rim of a cup sole / foxing closes onto the upper
     const rim = []; const ri = []; for (let i = 0; i < n; i++) { const c = (L[i] + R[i]) / 2; const wI = Math.max(0, (R[i] - L[i]) / 2 - ext - 0.0005); rim.push(L[i], top[i] + foxUp, zs[i], c - wI, top[i] + foxUp - 0.001, zs[i], R[i], top[i] + foxUp, zs[i], c + wI, top[i] + foxUp - 0.001, zs[i]); }
     for (let i = 0; i + 1 < n; i++) { const a = i * 4; const b = a + 4; ri.push(a, a + 1, b, a + 1, b + 1, b, a + 2, b + 2, a + 3, a + 3, b + 2, b + 3); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(rim, 3)); g.setIndex(ri); g.computeVertexNormals(); group.add(new THREE.Mesh(g, midMat));
   }
-  { const k = spec.outsole === 'leather' ? 0.0007 : 0.0032; const L0 = L.slice(); const R0 = R.slice(); const z0 = zs.slice(); for (let i = 0; i < n; i++) { const hw = (R0[i] - L0[i]) / 2; const q = Math.min(k, hw * 0.6); L[i] = L0[i] + nrmL[i][0] * q; R[i] = R0[i] + nrmR[i][0] * q; }
+  { const k = spec.outsole === 'leather' ? 0.0007 : 0.0032; const L0 = L.slice(); const R0 = R.slice(); const z0 = zs.slice(); for (let i = 0; i < n; i++) { const hw = (R0[i] - L0[i]) / 2; const q = Math.min(k, hw * 0.6) * heelFlush[i]; L[i] = L0[i] + nrmL[i][0] * q; R[i] = R0[i] + nrmR[i][0] * q; }
     group.add(shell(new THREE.Mesh(capG((i) => bot[i] + recess, false), outsoleMat))); for (let i = 0; i < n; i++) { L[i] = L0[i]; R[i] = R0[i]; zs[i] = z0[i]; } }
   const lineMat = (col) => new THREE.LineBasicMaterial({ color: col });
   const loop = (y, col, inset = 0) => { const pts = []; for (let i = 0; i < n; i++) pts.push(new THREE.Vector3(L[i] + inset - 0.0003, y(i), zs[i])); for (let i = n - 1; i >= 0; i--) pts.push(new THREE.Vector3(R[i] - inset + 0.0003, y(i), zs[i])); pts.push(pts[0]); return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat(col)); };
@@ -490,18 +557,21 @@ function buildBottom(spec, G, group, upperColor) {
   // ---- heel
   if (!unit) {
     const zBr = H.breast * G.L; const ring = []; // planform of the heel seat
-    for (let i = 0; i < n; i++) if (zr[i] <= zBr) ring.push([L[i] + 0.0006, zs[i], i]);
+    for (let i = 0; i < n; i++) if (zr[i] <= zBr) ring.push([L[i], zs[i], i]);
     const lastI = ring[ring.length - 1][2];
-    { const xa = L[lastI] + 0.0006; const xb = R[lastI] - 0.0006; const dip = H.pin ? 0.002 : Math.min(0.007, (xb - xa) * 0.11); for (let q = 1; q < 12; q++) { const t = q / 12; ring.push([xa + (xb - xa) * t, zs[lastI] - dip * Math.sin(Math.PI * t), lastI]); } } // the breast is cut in a curve
-    for (let i = lastI; i >= 0; i--) ring.push([R[i] - 0.0006, zs[i], i]);
+    { const xa = L[lastI]; const xb = R[lastI]; const dip = H.pin ? 0.002 : Math.min(0.007, (xb - xa) * 0.11); for (let q = 1; q < 12; q++) { const t = q / 12; ring.push([xa + (xb - xa) * t, zs[lastI] - dip * Math.sin(Math.PI * t), lastI]); } } // the breast is cut in a curve
+    for (let i = lastI; i >= 0; i--) ring.push([R[i], zs[i], i]);
     const cxh = (L[lastI] + R[lastI]) / 2; const zc = lerp(zs[0], G.zBack + zBr, H.pin ? 0.42 : 0.5);
     const Hh = Math.max(...ring.map((q) => bot[q[2]]));
-    const levels = 18; const liftH = Math.min(0.006, Hh * 0.2);
+    const levels = H.pin ? 30 : 18; const liftH = Math.min(0.006, Hh * 0.2);
+    // how the heel narrows from the seat (v = 0) to the top piece (v = 1): a block or stacked heel tapers evenly; a pin heel
+    // leaves the seat at its full outline (no step under the shoe) and draws in to the pin in one concave curve
+    const heelS = (v) => (H.pin ? 1 - H.taper * (1 - Math.exp(-Math.pow(v / 0.32, 2))) / (1 - Math.exp(-Math.pow(1 / 0.32, 2))) : 1 - H.taper * v);
     const mk = (v0, v1, mat, nl) => { const pos = []; const idx = []; const m = ring.length;
-      for (let q = 0; q <= nl; q++) { const v = lerp(v0, v1, q / nl); const s = H.flare ? 1 - H.taper * Math.sin(Math.PI * Math.min(1, v * 1.15)) * 0.9 - H.taper * 0.15 * v : 1 - H.taper * Math.pow(v, H.pin ? 0.5 : 1); const sh = (H.slant || 0) * Hh * 0.45 * v; for (const [x, z, i] of ring) pos.push(cxh + (x - cxh) * s, bot[i] * (1 - v), zc + (z - zc) * s + sh); }
+      for (let q = 0; q <= nl; q++) { const v = lerp(v0, v1, q / nl); const s = H.flare ? 1 - H.taper * Math.sin(Math.PI * Math.min(1, v * 1.15)) * 0.9 - H.taper * 0.15 * v : heelS(v); const sh = (H.slant || 0) * Hh * 0.45 * v; for (const [x, z, i] of ring) pos.push(cxh + (x - cxh) * s, bot[i] * (1 - v), zc + (z - zc) * s + sh); }
       for (let q = 0; q < nl; q++) for (let a = 0; a < m; a++) { const b = (a + 1) % m; const p0 = q * m + a; const p1 = q * m + b; const p2 = p0 + m; const p3 = p1 + m; idx.push(p0, p1, p2, p1, p3, p2); }
-      const base0 = pos.length / 3; { const v = v1; const s = H.flare ? 1 - H.taper * Math.sin(Math.PI * Math.min(1, v * 1.15)) * 0.9 - H.taper * 0.15 * v : 1 - H.taper * Math.pow(v, H.pin ? 0.5 : 1); const sh = (H.slant || 0) * Hh * 0.45 * v; for (const [x, z, i] of ring) pos.push(cxh + (x - cxh) * s, bot[i] * (1 - v), zc + (z - zc) * s + sh); }
-      const cI = pos.length / 3; { const v = v1; const s = H.flare ? 1 - H.taper * Math.sin(Math.PI * Math.min(1, v * 1.15)) * 0.9 - H.taper * 0.15 * v : 1 - H.taper * Math.pow(v, H.pin ? 0.5 : 1); pos.push(cxh, 0, zc + (H.slant || 0) * Hh * 0.45 * v + s * 0); for (let a = 0; a < m; a++) idx.push(base0 + a, base0 + (a + 1) % m, cI); }
+      const base0 = pos.length / 3; { const v = v1; const s = H.flare ? 1 - H.taper * Math.sin(Math.PI * Math.min(1, v * 1.15)) * 0.9 - H.taper * 0.15 * v : heelS(v); const sh = (H.slant || 0) * Hh * 0.45 * v; for (const [x, z, i] of ring) pos.push(cxh + (x - cxh) * s, bot[i] * (1 - v), zc + (z - zc) * s + sh); }
+      const cI = pos.length / 3; { const v = v1; const s = H.flare ? 1 - H.taper * Math.sin(Math.PI * Math.min(1, v * 1.15)) * 0.9 - H.taper * 0.15 * v : heelS(v); pos.push(cxh, 0, zc + (H.slant || 0) * Hh * 0.45 * v + s * 0); for (let a = 0; a < m; a++) idx.push(base0 + a, base0 + (a + 1) % m, cI); }
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals(); return new THREE.Mesh(g, mat); };
     const hm = spec.heelMaterial && spec.heelMaterial !== 'auto' ? spec.heelMaterial : H.pin || H.flare || spec.cut === 'pump' ? 'covered' : spec.outsole === 'leather' || spec.midsole === 'leather' || C.welt ? 'stacked-leather' : spec.outsole;
     const heelMat = hm === 'covered' ? new THREE.MeshPhysicalMaterial({ color: upperColor, roughness: 0.4, clearcoat: 0.2, side: THREE.DoubleSide }) : soleLook(hm, hm === 'stacked-leather' ? (spec.weltColor || null) : spec.outsoleColor);
@@ -592,9 +662,14 @@ export function buildShoe(spec, tris, sd, mats) {
   // ---- lay a piece: surface, lining side, cut edge, stitching
   const edgeT = spec.collar === 'padded' ? 0.0045 : spec.cut === 'open' ? 0.0022 : 0.0026;
   const pieces = [];
+  // the last's bottom (what faces down near the seat, the waist under the arch included) is under the insole: no upper or
+  // lining is drawn there; positive above it
+  const underLast = (v) => hr[v] - 0.0006 - 0.02 * sstep(0.78, 0.95, -G.Nn[v * 3 + 1]);
   const lay = (id, mask, layer, { stitch = true, edge = true, bulge = 0, rowsN = spec.stitchRows, matId = id, keep = null } = {}) => {
     const off = bulge ? (a, b, t) => { const m = mask[a] + (mask[b] - mask[a]) * t; return 0.0009 * layer + bulge * Math.sin(Math.PI * Math.max(0, Math.min(1, m / (bulge * 7)))); } : 0.0009 * layer;
-    const c = clip(G, mask, off); if (!c.pos.length) return null;
+    // a closed upper is lasted under the insole: from inside only the insole shows, so the piece ends at the feather edge
+    const cm = spec.cut !== 'open' ? M((v) => Math.min(mask[v], underLast(v))) : mask;
+    const c = clip(G, cm, off); if (!c.pos.length) return null;
     const mesh = new THREE.Mesh(geoOf(c), mats.part(matId)); mesh.renderOrder = layer; shell(mesh); group.add(mesh); pieces.push(id);
     const col = new THREE.Color(mats.colorOf(matId));
     if (edge) for (const line of isoLines(G, mask, 0.0002, 0.0009 * layer + 0.0003, keep)) group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(line.map((q) => q.p)), new THREE.LineBasicMaterial({ color: col.clone().multiplyScalar(0.42) })));
@@ -612,7 +687,8 @@ export function buildShoe(spec, tris, sd, mats) {
       const m = prof.length; for (let a = 0; a < SEG; a++) for (let q = 0; q + 1 < m; q++) { const i0 = a * m + q; const i1 = ((a + 1) % SEG) * m + q; idx.push(i0, i0 + 1, i1, i1, i0 + 1, i1 + 1); }
       const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals(); g.push(geo); }
     const vm = mats.part(baseId).clone(); vm.side = THREE.DoubleSide; group.add(new THREE.Mesh(merge(g), vm)); }
-  if (spec.cut !== 'open') { const c = clip(G, exist, -edgeT); const lm = new THREE.MeshStandardMaterial({ color: spec.liningColor || '#c9a27a', roughness: 0.85, side: THREE.DoubleSide }); if (part('lining')?.fabric && /shearling|fur/.test(part('lining').fabric)) lm.color.set(part('lining').color || '#efe6d2'); group.add(shell(new THREE.Mesh(geoOf(c), lm))); }
+  // the lining ends at the feather edge: the floor inside is the sock
+  if (spec.cut !== 'open') { const c = clip(G, spec.insole && spec.insole !== 'none' ? M((v) => Math.min(exist[v], underLast(v) + 0.012)) : exist, -edgeT); const lm = new THREE.MeshStandardMaterial({ color: spec.liningColor || '#c9a27a', roughness: 0.85, side: THREE.DoubleSide }); if (part('lining')?.fabric && /shearling|fur/.test(part('lining').fabric)) lm.color.set(part('lining').color || '#efe6d2'); group.add(shell(new THREE.Mesh(geoOf(c), lm))); }
   { // top-line rim: the cut edge has thickness
     const rim = []; const rn = [];
     for (const line of isoLines(G, baseMask, 0, 0)) for (let q = 0; q + 1 < line.length; q++) { const a = line[q]; const b = line[q + 1]; const ai = a.p.clone().addScaledVector(a.n, -edgeT); const bi = b.p.clone().addScaledVector(b.n, -edgeT); for (const p of [a.p, b.p, ai, b.p, bi, ai]) rim.push(p.x, p.y, p.z); const nn = new THREE.Vector3().subVectors(b.p, a.p).cross(a.n).normalize(); for (let s = 0; s < 6; s++) rn.push(nn.x, nn.y, nn.z); }

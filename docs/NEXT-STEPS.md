@@ -1,6 +1,6 @@
 # Next steps
 
-Working list for the cloth simulation and assembly work. Updated 2026-11-16 (v0.11.4).
+Working list for the cloth simulation and assembly work. Updated 2026-11-16 (v0.11.5).
 
 Standing rules for all of it: full quality, nothing simplified; every product assembled from its real
 components the way it is made; physics from material properties; core features work without AI; the
@@ -99,6 +99,32 @@ site stays fully static.
   through); the heel strap is one moulded band round the back of the heel on two rivets through the side walls.
 - **Wooden clog:** one carved wooden base on a 4.5 mm rubber sole, the upper nailed along its edge (a staple crown every
   14 mm). New construction: nailed to a wooden base.
+
+### Heels joined to the shoe (v0.11.5)
+- **Flat heel seat on the last:** the foot's heel bone is round underneath, so the last's heel used to curve up from the
+  seat (on a pump it was 8.6 cm high 2 cm from the back) and the sole and heel narrowed to a point behind it while the
+  upper hung a centimetre over each side. Each point of the heel is now lowered by the height of the last's surface
+  beneath it (eased over the surface, fading out a few cm up): the heel stands on a flat seat out to its full outline
+  and the counter's walls come straight down onto the sole.
+- **Sole covers the feather edge everywhere:** where the 6 cm smoothing drew the outline inside the upper (tight heel
+  curves) it is set out by that much more there.
+- **Heel flush with the sole:** the heel's top is cut to the sole's exact outline, and over the heel seat the sole edge
+  is square (no roll-under groove). Pin heels (stiletto, kitten) leave the seat at its full outline and draw in to the
+  pin in one concave curve instead of pinching straight under it.
+
+### Inside the shoe (v0.11.5)
+- **What the foot stands on inside a closed shoe** is built by type (Footbed option, default by type): a calf half sock
+  over the heel, stitched round its edge with a skived front edge, on welted and Blake shoes (the natural leather insole
+  shows in front); a full calf sock on cemented dress shoes; a removable moulded EVA or memory-foam insole on sneakers
+  and boots with a unit sole (4 mm at the heel, 3 at the ball, heel cup and arch, a visible edge, perforated forefoot and
+  a printed heel panel); shearling in shearling shoes. Shaped to the foot and kept 1.2 mm under it.
+- **Upper and lining are lasted under the insole:** they end at the feather edge (the last's downward-facing bottom,
+  the hollow under the arch included), so from inside only the insole and sock show.
+- **Insole board** coloured by what it is: leather on welted, Blake and stitchdown shoes, a non-woven sock on strobel,
+  board on cemented.
+- **Cut list:** half sock, full sock or removable insole, and the cork-latex bottom filler on welted shoes.
+- **Fixed a v0.11.4 regression:** a comment added mid-line in the viewer cut off the rest of that line, so the step
+  that keeps feet inside closed shoes stopped running (it threw at runtime; the build still passed).
 
 ### Tests (`npm test`)
 `jitter-test` (settled cloth is still), `layer-test` (layers never cross, tucked or not), `pull-test` (seams hold,

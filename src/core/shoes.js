@@ -264,7 +264,7 @@ export const SHOE_OPTIONS = {
   collar: { label: 'Collar', type: 'select', values: ['type-default', 'plain', 'padded', 'rolled', 'fur-cuff'], default: 'type-default' },
   lining: { label: 'Lining', type: 'select', values: ['calf', 'pigskin', 'textile-mesh', 'canvas', 'shearling', 'waterproof-membrane', 'unlined'], default: 'calf' },
   liningColor: { label: 'Lining colour', type: 'color', default: '#c9a27a' },
-  insole: { label: 'Footbed', type: 'select', values: ['leather-sock', 'cork-leather', 'eva-ortholite', 'memory-foam', 'shearling', 'moulded-cork', 'none'], default: 'leather-sock' },
+  insole: { label: 'Footbed', type: 'select', values: ['type-default', 'leather-sock', 'cork-leather', 'eva-ortholite', 'memory-foam', 'shearling', 'moulded-cork', 'none'], default: 'type-default' },
   toePuff: { label: 'Toe stiffener', type: 'select', values: ['auto', 'none (unstructured)', 'thermoplastic', 'leather', 'celastic', 'steel toe cap (200 J)', 'composite toe cap', 'alloy toe cap'], default: 'auto' },
   shank: { label: 'Shank', type: 'select', values: ['auto', 'none', 'steel', 'fibreglass', 'wood', 'leather', 'nylon'], default: 'auto' },
   pullLoop: { label: 'Heel pull loop', type: 'select', values: ['type-default', 'no', 'yes'], default: 'type-default' },
@@ -309,6 +309,11 @@ export function shoeSpec(o) {
   s.stitchRows = o.stitchRows && o.stitchRows !== 'auto' ? Number(o.stitchRows) : t.rows4 ? 4 : /boot/.test(o.type) ? 2 : 1;
   s.rowKinds = []; // from the toe end up
   if (s.closure === 'laces') { const H = LACE_HARDWARE[s.hardware] || LACE_HARDWARE.eyelets; for (let i = 0; i < s.rows; i++) s.rowKinds.push(H.rows(i, s.rows, s.hookRows)); }
+  // what the foot stands on inside: a leather sock on lasted dress shoes and boots, a removable foam insole on sneakers and
+  // other cemented-unit shoes, shearling in shearling shoes, cork-latex on cork sandals
+  const sneakerish = ['strobel', 'cupsole', 'vulcanised', 'direct-injection'].includes(s.construction) || s.midsole === 'eva' || /sneaker|runner|trainer|hiking|snow/.test(o.type || '');
+  s.insole = o.insole && o.insole !== 'type-default' ? o.insole : t.insole || (s.midsole === 'cork' ? 'cork-leather' : /shearling|sheepskin|slipper/.test((o.type || '') + (t.fabric || '')) || (t.parts || []).includes('fur-cuff') ? 'shearling' : t.cut !== 'open' && sneakerish ? 'eva-ortholite' : 'leather-sock');
+  s.sock = s.insole === 'leather-sock' && t.cut !== 'open' ? (CONSTRUCTIONS[s.construction]?.welt || s.construction === 'blake' ? 'half' : 'full') : s.insole === 'eva-ortholite' || s.insole === 'memory-foam' ? 'removable' : 'full';
   s.opt = o;
   return s;
 }
@@ -433,6 +438,8 @@ export function shoePieces(s, body, fabric) {
   const soleFab = { leather: 'leather-sole-bend' }[s.outsole] || 'leather-sole-bend';
   const matFab = (id) => ({ leather: 'leather-sole-bend', 'stacked-leather': 'leather-sole-bend', eva: 'eva-foam', tpu: 'tpu-film', pu: 'eva-foam' }[id] || 'rubber-sheet');
   const bottom = (name, pts, cut, note, fab = soleFab) => out.push({ name, points: pts.map(([a, b]) => [r1(a), r1(b)]), fabric: fab, cut, note, part: 'bottom', material: name });
+  if (!isOpen && s.insole !== 'none') bottom(s.sock === 'half' ? 'Half sock (heel)' : s.sock === 'removable' ? `Removable insole (${s.insole === 'memory-foam' ? 'memory foam' : 'moulded EVA'}, fabric top)` : `Sock lining (${s.insole === 'shearling' ? 'shearling' : s.insole === 'leather-sock' ? 'calf' : 'suede over cork'})`, s.sock === 'half' ? sole(-0.3).filter(([x]) => x <= SL * 0.45) : sole(-0.3), 1, s.sock === 'half' ? 'Calf, skived on the front edge, stitched round its edge and cemented over the heel of the insole: covers the heel tacks and channel.' : s.sock === 'removable' ? 'Die-cut and heat-moulded with a heel cup and arch, 4 mm under the heel, 3 mm under the ball; perforated at the forefoot. Laid in loose.' : 'Cut 3 mm inside the insole edge and cemented over the whole insole.', s.sock === 'removable' ? 'eva-foam' : s.insole === 'shearling' ? 'shearling-merino' : 'leather-calf-lining');
+  if (CONSTRUCTIONS[s.construction]?.welt) bottom('Bottom filler (cork-latex)', sole(-0.6).filter(([x]) => x >= SL * 0.12), 1, 'Spread in the cavity inside the welt seam before the outsole goes on; the shank is set in it.', matFab('cork'));
   bottom(`Insole (${s.construction === 'strobel' ? 'strobel sock, non-woven' : 'leather or cellulose board, 2.5-3.5 mm'})`, sole(0), 1, s.construction === 'goodyear-welt' || s.construction === 'storm-welt' ? 'Channelled or ribbed (gemming) 6 mm in from the edge to take the welt seam.' : 'Shaped to the last bottom.');
   if (s.midsole && s.midsole !== 'none') bottom(`Midsole (${SOLE_MATERIALS[s.midsole]?.name || s.midsole})`, sole(s.ext), 1, 'Between the welt and the outsole.', matFab(s.midsole));
   bottom(`Outsole (${SOLE_MATERIALS[s.outsole]?.name || s.outsole}, ${TREADS[s.tread] || s.tread})`, sole(s.ext + (CONSTRUCTIONS[s.construction]?.welt ? 0.45 : 0.1), HEELS[s.heel]?.pin ? 0 : 0), 1, `${CONSTRUCTIONS[s.construction]?.name}. Forefoot ${r1(s.soleT * 10)} mm${s.platform ? ` including a ${r1(s.platform * 10)} mm platform` : ''}.${s.outsole === 'leather' ? '' : ' Bought or moulded as a unit: this outline is the size to order or cut from sheet.'}`, matFab(s.outsole));
@@ -493,7 +500,7 @@ export function buildShoe(o, prefix = '', fabric = 'leather-calfskin') {
   const parts = shoeParts(s);
   const spec = { kind: 'shoe', ...s, tags: [...(s.parts || [])], opt: undefined, fabric, color: o.color && o.color !== '#000000' ? o.color : null, parts,
     laceColor: o.laceColor, outsoleColor: o.outsoleColor !== '#000001' ? o.outsoleColor : s.outsoleColor || null, midsoleColor: o.midsoleColor !== '#000001' ? o.midsoleColor : s.midsoleColor || null, weltColor: o.weltColor !== '#000001' ? o.weltColor : null, stitchColor: o.stitchColor !== '#000001' ? o.stitchColor : null,
-    liningColor: o.liningColor, insole: o.insole || 'leather-sock', heelMaterial: o.heelMaterial || 'auto', tied: o.tied || 'tied', widthFit: o.width };
+    liningColor: o.liningColor, heelMaterial: o.heelMaterial || 'auto', tied: o.tied || 'tied', widthFit: o.width };
   const stance = { sole: s.soleT / 100, heel: s.pitch / 100 };
   // what trousers and skirts fall on: the shoe over the foot and the leg of a boot
   const colliders = [];

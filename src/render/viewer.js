@@ -1495,7 +1495,8 @@ export class Viewer {
   footInsideShoes(objs, rest) {
     const out = [];
     for (const grp of objs) {
-      const L = grp.userData.last; if (!L?.P || L.open) continue; grp.updateMatrixWorld(true); // an open shoe does not enclose the foot const M = grp.matrixWorld; const NA = L.NA; const K = L.K;
+      // an open shoe does not enclose the foot
+      const L = grp.userData.last; if (!L?.P || L.open) continue; grp.updateMatrixWorld(true); const M = grp.matrixWorld; const NA = L.NA; const K = L.K;
       const P = []; for (let i = 0; i < K * NA + 1; i++) P.push(new THREE.Vector3(L.P[i * 3], L.P[i * 3 + 1], L.P[i * 3 + 2]).applyMatrix4(M));
       const cen = []; for (let k = 0; k < K; k++) { const c = new THREE.Vector3(); for (let i = 0; i < NA; i++) c.add(P[k * NA + i]); cen.push(c.multiplyScalar(1 / NA)); }
       // closed last: the tube of sections, a fan to the toe tip, a cap over the top section
