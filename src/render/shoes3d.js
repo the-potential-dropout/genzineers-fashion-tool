@@ -157,10 +157,19 @@ function buildLast(spec, tris, sd, seat0) {
   // fairing: leather lasted under tension lies in long, even curves. Smooth round every section and along the whole
   // last (heel, instep and toe box together), the top of the shaft and the toe tip held, then the seat made flat again
   for (let it = 0; it < 3; it++) for (const ring of rings) { const c = ring.map((p) => p.slice()); for (let i = 0; i < NA; i++) for (let q = 0; q < 3; q++) ring[i][q] = (c[(i - 1 + NA) % NA][q] + 2 * c[i][q] + c[(i + 1) % NA][q]) / 4; }
-  for (let it = 0; it < 12; it++) for (let k = 1; k < rings.length - 2; k++) for (let i = 0; i < NA; i++) for (let c = 0; c < 3; c++) rings[k][i][c] = (rings[k - 1][i][c] + 2 * rings[k][i][c] + rings[k + 1][i][c]) / 4;
+  // along the length only between the heel and the ball: the heel fan turns round the back in its own planes and the
+  // toe box is drawn to its toe shape, so averaging across either would cut the heel and flatten the toe into a wedge
+  { let kA = st.findIndex((q) => q.kind === 2); const kB = K0 - 1; if (kA < 1) kA = 1; for (let it = 0; it < 8; it++) for (let k = kA + 1; k < kB; k++) for (let i = 0; i < NA; i++) for (let c = 0; c < 3; c++) rings[k][i][c] = (rings[k - 1][i][c] + 2 * rings[k][i][c] + rings[k + 1][i][c]) / 4;
+    // and the join between the foot sections and the toe box blended over a few sections either side
+    for (let it = 0; it < 4; it++) for (let k = Math.max(kA + 1, kB - 4); k < Math.min(rings.length - 3, kB + 5); k++) for (let i = 0; i < NA; i++) for (let c = 0; c < 3; c++) rings[k][i][c] = (rings[k - 1][i][c] + 2 * rings[k][i][c] + rings[k + 1][i][c]) / 4; }
   // lasting: the bottom of the upper is pulled down and round onto the insole all the way round (heel included), so it
   // meets the sole along one clean feather edge; nothing below the insole
-  const LB = 0.025; for (const ring of rings) for (const p of ring) { const ys = seatAt(Math.max(zB, p[2])); const h = p[1] - ys; if (h < 0) p[1] = ys; else if (h < LB) p[1] = ys + LB * Math.pow(h / LB, 1.6); }
+  // only the bottom edge and the sides are pulled under: a point whose surface faces upwards (the top of the toe box,
+  // the vamp) keeps its height, so the toe box keeps its full volume
+  const LB = 0.025; for (const ring of rings) { const c = [0, 0, 0]; for (const p of ring) { c[0] += p[0] / NA; c[1] += p[1] / NA; c[2] += p[2] / NA; }
+    for (const p of ring) { const ys = seatAt(Math.max(zB, p[2])); const h = p[1] - ys; if (h < 0) { p[1] = ys; continue; } if (h >= LB) continue;
+      const dx = p[0] - c[0]; const dy = p[1] - c[1]; const dz = p[2] - c[2]; const up = dy / (Math.hypot(dx, dy, dz) || 1); const w = 1 - sstep(-0.1, 0.45, up);
+      p[1] = lerp(p[1], ys + LB * Math.pow(h / LB, 1.6), w); } }
   const K = rings.length; const N = K * NA + 1;
   const tipR = rings[K - 1]; const tip = [0, 0, zTip]; for (const p of tipR) { tip[0] += p[0] / NA; tip[1] += p[1] / NA; }
   // ---- vertex arrays and per-vertex coordinates
@@ -670,7 +679,7 @@ export function buildShoe(spec, tris, sd, mats) {
   // ---- the bottom
   const B = buildBottom(spec, G, group, upperColor);
   if (spec.parts.includes('staples')) { const g = []; for (let i = 3; i < B.zs.length - 3; i += 3) for (const s of [-1, 1]) { if (B.zs[i] - G.zBack < 0.42 * L) continue; const b = new THREE.BoxGeometry(0.0012, 0.006, 0.0012); b.translate(s < 0 ? B.L[i] + B.ext - 0.0005 : B.R[i] - B.ext + 0.0005, B.top[i] + 0.006, B.zs[i]); g.push(b); } if (g.length) group.add(new THREE.Mesh(merge(g), metal)); }
-  group.userData.last = { zBack: G.zBack, zTip: G.zTip, cx: G.cx, top: topY };
+  group.userData.last = { zBack: G.zBack, zTip: G.zTip, cx: G.cx, top: topY, P: G.P, K: G.K, NA }; // the lasted surface itself: the foot is kept inside it
   return group;
 }
 

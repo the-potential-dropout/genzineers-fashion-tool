@@ -1435,6 +1435,10 @@ export class Viewer {
    */
   pressInShoes(pos, rest, nor) {
     const objs = this._shoeObjs || []; if (!objs.length) return false;
+    // 1. the foot is inside the last: every skin point below the top of the last that lies outside it is moved to just
+    //    inside the leather (exact inside test against the closed last, worked out once per shoe on the rest pose)
+    const shoeKey = objs.map((o) => o.uuid).join(); if (this._insideKey !== shoeKey) { this._insideKey = shoeKey; this._inside = this.footInsideShoes(objs, rest); }
+    let anyIn = false; for (const [v, x, y, z] of this._inside || []) { pos.setXYZ(v, x, y, z); anyIn = true; }
     const S = []; const N = []; let yTop = -9;
     const vv = new THREE.Vector3(); const nn = new THREE.Vector3(); const nm = new THREE.Matrix3();
     for (const grp of objs) {
@@ -1461,7 +1465,34 @@ export class Viewer {
       if (lat > 0.006 || sd < -inside) continue; // past the edge of the piece, or already well inside
       const k = Math.min(0.03, sd + inside); pos.setXYZ(v, x - nor.getX(v) * k, y - nor.getY(v) * k, z - nor.getZ(v) * k); any = true;
     }
-    return any;
+    return any || anyIn;
+  }
+
+  /** Skin points of the rest pose that lie outside a shoe's last (below its top), and where each goes: 3 mm inside the leather. */
+  footInsideShoes(objs, rest) {
+    const out = [];
+    for (const grp of objs) {
+      const L = grp.userData.last; if (!L?.P) continue; grp.updateMatrixWorld(true); const M = grp.matrixWorld; const NA = L.NA; const K = L.K;
+      const P = []; for (let i = 0; i < K * NA + 1; i++) P.push(new THREE.Vector3(L.P[i * 3], L.P[i * 3 + 1], L.P[i * 3 + 2]).applyMatrix4(M));
+      const cen = []; for (let k = 0; k < K; k++) { const c = new THREE.Vector3(); for (let i = 0; i < NA; i++) c.add(P[k * NA + i]); cen.push(c.multiplyScalar(1 / NA)); }
+      // closed last: the tube of sections, a fan to the toe tip, a cap over the top section
+      const pos = []; const push = (a, b, c) => pos.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+      for (let k = 0; k + 1 < K; k++) for (let i = 0; i < NA; i++) { const a = P[k * NA + i]; const b = P[k * NA + (i + 1) % NA]; const c = P[(k + 1) * NA + i]; const d = P[(k + 1) * NA + (i + 1) % NA]; push(a, b, c); push(b, d, c); }
+      const tip = P[K * NA]; for (let i = 0; i < NA; i++) push(P[(K - 1) * NA + i], P[(K - 1) * NA + (i + 1) % NA], tip);
+      for (let i = 0; i < NA; i++) push(cen[0], P[(i + 1) % NA], P[i]);
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+      const box = new THREE.Box3().setFromBufferAttribute(g.attributes.position); box.expandByScalar(0.01); const yTop = cen[0].y - 0.004;
+      const rc = new THREE.Raycaster(); const dir = new THREE.Vector3(0.0123, -0.0071, 1).normalize(); const p = new THREE.Vector3();
+      for (let v = 0; v < rest.count; v++) {
+        p.set(rest.getX(v), rest.getY(v), rest.getZ(v)); if (!box.containsPoint(p) || p.y > yTop) continue;
+        rc.set(p, dir); const hits = rc.intersectObject(mesh, false); if (hits.length % 2 === 1) continue; // inside
+        // outside: to the nearest point of the last, then 3 mm in towards the centre of that section
+        let bi = 0; let bd = 9; for (let i = 0; i < K * NA; i++) { const d = P[i].distanceToSquared(p); if (d < bd) { bd = d; bi = i; } }
+        const q = P[bi].clone(); const c = cen[Math.floor(bi / NA)]; const t = q.clone().sub(c); const l = t.length(); q.addScaledVector(t, -Math.min(0.003, l * 0.3) / (l || 1));
+        out.push([v, q.x, q.y, q.z]);
+      }
+    }
+    return out;
   }
 
   /** Press a polyline onto the body surface (distance field of the real mannequin) at `lift` above the skin. */
