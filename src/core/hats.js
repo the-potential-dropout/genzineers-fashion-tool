@@ -30,7 +30,7 @@ export const HAT_STYLES = {
   'bowler': S('Bowler / derby', 'block', { H: 12, brim: 4.5, taper: 0.06, top: 'dome', brimSlope: 0, curl: [1, 1, 1.8], band: 'grosgrain', fabric: 'wool-felt', bound: true }),
   'top-hat': S('Top hat', 'block', { H: 15, brim: 5, taper: -0.05, top: 'flat', brimSlope: 0, curl: [0.3, 0.3, 1.8], band: 'grosgrain', fabric: 'wool-felt', bound: true }),
   'boater': S('Boater', 'block', { H: 8.5, brim: 7, taper: 0.0, top: 'flat', brimSlope: 0, curl: [0, 0, 0], band: 'grosgrain', fabric: 'straw', stiff: true }),
-  'cowboy': S('Western / cowboy hat', 'block', { H: 12.5, brim: 10, taper: 0.1, top: 'cattleman', brimSlope: 4, curl: [-0.5, -0.3, 3.2], band: 'leather', fabric: 'wool-felt', why: 'Cattleman crease: a centre crease with a dent each side; brim rolled up at the sides.' }),
+  'cowboy': S('Western / cowboy hat', 'block', { H: 12.5, brim: 10, taper: 0.1, top: 'cattleman', brimSlope: 2, curl: [-1.4, -1.0, 6.2], band: 'leather', fabric: 'wool-felt', why: 'Cattleman crease: a centre crease with a dent each side; brim rolled up at the sides.' }),
   'outback': S('Outback / safari hat', 'block', { H: 11, brim: 8, taper: 0.12, top: 'teardrop', brimSlope: 10, curl: [-0.8, -0.2, 1.2], band: 'leather', fabric: 'wool-felt', chin: true }),
   'cloche': S('Cloche', 'block', { H: 14, brim: 3.5, taper: 0.02, top: 'dome', brimSlope: 55, curl: [0, 0, 0], band: 'grosgrain', fabric: 'wool-felt', deep: true }),
   'sun-hat': S('Wide-brim sun hat', 'block', { H: 10.5, brim: 13, taper: 0.08, top: 'dome', brimSlope: 16, curl: [-0.6, -0.6, -0.6], band: 'grosgrain', fabric: 'straw', floppy: true }),

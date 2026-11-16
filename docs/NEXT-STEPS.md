@@ -57,15 +57,24 @@ site stays fully static.
 - Rucksack built on the backpack body and harness: throat with drawcord, eyelets and cord lock; lid draped over it
   with bound edge and two straps to buckles; bellows side pockets with flaps.
 
+### Shapes and fit (v0.11.2)
+- Shoe smoothing kept to the foot sections; heel fan and drawn toe box keep their shapes (no wedge toes, no cut heels).
+- Lasting pulls only the bottom edge and sides under; toe boxes keep their volume.
+- Foot skin outside the last is moved straight in where the shoe covers it (exact inside test, once per shoe):
+  ray test shows no skin through any closed or heeled shoe checked (oxford, derbies, loafers, sneakers, booties,
+  heeled boots, pumps); open sandals keep the bare foot natural.
+- Bags: weave straight across each cut panel; duffel straps and handles on one line.
+- Cowboy hat: real cattleman crease depths and brim roll.
+
 ### Tests (`npm test`)
 `jitter-test` (settled cloth is still), `layer-test` (layers never cross, tucked or not), `pull-test` (seams hold,
 garment returns to the body) run with the existing suites.
 
 ## Open, in order
 
-1. **Shoes, continued:** open shoes (sandals, slides, mules, slingbacks) and moulded sneakers checked for the same
-   smoothness; toe shapes compared against real lasts (round, almond, square, chisel).
-2. **Audit every other bag and assembly** the same way as the backpack: duffel, tote, messenger and crossbody strap hardware,
+1. **Shoes, continued:** toe shapes compared against real lasts (round, almond, square, chisel); slides, mules and
+   clogs looked at one by one; footbeds contoured (toe bar, heel cup) on cork and moulded sandals.
+2. **Audit every other bag and assembly** the same way as the backpack: crossbody, satchel, bucket and box bags, wallet and card holder,
    hats (sweatband, crown seams, bill), shoe laces through every eyelet. Look for anything floating or
    disconnected and anything simplified.
 2. **Backpack options:** hip belt, laptop sleeve shown open, reflective tab, interior organiser when opened.

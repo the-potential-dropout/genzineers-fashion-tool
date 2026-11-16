@@ -58,7 +58,7 @@ export function buildHat(spec, tris, mats) {
     else if (spec.top === 'telescope') h -= 0.013 * sstep(0.9, 0.7, rho);
     else if (spec.top === 'center-dent') h -= 0.024 * Math.exp(-Math.pow(xn / 0.34, 2)) * sstep(1, 0.75, rho) + 0.012 * zn;
     else if (spec.top === 'teardrop' || spec.top === 'diamond') h -= 0.03 * Math.exp(-(xn * xn / (0.1 + 0.16 * Math.max(0, 0.5 - zn)) + Math.pow(zn + 0.12, 2) / 0.5)) * sstep(1, 0.86, rho) + 0.02 * zn;
-    else if (spec.top === 'cattleman') h -= (0.022 * Math.exp(-Math.pow(xn / 0.2, 2)) + 0.015 * Math.exp(-Math.pow((Math.abs(xn) - 0.56) / 0.16, 2))) * sstep(1, 0.8, rho) + 0.008 * zn;
+    else if (spec.top === 'cattleman') h -= (0.036 * Math.exp(-Math.pow(xn / 0.18, 2)) + 0.024 * Math.exp(-Math.pow((Math.abs(xn) - 0.55) / 0.15, 2))) * sstep(1, 0.78, rho) * (1 - 0.35 * Math.max(0, -zn)) + 0.01 * zn; // a centre crease front to back and a dent down each side, deeper at the front
     if (kind === 'block' && ['teardrop', 'center-dent', 'cattleman', 'diamond'].includes(spec.top)) s -= 0.2 * Math.exp(-Math.pow((Math.abs(a > Math.PI ? a - 2 * Math.PI : a) - 0.5) / 0.22, 2)) * rho;
     return { h, s };
   };
