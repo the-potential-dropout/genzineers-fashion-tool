@@ -1443,13 +1443,16 @@ export class Viewer {
     const vv = new THREE.Vector3(); const nn = new THREE.Vector3(); const nm = new THREE.Matrix3();
     for (const grp of objs) {
       grp.updateMatrixWorld(true); const s0 = S.length;
-      grp.traverse((m) => { const ga = m.isMesh && m.userData.shell && m.geometry?.attributes; if (!ga?.position || !ga.normal) return; nm.getNormalMatrix(m.matrixWorld); for (let i = 0; i < ga.position.count; i++) { vv.fromBufferAttribute(ga.position, i).applyMatrix4(m.matrixWorld); nn.fromBufferAttribute(ga.normal, i).applyMatrix3(nm).normalize(); S.push(vv.x, vv.y, vv.z); N.push(nn.x, nn.y, nn.z); if (vv.y > yTop) yTop = vv.y; } });
+      grp.traverse((m) => { const ga = m.isMesh && m.userData.shell && !m.userData.footbed && m.geometry?.attributes; if (!ga?.position || !ga.normal) return; nm.getNormalMatrix(m.matrixWorld); for (let i = 0; i < ga.position.count; i++) { vv.fromBufferAttribute(ga.position, i).applyMatrix4(m.matrixWorld); nn.fromBufferAttribute(ga.normal, i).applyMatrix3(nm).normalize(); S.push(vv.x, vv.y, vv.z); N.push(nn.x, nn.y, nn.z); if (vv.y > yTop) yTop = vv.y; } });
       // which side of each surface is the outside: the side facing away from the shoe's centre at that point
       // along the foot (centre of the shoe's 1 cm slab there). Sole, toe box, heel counter and lining all agree.
       const slab = new Map(); for (let i = s0; i < S.length; i += 3) { const k = Math.floor(S[i + 2] * 100); const c = slab.get(k) || [0, 0, 0, 0]; c[0] += S[i]; c[1] += S[i + 1]; c[2] += S[i + 2]; c[3]++; slab.set(k, c); }
       for (let i = s0; i < S.length; i += 3) { const c = slab.get(Math.floor(S[i + 2] * 100)); const ox = S[i] - c[0] / c[3]; const oy = S[i + 1] - c[1] / c[3]; if (N[i] * ox + N[i + 1] * oy < 0) { N[i] = -N[i]; N[i + 1] = -N[i + 1]; N[i + 2] = -N[i + 2]; } }
     }
-    if (!S.length) return false;
+    // 2. a bare foot on a moulded footbed: the heel and ball pads flatten onto it (moved straight up, blended softly
+    //    so the skin just above the bed eases onto it without a crease)
+    const anyBed = this.standOnFootbeds(objs, pos);
+    if (!S.length) return anyBed || anyIn;
     const C = 0.02; const inv = 1 / C; const hash = new Map(); const key = (x, y, z) => (x + 512) + (y + 512) * 1024 + (z + 512) * 1048576;
     for (let i = 0; i < S.length; i += 3) { const k = key(Math.floor(S[i] * inv), Math.floor(S[i + 1] * inv), Math.floor(S[i + 2] * inv)); const a = hash.get(k); if (a) a.push(i); else hash.set(k, [i]); }
     const inside = 0.003; let any = false;
@@ -1465,14 +1468,34 @@ export class Viewer {
       if (lat > 0.006 || sd < -inside) continue; // past the edge of the piece, or already well inside
       const k = Math.min(0.03, sd + inside); pos.setXYZ(v, x - nor.getX(v) * k, y - nor.getY(v) * k, z - nor.getZ(v) * k); any = true;
     }
-    return any || anyIn;
+    return any || anyIn || anyBed;
+  }
+
+  /** Lift skin that sinks into an open shoe's moulded footbed onto its surface. */
+  standOnFootbeds(objs, pos) {
+    let any = false; const p = new THREE.Vector3(); const inv = new THREE.Matrix4();
+    for (const grp of objs) {
+      const B = grp.userData.bed; if (!B) continue; grp.updateMatrixWorld(true); inv.copy(grp.matrixWorld).invert(); const M = grp.matrixWorld;
+      const n = B.zs.length; const z0 = B.zs[0]; const z1 = B.zs[n - 1]; let yMax = -9; for (let i = 0; i < n; i++) yMax = Math.max(yMax, B.top[i] + 0.02);
+      const bedAt = (x, z) => { if (z <= z0 || z >= z1) return null; let lo = 0; let hi = n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (B.zs[m] <= z) lo = m; else hi = m; } const t = (z - B.zs[lo]) / (B.zs[hi] - B.zs[lo] || 1);
+        const Lx = B.L[lo] + (B.L[hi] - B.L[lo]) * t; const Rx = B.R[lo] + (B.R[hi] - B.R[lo]) * t; if (x <= Lx || x >= Rx) return null; const fu = ((x - Lx) / (Rx - Lx)) * (B.NU - 1); const q = Math.min(B.NU - 2, Math.floor(fu)); const s = fu - q;
+        const h0 = B.H[lo][q] * (1 - s) + B.H[lo][q + 1] * s; const h1 = B.H[hi][q] * (1 - s) + B.H[hi][q + 1] * s; return B.top[lo] + (B.top[hi] - B.top[lo]) * t + h0 * (1 - t) + h1 * t; };
+      const gap = 0.0008; const soft = 0.0015;
+      for (let v = 0; v < pos.count; v++) {
+        p.fromBufferAttribute(pos, v).applyMatrix4(inv); if (p.y > yMax) continue; const yb = bedAt(p.x, p.z); if (yb == null) continue;
+        const d = p.y - yb - gap; if (d > 6 * soft || d < -0.03) continue;
+        const y2 = yb + gap + soft * Math.log1p(Math.exp(d / soft)); if (Math.abs(y2 - p.y) < 1e-6) continue;
+        p.y = Math.max(p.y, y2); p.applyMatrix4(M); pos.setXYZ(v, p.x, p.y, p.z); any = true;
+      }
+    }
+    return any;
   }
 
   /** Skin points of the rest pose that lie outside a shoe's last (below its top), and where each goes: 3 mm inside the leather. */
   footInsideShoes(objs, rest) {
     const out = [];
     for (const grp of objs) {
-      const L = grp.userData.last; if (!L?.P) continue; grp.updateMatrixWorld(true); const M = grp.matrixWorld; const NA = L.NA; const K = L.K;
+      const L = grp.userData.last; if (!L?.P || L.open) continue; grp.updateMatrixWorld(true); // an open shoe does not enclose the foot const M = grp.matrixWorld; const NA = L.NA; const K = L.K;
       const P = []; for (let i = 0; i < K * NA + 1; i++) P.push(new THREE.Vector3(L.P[i * 3], L.P[i * 3 + 1], L.P[i * 3 + 2]).applyMatrix4(M));
       const cen = []; for (let k = 0; k < K; k++) { const c = new THREE.Vector3(); for (let i = 0; i < NA; i++) c.add(P[k * NA + i]); cen.push(c.multiplyScalar(1 / NA)); }
       // closed last: the tube of sections, a fan to the toe tip, a cap over the top section

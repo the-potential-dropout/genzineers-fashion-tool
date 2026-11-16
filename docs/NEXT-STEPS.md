@@ -1,6 +1,6 @@
 # Next steps
 
-Working list for the cloth simulation and assembly work. Updated 2026-11-15 (v0.11.0).
+Working list for the cloth simulation and assembly work. Updated 2026-11-16 (v0.11.4).
 
 Standing rules for all of it: full quality, nothing simplified; every product assembled from its real
 components the way it is made; physics from material properties; core features work without AI; the
@@ -74,20 +74,47 @@ site stays fully static.
 - Shoulder straps from side rings lie flat against the bag at each end and turn flat over the shoulder.
 - Flap bags with top handles carry one handle behind the flap's hinge.
 
+### Lasts, footbeds and clogs (v0.11.4)
+- **Toe shapes measured against real lasts** (width 1 cm / 2 cm behind the tip on a men's last): round 5.4 / 7.2 cm,
+  almond 4.1 / 5.9, square 7.2 / 7.8, chisel 5.1 / 6.8, pointed 1.3 / 2.4. Almond was as sharp as a pointed toe and is
+  now fuller.
+- **Toe profiles:** round, almond and pointed toes are domed; square toes keep a flat top and end in a front wall about
+  1.5 cm high; chisel toes are a flat bevel from the vamp down to a squared front edge about 1.1 cm high. Near the tip a
+  section is never taller than 0.6 of its width, so pointed toes end in a flat, sleek point, not a blade.
+- **One convex line from throat to tip:** the top line of the last and its outline seen from above are each lifted to their
+  convex hull over the forepart (leather bridges the hollow behind the toe joints and the notch where the ball meets the
+  toe box). The lasting pull now ends with matching slope (no ridge along the side), pulls only the lower part of each
+  section, and is gentler in the toe box.
+- **Moulded footbeds on open shoes:** heel cup (about 12 mm), medial arch (about 13 mm) and a low lateral arch, a slight
+  dome behind the ball, the toe bar under the toe roots, and a rim along the sides; full on cork-latex beds, less on
+  moulded EVA, a little on a rubber flip-flop, none on a flat leather insole. Held 1.2 mm under the skin wherever the
+  foot stands over it, smoothed as if pressed in a mould. The cover is wrapped over the bed's edge.
+- **The bare foot stands on the bed:** skin that sinks into it is lifted straight onto it with a soft blend (the heel pad
+  flattens); open shoes no longer run the enclosed-foot test (it pushed heel skin sideways into shards).
+- **Straps go under the footbed:** the lasting allowance of each strap is tucked below the bed's surface, so straps come
+  out of its edge cleanly.
+- **Template parts were ignored in 3D:** the renderer looked for part names in the built part list. Horsebits, tassels,
+  bows, western scallops, pull straps, ankle straps, clog vents and staples now all show.
+- **Moulded foam clog:** vents are holes through the upper with round moulded lips and walls (foot and footbed show
+  through); the heel strap is one moulded band round the back of the heel on two rivets through the side walls.
+- **Wooden clog:** one carved wooden base on a 4.5 mm rubber sole, the upper nailed along its edge (a staple crown every
+  14 mm). New construction: nailed to a wooden base.
+
 ### Tests (`npm test`)
 `jitter-test` (settled cloth is still), `layer-test` (layers never cross, tucked or not), `pull-test` (seams hold,
 garment returns to the body) run with the existing suites.
 
 ## Open, in order
 
-1. **Shoes, continued:** toe shapes compared against real lasts (round, almond, square, chisel); slides, mules and
-   clogs looked at one by one; footbeds contoured (toe bar, heel cup) on cork and moulded sandals.
+1. **Shoes, continued:** heel heights on high heels read low in side view (the foot's pitch caps the heel seat at about
+   6 cm for an 8.5 cm pump): check against the stance; flip-flop thong post through the footbed; footbed nubs on
+   moulded clogs.
 2. **Audit every other bag and assembly** the same way as the backpack: crossbody, satchel, bucket and box bags, wallet and card holder,
    hats (sweatband, crown seams, bill), shoe laces through every eyelet. Look for anything floating or
    disconnected and anything simplified.
-2. **Backpack options:** hip belt, laptop sleeve shown open, reflective tab, interior organiser when opened.
-3. Remaining features: pose animation, sketch-to-3D, review of AI fashion tools for missing features.
-4. Release and desktop rebuild after each batch (version in package.json, src-tauri/tauri.conf.json,
+3. **Backpack options:** hip belt, laptop sleeve shown open, reflective tab, interior organiser when opened.
+4. Remaining features: pose animation, sketch-to-3D, review of AI fashion tools for missing features.
+5. Release and desktop rebuild after each batch (version in package.json, src-tauri/tauri.conf.json,
    src-tauri/Cargo.toml).
 
 ## Useful commands

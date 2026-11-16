@@ -45,21 +45,25 @@ export const CONSTRUCTIONS = {
   'moccasin': { name: 'True moccasin', stitched: true, welt: false, moc: true, desc: 'One piece of leather wraps under the foot and is hand-sewn to an apron (plug) on top; a sole is added underneath.', pros: 'Glove-like, very flexible', cons: 'Little structure, stretches' },
   'bologna': { name: 'Bologna (sacchetto)', stitched: false, welt: false, desc: 'The lining is sewn into a sock around the foot before Blake stitching.', pros: 'Extremely soft and flexible Italian loafers', cons: 'Delicate' },
   'turnshoe': { name: 'Turned (sewn inside out)', stitched: false, welt: false, desc: 'Upper and thin sole are sewn inside out, then turned.', pros: 'No visible sole seam; ballet flats, slippers', cons: 'Thin soles only' },
+  'nailed': { name: 'Nailed to a wooden base (clog)', stitched: false, welt: false, desc: 'The upper is lasted over the carved wooden base and nailed or stapled along its top edge; a rubber sole is nailed and glued underneath.', pros: 'Rigid, long-lived, the upper can be replaced', cons: 'No flex at the ball, heavy' },
   'moulded': { name: 'One-piece moulded', stitched: false, welt: false, desc: 'The whole shoe is injection or dip moulded (rubber boots, foam clogs, slides).', pros: 'Waterproof, washable, cheap at volume', cons: 'No breathability, tooling per size' },
   'opanka': { name: 'Opanka (hand-sewn sidewall)', stitched: true, welt: false, cup: true, desc: 'Upper, sock lining and sole are sewn together in one hand-stitched seam on the outside.', pros: 'Very flexible comfort shoes and sandals', cons: 'Slow to make' },
 };
 
 export const TOE_SHAPES = {
-  round: { name: 'Round', ext: 1.3, taper: 0.55, blunt: 0.0 },
-  almond: { name: 'Almond', ext: 2.2, taper: 0.8, blunt: 0.0 },
-  pointed: { name: 'Pointed', ext: 4.2, taper: 1.0, blunt: 0.0 },
-  'extra-pointed': { name: 'Extra pointed (winklepicker)', ext: 6.5, taper: 1.0, blunt: 0.0 },
-  square: { name: 'Square', ext: 1.6, taper: 0.25, blunt: 0.85 },
-  chisel: { name: 'Chisel (soft square)', ext: 2.4, taper: 0.55, blunt: 0.55 },
-  snub: { name: 'Snub / bulbous (work boot)', ext: 1.5, taper: 0.4, blunt: 0.2, high: 1.25 },
-  'western-j': { name: 'Western pointed', ext: 5.0, taper: 1.0, blunt: 0.12 },
-  'western-square': { name: 'Western broad square', ext: 2.0, taper: 0.15, blunt: 1.0 },
-  open: { name: 'Open toe (peep)', ext: 0.6, taper: 0.5, blunt: 0, open: 1 },
+  // ext: toe room beyond the longest toe (cm); taper: how fast the planform narrows to the tip; blunt: width kept at the
+  // front (square toes); profile: how the top of the toe box runs to the front (dome = rounded, box = flat top and a
+  // front wall, chisel = a flat bevel sloping down to a squared front edge); front: height of the front edge (cm)
+  round: { name: 'Round', ext: 1.3, taper: 0.5, blunt: 0.0, profile: 'dome' },
+  almond: { name: 'Almond', ext: 2.2, taper: 0.66, blunt: 0.0, profile: 'dome' },
+  pointed: { name: 'Pointed', ext: 4.2, taper: 1.0, blunt: 0.0, profile: 'dome' },
+  'extra-pointed': { name: 'Extra pointed (winklepicker)', ext: 6.5, taper: 1.0, blunt: 0.0, profile: 'dome' },
+  square: { name: 'Square', ext: 1.6, taper: 0.25, blunt: 0.85, profile: 'box', front: 1.5 },
+  chisel: { name: 'Chisel (soft square)', ext: 2.4, taper: 0.55, blunt: 0.55, profile: 'chisel', front: 1.1 },
+  snub: { name: 'Snub / bulbous (work boot)', ext: 1.5, taper: 0.4, blunt: 0.2, high: 1.25, profile: 'dome' },
+  'western-j': { name: 'Western pointed', ext: 5.0, taper: 1.0, blunt: 0.12, profile: 'dome' },
+  'western-square': { name: 'Western broad square', ext: 2.0, taper: 0.15, blunt: 1.0, profile: 'box', front: 1.7 },
+  open: { name: 'Open toe (peep)', ext: 0.6, taper: 0.5, blunt: 0, open: 1, profile: 'dome' },
 };
 
 export const HEELS = {
@@ -206,7 +210,7 @@ export const SHOE_TYPES = {
   'pointed-flat': T('Pointed flat', 'Heels & flats', { cut: 'pump', throat: 0.74, closure: 'slip-on', toe: 'pointed', heel: 'flat', heelH: 0.8, soleT: 0.4, construction: 'cemented', ext: 0.1 }),
   mule: T('Heeled mule', 'Heels & flats', { cut: 'mule', throat: 0.62, closure: 'slip-on', toe: 'pointed', heel: 'kitten', heelH: 6, soleT: 0.4, construction: 'cemented', ext: 0.1 }),
   'backless-loafer': T('Backless loafer / slipper mule', 'Heels & flats', { cut: 'mule', throat: 0.54, closure: 'slip-on', toe: 'round', toecap: 'apron', parts: ['bit'], heel: 'flat', heelH: 1.2, soleT: 0.5, construction: 'blake' }),
-  clog: T('Clog (wooden base)', 'Heels & flats', { cut: 'mule', throat: 0.5, closure: 'slip-on', toe: 'round', heel: 'wedge', heelH: 5, platform: 2, soleT: 2.6, outsole: 'wood', tread: 'smooth', construction: 'stitchdown', fabric: 'leather-cowhide', parts: ['staples'], ext: 0.5, why: 'Leather upper stapled to a carved alder base with a rubber top piece.' }),
+  clog: T('Clog (wooden base)', 'Heels & flats', { cut: 'mule', throat: 0.5, closure: 'slip-on', toe: 'round', heel: 'wedge', heelH: 5, platform: 2, soleT: 2.6, outsole: 'rubber', midsole: 'wood', tread: 'smooth', construction: 'nailed', fabric: 'leather-cowhide', parts: ['staples'], ext: 0.5, why: 'Leather upper stapled to a carved alder base with a rubber top piece.' }),
   'foam-clog': T('Moulded foam clog', 'Heels & flats', { cut: 'mule', throat: 0.48, closure: 'slip-on', toe: 'snub', heel: 'flat', heelH: 1.0, soleT: 2.0, outsole: 'eva', tread: 'ripple', construction: 'moulded', fabric: 'eva-foam', parts: ['heel-strap', 'vents'], ext: 0.6 }),
   slipper: T('House slipper (shearling lined)', 'Heels & flats', { cut: 'mule', throat: 0.5, closure: 'slip-on', toe: 'round', heel: 'flat', heelH: 0.6, soleT: 1.0, outsole: 'rubber', construction: 'cemented', fabric: 'suede', parts: ['fur-cuff'], ext: 0.3 }),
   // ---- sandals
@@ -487,9 +491,9 @@ export function shoeSheet(s, body, fabricName) {
 export function buildShoe(o, prefix = '', fabric = 'leather-calfskin') {
   const s = shoeSpec(o); const body = o.__body;
   const parts = shoeParts(s);
-  const spec = { kind: 'shoe', ...s, opt: undefined, fabric, color: o.color && o.color !== '#000000' ? o.color : null, parts,
+  const spec = { kind: 'shoe', ...s, tags: [...(s.parts || [])], opt: undefined, fabric, color: o.color && o.color !== '#000000' ? o.color : null, parts,
     laceColor: o.laceColor, outsoleColor: o.outsoleColor !== '#000001' ? o.outsoleColor : s.outsoleColor || null, midsoleColor: o.midsoleColor !== '#000001' ? o.midsoleColor : s.midsoleColor || null, weltColor: o.weltColor !== '#000001' ? o.weltColor : null, stitchColor: o.stitchColor !== '#000001' ? o.stitchColor : null,
-    liningColor: o.liningColor, heelMaterial: o.heelMaterial || 'auto', tied: o.tied || 'tied', widthFit: o.width };
+    liningColor: o.liningColor, insole: o.insole || 'leather-sock', heelMaterial: o.heelMaterial || 'auto', tied: o.tied || 'tied', widthFit: o.width };
   const stance = { sole: s.soleT / 100, heel: s.pitch / 100 };
   // what trousers and skirts fall on: the shoe over the foot and the leg of a boot
   const colliders = [];
