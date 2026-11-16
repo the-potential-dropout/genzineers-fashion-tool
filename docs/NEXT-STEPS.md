@@ -1,61 +1,66 @@
 # Next steps
 
-Working list for the cloth simulation and assembly work. Updated 2026-11-15.
+Working list for the cloth simulation and assembly work. Updated 2026-11-15 (v0.11.0).
 
 Standing rules for all of it: full quality, nothing simplified; every product assembled from its real
 components the way it is made; physics from material properties; core features work without AI; the
 site stays fully static.
 
-## Done in this batch
+## Done
 
-- **Trousers no longer "dance".** Root causes, each fixed at the source:
-  - Inner layers were being pulled onto the body (the old inner-layer pull). Retired; layers are now kept
-    apart cloth to cloth (`sim.layerPass` in `src/sim/cloth.js`).
-  - Leg tubes were placed straight down from the hip while the mannequin's ankles stand ~6.5 cm further
-    out, so the hem started *through* the ankle. Leg panels now lean with the leg (`placement.lean`,
-    `BODY.ankleX` / `BODY.ankleY` in `src/core/sizes.js`).
-  - Body field had wrong-sign streaks behind the heel (sign taken from the wrong face at mesh edges).
-    Fixed: most-facing triangle wins ties, then a flood fill from the grid edge decides inside/outside
-    (`src/sim/bodyfield.js`).
-  - Tiny corner particles were too light. Lumped mass floor raised to 0.4 h².
-- **Trouser pattern follows the body.** Hip ease is now industry values (slim 3, regular 6, relaxed 10,
-  oversized 18 cm, plus fullness for pleats, pull-on waists and wide legs; it was ~17–20 cm). Knee and calf
-  are drafted from the body's girths plus the style's ease (negative only in stretch cloth).
-- **Skirt slits are real openings.** A front/back slit splits that piece into halves joined by a centre seam
-  stitched only down to the top of the slit; a side slit leaves the side seam open. The pencil skirt no
-  longer has to stretch round both thighs.
-- **Cuffs sit at the wrist.** A long sleeve now starts high enough that the cuff begins at the wrist, not
-  over the hand (a closed cuff cannot be pulled back over the knuckles). This was the cuff flicker / "cuff
-  sticking out" glitch.
-- **Interfaced bands** (barrel cuffs, waistbands, collar stands, plackets, facings) are stiffer in stretch
-  and bending than the single layer around them.
-- New check: `node scripts/jitter-test.mjs [template or a+b ...]` measures frame-to-frame motion after the
-  drape. Current results: jeans, chinos, sweatpants, skinny jeans, pencil skirt, shirt alone, tee all still
-  (≤ 2 mm/frame).
+### Cloth that settles (v0.11.0)
+- **Trousers no longer "dance".** Causes fixed at the source:
+  - inner layers were pulled onto the body (retired);
+  - leg tubes started straight below the hip while the ankles stand wider, so hems began inside the ankle:
+    leg panels now lean with the leg (`placement.lean`, `BODY.ankleX/ankleY`);
+  - wrong-sign streaks in the body field (most-facing triangle on ties, flood fill from outside);
+  - tiny corner particles too light (mass floor 0.4 h²).
+- **Layers held apart inside the solver.** Where an outer garment overlaps an inner one, its contact distance from
+  the body is set to stand off the inner layer (the solver enforces it every substep); the inner layer is held no
+  further out than the outer allows. No blanket clearance elsewhere. A correction after the step caused a two-frame
+  flicker and was replaced.
+- **Body creases up to 3.2 cm are bridged** for cloth contact (armpit, thumb–hand, fingers): cloth lies across them.
+- **Trouser pattern from the body:** hip ease slim 3 / regular 6 / relaxed 10 / oversized 18 cm (+ pleats, pull-on
+  waists, wide legs); knee and calf drafted from the body's girths.
+- **Skirt slits are real openings** (split centre seam stitched to the top of the slit; side slit = open side seam).
+- **Cuffs sit at the wrist:** long sleeves start so a closed cuff never begins over the hand.
+- **Interfaced bands** (cuffs, waistbands, collar stands, plackets, facings) stiffer than the cloth around them.
+- **Pulling never tears clothes:** sewn seams are held by their thread (open about 2.5 mm beyond the sewn gap under
+  load); the hand's grip is firm but finite and its reach capped; cloth springs back on release.
+
+### Assemblies
+- **Belt loops** placed as made: five-pocket jeans 5 (front on the crease line, side-back, centre back), tailored
+  trousers and chinos 7, each on the waistband's own line. Belt follows the waistband, threads every loop, sits under
+  an untucked shirt and over a tucked one (checked numerically in the app).
+- **Tie:** the neck loop is one continuous strip from one side of the knot round the neck and back to the other,
+  lying flat on the collar stand and clear of the neck (checked for four-in-hand, Windsor, skinny).
+- **Feet stay inside shoes:** skin under the shoe's body (upper, lining, footbed, sole) is pressed in to sit inside
+  the lining; trims (laces, tassels, buckles) never press. Ray test: no foot showing through on the types checked.
+- **Skin through clothes:** ray test on jeans + shirt, chinos + tee, sheath dress, skinny jeans + blazer, hoodie:
+  nothing shows through (only hands and neck, which are uncovered).
+- **Fastenings, piece by piece:** every zip, button (numbered from the top) and fly of the outfit on its own, plus
+  fasten / undo everything. Garments remember their template and name.
+- **Backpack rebuilt** from its real pieces (`src/render/backpack3d.js`): front and padded back panels joined by one
+  strip (base, side gussets, zip panel) with welted seams; two-way coil zip with individual teeth, two sliders with
+  cord pullers, garages; front pocket with its own gusset and zip; stretch-mesh bottle pockets; compression straps
+  with side-release buckles; haul loop under a yoke; S-curve padded shoulder straps (shell, foam, air-mesh underside,
+  bound edges), ladder-locks, adjusting webbing from folded anchor triangles at the base corners, sternum strap on
+  rails, load lifters on larger packs. Real 23-piece cut list and hardware list.
+
+### Tests (`npm test`)
+`jitter-test` (settled cloth is still), `layer-test` (layers never cross, tucked or not), `pull-test` (seams hold,
+garment returns to the body) run with the existing suites.
 
 ## Open, in order
 
-1. **Shirt over jeans: last flicker** (~7 mm/frame at the shirt's side hem over the jeans hip,
-   `jeans-straight+oxford-shirt`). Without the layer pass the outfit is still (1.6 mm), so it is the pass:
-   the set of inner neighbours toggles frame to frame. Next: make the pass continuous (inner points demand
-   less with lateral distance instead of a hard 1.6 cm cut-off, soft weight instead of the `dot ≥ 0.7`
-   cut-off), smaller per-frame share (0.3 → ~0.15). Then add `jitter-test.mjs` to `npm test`.
-   Tried and rejected (made it worse): reversal damping, a final body push after the step, Coulomb static
-   friction in the contact, gap closing of the body field.
-2. **Belt through the loops:** check visually that the belt follows the waistband and threads through the
-   3D loops with no interference with jeans or shirt; add a centre-back loop where the style has one.
-3. **Tie:** knot and blade must be one connected topology with the neckband (no disconnected front).
-4. **Feet in shoes:** feet must never poke through; the shoe wraps the foot physically.
-5. **Skin peeking through clothes:** find the cases and fix the cause.
-6. **Pulling:** grabbing hard never tears clothes off the body; stretch follows the material (stiff vs
-   elastic) up to its limit.
-7. **Per-garment zip/button** controls for every piece of an outfit.
-8. **Backpack rebuild** from researched real components: padded front/back panels, gussets, base, zips
-   with double sliders and garages, front and side pockets, compression straps, haul loop, S-curve padded
-   shoulder straps attached with webbing and ladder locks, sternum strap, load lifters, binding.
-9. **Audit every other assembly** for disconnected parts: bag straps, tabs, hat parts, shoe laces, etc.
-10. Remaining features: pose animation, sketch-to-3D, review of AI fashion tools for missing features.
-11. Release the next version and update the desktop app (Tauri build, install, relaunch).
+1. **Audit every other bag and assembly** the same way as the backpack: rucksack (reuse the backpack harness and
+   body, add the drawstring throat, lid/flap with buckles), duffel, tote, messenger and crossbody strap hardware,
+   hats (sweatband, crown seams, bill), shoe laces through every eyelet. Look for anything floating or
+   disconnected and anything simplified.
+2. **Backpack options:** hip belt, laptop sleeve shown open, reflective tab, interior organiser when opened.
+3. Remaining features: pose animation, sketch-to-3D, review of AI fashion tools for missing features.
+4. Release and desktop rebuild after each batch (version in package.json, src-tauri/tauri.conf.json,
+   src-tauri/Cargo.toml).
 
 ## Useful commands
 
@@ -64,11 +69,11 @@ npm test
 ```
 
 ```bash
-node scripts/jitter-test.mjs
+node scripts/jitter-test.mjs jeans-straight+oxford-shirt
 ```
 
 ```bash
-node scripts/jitter-test.mjs jeans-straight+oxford-shirt
+node scripts/pull-test.mjs
 ```
 
 ```bash
