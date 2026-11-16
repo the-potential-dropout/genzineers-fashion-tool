@@ -163,9 +163,9 @@ export function bodyField(body, cell = 0.0125) {
   return field;
 }
 
-const CLOSE_R = 0.012;
+const CLOSE_R = 0.016;
 /**
- * Morphological closing of the body for cloth contact: creases narrower than 2r (armpit, between the thumb and
+ * Morphological closing of the body for cloth contact: creases narrower than 2r = 3.2 cm (armpit, between the thumb and
  * the hand, between fingers, skin folds) are bridged, as cloth lies across them instead of being pinched inside.
  * B = body grown by r; the closed body is B shrunk back by r: inside B its distance is r - (distance to the outside
  * of B), outside B it is unchanged. Smooth surfaces are untouched; only narrow gaps fill in.

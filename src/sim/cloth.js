@@ -612,7 +612,7 @@ function fill(v, d) {
 }
 
 // ---------- JS fallback (mirrors sim-core/src/lib.rs) ----------
-function dist(pos, inv, i, j, rest, k, compress, limit) {
+function dist(pos, inv, i, j, rest, k, compress, limit, hg = 1) {
   const wi = inv[i];
   const wj = inv[j];
   const w = wi + wj;
@@ -628,7 +628,7 @@ function dist(pos, inv, i, j, rest, k, compress, limit) {
   const cc = dd - rest;
   let corr;
   if (cc < 0) corr = k * compress * cc;
-  else { const hard = cc - rest * limit; corr = hard > k * cc ? hard : k * cc; }
+  else { const hard = cc - rest * limit; corr = hard > k * cc ? k * cc + (hard - k * cc) * hg : k * cc; }
   const sc = corr / (dd * w);
   pos[i3] += dx * sc * wi; pos[i3 + 1] += dy * sc * wi; pos[i3 + 2] += dz * sc * wi;
   pos[j3] -= dx * sc * wj; pos[j3 + 1] -= dy * sc * wj; pos[j3 + 2] -= dz * sc * wj;
@@ -716,7 +716,7 @@ function jsStep(v, n, m, s, c, bins, substeps, dt, gravity, damping, sewRate, se
     }
     for (let e = 0; e < m; e++) dist(pos, inv, ci[e * 2], ci[e * 2 + 1], rest[e], kc[e], compress, lim[e]);
     for (let e = m - 1; e >= 0; e--) dist(pos, inv, ci[e * 2], ci[e * 2 + 1], rest[e], kc[e], compress, lim[e]);
-    for (let it = 0; it < 3; it++) for (let e = 0; e < s; e++) dist(pos, inv, si[e * 2], si[e * 2 + 1], srest[e], sk[e], 1, 1e9);
+    for (let it = 0; it < 3; it++) for (let e = 0; e < s; e++) dist(pos, inv, si[e * 2], si[e * 2 + 1], srest[e], sk[e], 1, srest[e] <= sewMin * 1.01 ? 0.0025 / Math.max(srest[e], 1e-4) : 1e9, 0.5); /* a sewn seam is held by its thread: under load it opens about 2.5 mm beyond the sewn gap, never more */
     if (sub === substeps - 1) {
       for (let p = 0; p < n * 3; p += 3) {
         const dx = pos[p] - prev[p]; const dy = pos[p + 1] - prev[p + 1]; const dz = pos[p + 2] - prev[p + 2];

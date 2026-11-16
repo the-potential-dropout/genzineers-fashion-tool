@@ -77,6 +77,11 @@ unsafe fn sdf_sample(f: &Sdf, x: f32, y: f32, z: f32) -> Option<(f32, f32, f32, 
 
 #[inline(always)]
 fn solve_dist(pos: &mut [f32], inv: &[f32], i: usize, j: usize, rest: f32, k: f32, compress: f32, limit: f32) {
+    solve_dist_g(pos, inv, i, j, rest, k, compress, limit, 1.0);
+}
+
+/// As solve_dist; `hard_gain` is the share of the excess beyond the limit removed per pass (1 = at once).
+fn solve_dist_g(pos: &mut [f32], inv: &[f32], i: usize, j: usize, rest: f32, k: f32, compress: f32, limit: f32, hard_gain: f32) {
     let (wi, wj) = (inv[i], inv[j]);
     let w = wi + wj;
     if w <= 0.0 {
@@ -99,7 +104,7 @@ fn solve_dist(pos: &mut [f32], inv: &[f32], i: usize, j: usize, rest: f32, k: f3
         k * compress * c
     } else {
         let hard = c - rest * limit;
-        if hard > k * c { hard } else { k * c }
+        if hard > k * c { k * c + (hard - k * c) * hard_gain } else { k * c }
     };
     let s = corr / (d * w);
     pos[i3] += dx * s * wi;
@@ -313,7 +318,11 @@ pub unsafe extern "C" fn step(
         // Seams (few hundred pairs: solve 3x so stitches win over fabric tension)
         for _ in 0..3 {
             for e in 0..s {
-                solve_dist(pos, inv, si[e * 2] as usize, si[e * 2 + 1] as usize, srest[e], sk[e], 1.0, 1e9);
+                // a sewn seam is held by its thread: under load it opens by about 2.5 mm beyond the sewn gap, never more
+                // (half the excess is taken up per pass, so the thread takes the load over the iterations without a snap)
+                let sewn = srest[e] <= sew_min * 1.01;
+                let slim = if sewn { 0.0025 / srest[e].max(1e-4) } else { 1e9 };
+                solve_dist_g(pos, inv, si[e * 2] as usize, si[e * 2 + 1] as usize, srest[e], sk[e], 1.0, slim, 0.5);
             }
         }
 
