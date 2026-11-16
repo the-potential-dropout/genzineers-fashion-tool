@@ -1031,7 +1031,7 @@ export class Viewer {
       // walk in from in front of the neck until the body (or the shirt collar stand) is reached
       const front = [new THREE.Vector3(0, pr.y, 0.2)];
       { const f = project.display?.avatar === false ? null : bodyField(bodyFor(project)); const o4 = [0, 0, 0, 0]; const lift = pr.kind === 'bowtie' ? 0.012 : 0.016; if (f) for (let z = 0.2; z > -0.05; z -= 0.003) { front[0].z = z; if (sampleField(f, 0, pr.y, z, o4) && o4[0] <= lift) break; } }
-      if (pr.band) {
+      if (pr.band && pr.kind !== 'tie-knot') {
         const ring = []; for (let k = 0; k <= 40; k++) { const a = (k / 40) * Math.PI * 2; ring.push(new THREE.Vector3(Math.sin(a) * 0.12, pr.y + (pr.kind === 'bowtie' ? 0.012 : 0.008) + 0.012 * Math.cos(a) * -1, -0.01 + Math.cos(a) * 0.12)); }
         if (pr.kind !== 'bowtie') ring.splice(0, 4), ring.splice(-4, 4); // open at the front: the straps take over there
         const band = new THREE.Mesh(this.bodyRibbon(ring, pr.kind === 'bowtie' ? 0.019 : 0.028, 0.0085), mat); band.frustumCulled = false;
@@ -1050,10 +1050,24 @@ export class Viewer {
         knot.position.set(o.x, top, o.z + 0.002);
         this.garment.add(knot);
         const V = (x, y, z) => new THREE.Vector3(o.x + x, top + y, o.z + z);
-        if (pr.band) for (const sd of [1, -1]) { // straps from the shoulders of the knot up and back round the neck
-          const pts = new THREE.CatmullRomCurve3([V(sd * K.top * 0.003, -0.006, 0.002), V(sd * (K.top * 0.005 + 0.01), 0.004, -0.006), V(sd * 0.052, 0.012, -0.03), V(sd * 0.082, 0.016, -0.07)]).getPoints(16);
-          const tail3 = pts.slice(5); this.hugBody(tail3, 0.0085); // lies on the shirt's collar stand, under the collar fall
-          const m2 = clothBand(pts, pts.map(() => new THREE.Vector3(0, 0.35, 1).normalize()), () => 0.0155, thick * 0.9, mat); this.garment.add(m2);
+        if (pr.band) {
+          // The neck loop: both ends of a tied tie leave the knot at its two shoulders, rise under the collar and pass
+          // round the back of the neck. It is one strip of the same cloth, from one side of the knot round to the other,
+          // so it is built as one continuous band: it cannot come apart from the knot or from itself.
+          const fb = project.display?.avatar === false ? null : bodyField(bodyFor(project)); const o5 = [0, 0, 0, 0];
+          let zBack = o.z - 0.12; if (fb) for (let z = -0.25; z < o.z; z += 0.003) { if (sampleField(fb, 0, top + 0.03, z, o5) && o5[0] <= 0.0085) { zBack = z; break; } }
+          const zc = (o.z - 0.004 + zBack) / 2; const rz = (o.z - 0.004 - zBack) / 2; const rx = rz * 1.02;
+          const a0 = 0.42; const NR = 30; const ring = [];
+          for (let k = 0; k <= NR; k++) { const a = a0 + ((Math.PI * 2 - 2 * a0) * k) / NR; ring.push(new THREE.Vector3(Math.sin(a) * rx, top + 0.014 + 0.022 * (1 - Math.cos(a)) / 2, zc + Math.cos(a) * rz)); }
+          this.hugBody(ring, 0.0085); // lies on the shirt's collar stand, under the collar fall
+          const path = [V(K.top * 0.003, -0.006, 0.002), V(K.top * 0.005 + 0.008, 0.002, -0.004), ...ring, V(-(K.top * 0.005 + 0.008), 0.002, -0.004), V(-K.top * 0.003, -0.006, 0.002)];
+          const pts = new THREE.CatmullRomCurve3(path, false, 'centripetal').getPoints(90);
+          // the band lies flat on the neck (its face along the skin's normal, not held upright), folded to the narrow
+          // width a tie has under the collar; every point of its width is kept clear of the neck
+          const n9 = pts.length - 1; const halfW = (i) => { const e = Math.min(i, n9 - i) / n9; return 0.0145 - Math.min(1, e * 5) * 0.003; };
+          const nrm = pts.map((q) => { const r = new THREE.Vector3(q.x, 0.25, q.z - zc).normalize(); if (fb && sampleField(fb, q.x, q.y, q.z, o5)) { const gl = Math.hypot(o5[1], o5[2], o5[3]); if (gl > 1e-7) { const g = new THREE.Vector3(o5[1] / gl, o5[2] / gl, o5[3] / gl); if (g.dot(r) > 0.2) return g; } } return r; });
+          if (fb) for (let i = 2; i < n9 - 1; i++) { const q = pts[i]; const T = pts[i + 1].clone().sub(pts[i - 1]).normalize(); const N = nrm[i].clone().addScaledVector(T, -nrm[i].dot(T)).normalize(); const Bv = new THREE.Vector3().crossVectors(T, N).normalize(); for (let it = 0; it < 4; it++) { let need = 0; const g = new THREE.Vector3(); for (const s2 of [-1, -0.5, 0, 0.5, 1]) for (const s3 of [-1, 1]) { const e = q.clone().addScaledVector(Bv, s2 * halfW(i)).addScaledVector(N, s3 * thick * 0.6); if (sampleField(fb, e.x, e.y, e.z, o5) && 0.0085 - o5[0] > need) { need = 0.0085 - o5[0]; const gl = Math.hypot(o5[1], o5[2], o5[3]) || 1; g.set(o5[1] / gl, o5[2] / gl, o5[3] / gl); } } if (need <= 0.0002) break; q.addScaledVector(g, need); } }
+          const m2 = clothBand(pts, nrm, halfW, thick * 0.9, mat); this.garment.add(m2);
         }
         { // the narrow end hangs behind the blade
           const len = (pr.tail || 26) / 100; const pts = []; for (let k = 0; k <= 14; k++) pts.push(V(0.004, -K.height * 0.01 - (k / 14) * len, 0.003));

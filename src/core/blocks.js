@@ -739,7 +739,18 @@ export function buildBottom(o, prefix = '', fabric = 'cotton-twill') {
     if ((o.hem === 'plain' || o.hem === 'split') && !shortLeg) overlays.push({ kind: 'hem', style: /denim/.test(fabric) ? 'double-turned' : 'blind', panel: id(pid), points: rect(cxs - legHalfC, 0, cxs + legHalfC, /denim/.test(fabric) ? 1.3 : /wool|suiting/.test(fabric) ? 4 : 2.5) });
     if ((o.hem === 'plain' || o.hem === 'split') && shortLeg) { const hx = src.pts.filter((q) => q[1] < 0.6).map((q) => q[0] * (s > 0 ? 1 : -1)); if (hx.length >= 2) overlays.push({ kind: 'hem', style: 'turned', panel: id(pid), points: rect(Math.min(...hx), 0, Math.max(...hx), 2) }); }
     if (o.hem === 'rib-cuff') overlays.push({ kind: 'cuff', style: 'rib', panel: id(pid), points: rect(cxs - legHalfC, 0, cxs + legHalfC, 7) });
-    if (o.beltLoops === 'yes' && o.waistband !== 'elastic') trims.push({ type: 'belt-loop', panel: id(pid), at: [s * 4, top - 2 + (isBack ? 5 : 0)] });
+    if (o.beltLoops === 'yes' && o.waistband !== 'elastic') {
+      // belt loops where a trouser maker puts them, each sewn on the waistband's own line (the back waist rises):
+      // five-pocket jeans 5 (front on the crease line, side-back, one at the centre back seam);
+      // tailored trousers and chinos 7 (front, at the side seams, back, centre back)
+      const xs = wp.map((q) => q[0]); const xIn = Math.min(...xs); const xOut = Math.max(...xs);
+      const yAt = (x) => { for (let k = 1; k < wp.length; k++) { const a = wp[k - 1]; const b = wp[k]; if ((a[0] - x) * (b[0] - x) <= 0 && a[0] !== b[0]) return a[1] + ((b[1] - a[1]) * (x - a[0])) / (b[0] - a[0]); } return top; };
+      const jeansLoops = o.pockets === 'five-pocket';
+      const at = isBack ? (jeansLoops ? [xOut - (xOut - xIn) * 0.3] : [xIn + (xOut - xIn) * 0.42]) : [src.cx];
+      if (isBack && s > 0) at.push(xIn + 0.9); // the centre back loop, once, over the seat seam
+      for (const x of at) trims.push({ type: 'belt-loop', panel: id(pid), at: [s > 0 ? x : -x, yAt(x) - 2] });
+      if (!jeansLoops && !isBack) trims.push({ type: 'belt-loop', panel: id(pid), at: [s > 0 ? xOut - 1.2 : -(xOut - 1.2), yAt(xOut - 1.2) - 2] });
+    }
   }
   if (o.waistband === 'button') trims.push({ type: o.pockets === 'five-pocket' ? 'jeans-button' : 'button-4hole', panel: id('front-r'), at: [-9, top - 2] });
   if (o.waistband === 'drawstring') trims.push({ type: 'grommet', panel: id('front-r'), at: [-8, top - 2] }, { type: 'grommet', panel: id('front-l'), at: [8, top - 2] });
