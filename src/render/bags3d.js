@@ -61,6 +61,11 @@ export function buildBag(spec, mats) {
   }
   const tipP = barrel ? [W, rings[rings.length - 1].reduce((a, p) => a + p[1], 0) / NA, 0] : [0, 0, 0];
   const G = gridFrom(rings, tipP, [0, H * 0.5, 0]);
+  // cloth is cut flat: the weave on each panel runs straight across that panel (front and back: width x height, gussets
+  // and ends: depth x height, base and top: width x depth), not round the build sections
+  for (let v = 0; v < G.N; v++) { const ax = Math.abs(G.Nn[v * 3]); const ay = Math.abs(G.Nn[v * 3 + 1]); const az = Math.abs(G.Nn[v * 3 + 2]); const x = G.P[v * 3]; const y = G.P[v * 3 + 1]; const z = G.P[v * 3 + 2];
+    if (barrel) { if (ax > 0.75) { G.UV[v * 2] = z * 10; G.UV[v * 2 + 1] = y * 10; } else { G.UV[v * 2] = x * 10; G.UV[v * 2 + 1] = Math.atan2(y - Math.min(H / 2, D), z) * Math.min(H / 2, D) * 10; } continue; }
+    if (ay >= ax && ay >= az) { G.UV[v * 2] = x * 10; G.UV[v * 2 + 1] = z * 10; } else if (ax >= az) { G.UV[v * 2] = z * 10; G.UV[v * 2 + 1] = y * 10; } else { G.UV[v * 2] = x * 10; G.UV[v * 2 + 1] = y * 10; } }
   const P = G.P; const N = G.Nn; const M = (fn) => { const m = new Float32Array(G.N); for (let v = 0; v < G.N; v++) m[v] = fn(v, P[v * 3], P[v * 3 + 1], P[v * 3 + 2], N[v * 3], N[v * 3 + 1], N[v * 3 + 2]); return m; };
   const topY = barrel ? 9 : H - 0.0004;
   const exist = M((v, x, y) => (barrel ? 1 : open || spec.flap || spec.holster ? topY - (spec.shape === 'crescent' ? H : y) - (spec.shape === 'crescent' ? (G.ring[v] === 0 ? 1 : -1) * 1e-4 : 0) : 1));
@@ -80,7 +85,7 @@ export function buildBag(spec, mats) {
     layPiece(G, group, bm, mats.part('base'), { off: 0.0003, color: col('base'), stitch: 0, edge: !piped, order: layer++ }); if (piped) pipeAlong(bm, 0.0002); }
   if (spec.corners) layPiece(G, group, M((v, x, y, z) => Math.min(existM[v], 0.05 - y - Math.max(0, W * 0.72 - Math.abs(x)) * 0.9)), mats.part('corner'), { off: 0.0012, color: col('corner'), stitch: 1, stitchColor: thread, order: layer++ });
   if (spec.quiltStyle && spec.quiltStyle !== 'none') { const p = 0.025; const lm = new THREE.LineBasicMaterial({ color: bodyCol.clone().multiplyScalar(0.55) }); for (const fam of spec.quiltStyle === 'diamond' ? [1, -1] : [0]) for (let c = -40; c <= 40; c++) { const mk = M((v, x, y, z, nx, ny, nz) => (Math.abs(nz) > 0.5 && existM[v] > 0.004 ? (fam ? x + fam * y : x) - c * p : NaN)); for (const line of isoLines(G, mk, 0, 0.0004, (v) => !Number.isNaN(mk[v]))) if (line.length > 2) group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(line.map((q) => q.p)), lm)); } }
-  if (part('wrap')) { const wx = W * 0.42; const wm = M((v, x, y, z, nx) => Math.min(0.019 - Math.abs(Math.abs(x) - wx), barrel ? 1 : 0.6 - Math.abs(nx), barrel ? 1 : existM[v]));
+  if (part('wrap')) { const wx = W * 0.4; /* the handles are these straps coming up off the bag: same line */ const wm = M((v, x, y, z, nx) => Math.min(0.019 - Math.abs(Math.abs(x) - wx), barrel ? 1 : 0.6 - Math.abs(nx), barrel ? 1 : existM[v]));
     layPiece(G, group, wm, mats.part('wrap'), { off: 0.0016, color: col('wrap'), stitch: 1, stitchColor: thread, order: layer++ }); }
   if (spec.strapsDown) layPiece(G, group, M((v, x, y, z, nx, ny, nz) => Math.min(0.0125 - Math.abs(Math.abs(x) - W * 0.36), Math.abs(nz) - 0.6, existM[v], y - 0.002)), mats.part('handle'), { off: 0.0014, color: col('handle'), stitch: 1, stitchColor: thread, order: layer++ });
   if (spec.pockets === 'front-zip' || spec.pockets === 'front-slip') { const pw = W * 0.66; const y0 = H * 0.1; const y1 = H * (spec.flap ? 0.3 : 0.58); const pm = M((v, x, y, z, nx, ny, nz) => Math.min(pw - Math.abs(x), y - y0, y1 - y, (barrel ? nz - 0.2 : nz - 0.55)));
