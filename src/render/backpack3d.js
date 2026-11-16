@@ -81,7 +81,7 @@ export function buildBackpack(spec, mats) {
     // 3D spacer (air) mesh is a mesh face on a closed backing: it reads as mesh but is not see-through
     if (id === 'back') { m.transparent = false; m.opacity = 1; m.alphaMap = null; m.alphaTest = 0; m.depthWrite = true; m.needsUpdate = true; }
     // mesh parts are made in the pack's colour unless a colour has been chosen for that part
-    if ((id === 'back' || id === 'mesh' || id === 'base') && !spec.parts.find((q) => q.id === id)?.color) m.color.set(bodyCol.clone().multiplyScalar(id === 'back' ? 0.85 : 1));
+    if ((id === 'back' || id === 'mesh' || id === 'base' || id === 'throat') && !spec.parts.find((q) => q.id === id)?.color) m.color.set(bodyCol.clone().multiplyScalar(id === 'back' ? 0.85 : id === 'throat' ? 0.78 : 1));
     return m; };
   const thread = spec.stitchColor || bodyCol.clone().lerp(new THREE.Color('#ffffff'), 0.35).getStyle();
   const plastic = new THREE.MeshStandardMaterial({ color: '#141416', roughness: 0.42, metalness: 0.05 });
@@ -194,9 +194,9 @@ export function buildBackpack(spec, mats) {
     { const cl = new THREE.CylinderGeometry(0.008, 0.009, 0.022, 14); cl.translate(lockP.x, lockP.y, lockP.z); plast.push(cl); const btn = new THREE.CylinderGeometry(0.004, 0.004, 0.006, 10); btn.rotateZ(Math.PI / 2); btn.translate(lockP.x + 0.01, lockP.y + 0.004, lockP.z); plast.push(btn); }
     // the lid: sewn on along the top of the back panel, over the gathered throat, down the front, its edge bound
     const lidLen = H * (spec.flap || 0.42); const zBt = zb(H); const zFt = zb(H) + gw(H);
-    const prof = new THREE.CatmullRomCurve3([V(0, H - 0.012, zBt - 0.004), V(0, H + 0.075, zBt - 0.006), V(0, H + thH + 0.012, zBt + gw(H) * 0.25), V(0, H + thH + 0.018, zBt + gw(H) * 0.6), V(0, H + thH - 0.01, zFt + 0.018), V(0, H + 0.03, zFt + 0.022), V(0, H - lidLen, frontZ(0, H - lidLen) + 0.012)], false, 'centripetal').getSpacedPoints(40);
+    const prof = new THREE.CatmullRomCurve3([V(0, H - 0.012, zBt - 0.004), V(0, H + 0.075, zBt - 0.006), V(0, H + thH * 0.92, zBt + gw(H) * 0.25), V(0, H + thH + 0.004, zBt + gw(H) * 0.6), V(0, H + thH * 0.8, zFt + 0.016), V(0, H + 0.03, zFt + 0.022), V(0, H - lidLen, frontZ(0, H - lidLen) + 0.012)], false, 'centripetal').getSpacedPoints(40);
     const NL = 26; const lidW = (v) => W * (0.97 - 0.06 * v); const lidRows = [];
-    for (let i = 0; i <= NL; i++) { const u = -1 + (2 * i) / NL; const endCut = 1 - 0.1 * Math.pow(Math.abs(u), 5); const row = []; for (let j = 0; j <= 40; j++) { const v = Math.min(j / 40, endCut); const pp = prof[Math.round(v * 40)]; const x = u * lidW(v); let z = pp.z; if (pp.y < H - 0.005) z = Math.max(z, frontZ(x, pp.y) + 0.009); const sag = (1 - u * u) * 0.006 * Math.sin(Math.PI * v); row.push(V(x, pp.y + (pp.y > H ? sag : 0), z + (pp.y <= H ? sag : 0))); } lidRows.push(row); }
+    for (let i = 0; i <= NL; i++) { const u = -1 + (2 * i) / NL; const endCut = 1 - 0.1 * Math.pow(Math.abs(u), 5); const row = []; for (let j = 0; j <= 40; j++) { const v = Math.min(j / 40, endCut); const pp = prof[Math.round(v * 40)]; const x = u * lidW(v); let z = pp.z; if (pp.y < H - 0.005) z = Math.max(z, frontZ(x, pp.y) + 0.009); const sag = (1 - u * u) * 0.006 * Math.sin(Math.PI * v); const drape = pp.y > H ? (pp.y - H) * (0.55 * Math.pow(Math.abs(u), 2.2)) : 0; row.push(V(x * (1 - 0.06 * Math.pow(Math.abs(u), 3) * (pp.y > H ? 1 : 0)), pp.y + (pp.y > H ? sag : 0) - drape, z + (pp.y <= H ? sag : 0))); } lidRows.push(row); }
     const lidT = lidRows[0].map((_, j) => lidRows.map((r) => r[j])); group.add(new THREE.Mesh(gridGeo(lidT), M(has('flap') ? 'flap' : 'body')));
     const edge = [...lidRows[0], ...lidRows.map((r) => r[r.length - 1]), ...lidRows[NL].slice().reverse()]; group.add(new THREE.Mesh(strand(edge, edge.map((p) => V(0, p.y > H ? 1 : 0, p.y > H ? 0 : 1).normalize()), 0.007, 0.005, true), M('piping')));
     dashed(lidRows.map((r) => r[r.length - 1].clone().add(V(0, 0.008, 0.0012))));
