@@ -19,7 +19,7 @@ export const BAG_TYPES = {
   sling: T('Sling bag', { width: 30, height: 18, depth: 8, handles: 'crossbody', shape: 'rounded', soft: 0.4, fabric: 'nylon-ballistic', pockets: 'front-zip' }),
   'fanny-pack': T('Fanny pack / belt bag', { width: 30, height: 14, depth: 8, handles: 'waist-belt', shape: 'rounded', soft: 0.4, fabric: 'nylon-ballistic', pockets: 'front-zip' }),
   backpack: T('Backpack', { width: 30, height: 44, depth: 15, handles: 'backpack', shape: 'rounded', soft: 0.35, fabric: 'nylon-ballistic', pockets: 'front-zip', archZip: true, pack: true }),
-  rucksack: T('Rucksack (flap and drawstring)', { width: 30, height: 44, depth: 16, handles: 'backpack', closure: 'drawstring', soft: 0.45, fabric: 'canvas', flap: 0.42, flapStraps: true, pockets: 'side' }),
+  rucksack: T('Rucksack (flap and drawstring)', { width: 30, height: 44, depth: 16, handles: 'backpack', closure: 'drawstring', soft: 0.45, fabric: 'canvas', flap: 0.42, flapStraps: true, pockets: 'side', pack: true, style: 'rucksack' }),
   messenger: T('Messenger bag', { width: 38, height: 28, depth: 10, handles: 'crossbody', closure: 'flap-buckle', soft: 0.3, fabric: 'canvas', flap: 0.82 }),
   briefcase: T('Briefcase', { width: 40, height: 29, depth: 9, handles: 'top-handles', closure: 'flap-buckle', base: 'structured', soft: 0, flap: 0.6, fabric: 'leather-veg-tan', oneHandle: true, feet: 'yes' }),
   'laptop-bag': T('Laptop bag', { width: 40, height: 29, depth: 8, handles: 'top-handles', closure: 'zip', soft: 0.15, fabric: 'nylon-ballistic', pockets: 'front-zip', extraStrap: 'crossbody' }),
@@ -97,10 +97,11 @@ export function bagParts(s) {
     add('back', 'Back panel (3D air mesh over foam)', 'mesh', 'Two 10 mm EVA pads with a spine channel, a lumbar pad below.');
     add('handle', 'Shoulder straps (shell)', null, 'Shell over 10 mm foam, S-curved.');
     add('webbing', 'Webbing (straps, haul loop, anchors, compression)', 'nylon-webbing', '25 mm and 20 mm polypropylene or nylon.');
-    if (s.pockets !== 'none') add('pocket', 'Front pocket', null, 'Panel and its own gusset, with a zip over the top.');
-    if (s.bottle) add('mesh', 'Side bottle pockets (stretch mesh)', 'mesh', 'Elastic bound at the top, sewn into the base seam.');
+    if (s.pockets !== 'none') add('pocket', s.style === 'rucksack' ? 'Bellows side pockets' : 'Front pocket', null, s.style === 'rucksack' ? 'Box pockets on the side gussets, each with a flap, strap and buckle.' : 'Panel and its own gusset, with a zip over the top.');
+    if (s.bottle && s.style !== 'rucksack') add('mesh', 'Side bottle pockets (stretch mesh)', 'mesh', 'Elastic bound at the top, sewn into the base seam.');
     add('piping', 'Binding tape (seams, strap and back-panel edges)', 'nylon-webbing', '25 mm grosgrain folded over every inside seam and the strap edges.');
-    add('lining', 'Lining and laptop sleeve', 'nylon-ripstop', '210D ripstop lining; padded sleeve on the back panel inside.');
+    if (s.style === 'rucksack') { add('flap', 'Lid', null, 'Sewn along the top of the back panel; bound edge; two straps to buckles on the front.'); add('throat', 'Throat (extension collar)', 'nylon-ripstop', 'Gathered by a drawcord in a channel at the top, cord lock at the front.'); }
+    add('lining', s.style === 'rucksack' ? 'Lining' : 'Lining and laptop sleeve', 'nylon-ripstop', s.style === 'rucksack' ? '210D ripstop.' : '210D ripstop lining; padded sleeve on the back panel inside.');
     return P;
   }
   add('body', s.fold || s.cards || s.holster ? 'Outer' : 'Front and back panels', null, '');
@@ -124,8 +125,8 @@ export function bagPieces(s, fabric, o) {
   const fabOf = Object.fromEntries(bagParts(s).map((p) => [p.id, p.fabric || fabric]));
   const pc = (part, name, pts, cut, note, extra = {}) => out.push({ name, points: pts.map(([a, b]) => [r1(a), r1(b)]), fabric: fabOf[part] || fabric, cut, note, part, ...extra });
   const rect = (w, h) => [[0, 0], [w, 0], [w, h], [0, h]];
-  if (s.pack) { packPieces(s, W, H, D, SA, pc, rect, o); return out; }
   const rrect = (w, h, r) => { const p = []; for (const [cx, cy, a0] of [[w - r, r, -90], [w - r, h - r, 0], [r, h - r, 90], [r, r, 180]]) for (let i = 0; i <= 5; i++) { const a = ((a0 + i * 18) * Math.PI) / 180; p.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); } return p; };
+  if (s.pack) { packPieces(s, W, H, D, SA, pc, rect, o, rrect); return out; }
   if (s.fold) { pc('body', 'Outer', rrect(W * 2 + 0.6, H, 0.6), 1, 'Skive the fold line and all edges to 0.6 mm.'); pc('pockets-in', 'Card pocket', rect(W - 0.6, 5.2), 6, 'Three each side, stepped 1 cm; T-shaped or straight.'); pc('lining', 'Note compartment lining', rect(W * 2, H - 0.8), 1, ''); return out; }
   if (s.cards) { pc('body', 'Back and front', rrect(W, H, 0.5), 2, ''); pc('pockets-in', 'Pocket', rect(W, H - 2), 2, 'One each side; a centre slot is left between.'); return out; }
   if (s.holster) { pc('body', 'Front (moulded)', rrect(W + 3, H, 2.5), 1, 'Wet-moulded over the form, 3 to 3.5 mm vegetable-tanned leather; stitch line 6 mm from the form.'); pc('body', 'Back', rrect(W + 3, H, 2.5), 1, 'Two belt slots 4 x 0.8 cm.', { holes: [[[1, H * 0.35], [1.8, H * 0.35], [1.8, H * 0.35 + 4.2], [1, H * 0.35 + 4.2]], [[W + 1.2, H * 0.35], [W + 2, H * 0.35], [W + 2, H * 0.35 + 4.2], [W + 1.2, H * 0.35 + 4.2]]] }); return out; }
@@ -157,30 +158,33 @@ function tomb(w, h, rb, ht) {
   for (let i = 0; i <= 6; i++) { const a = Math.PI + (i / 6) * (Math.PI / 2); p.push([rb + Math.cos(a) * rb, rb + Math.sin(a) * rb]); }
   return p;
 }
-function packPieces(s, W, H, D, SA, pc, rect, o) {
+function packPieces(s, W, H, D, SA, pc, rect, o, rrect) {
   const rb = Math.min(4.5, W * 0.15); const ht = Math.min(H * 0.38, W * 0.52); const per = 2 * (H - ht) + (W - 2 * rb) + Math.PI * rb + 0.5 * Math.PI * (W / 2 + ht);
   const zipLen = Math.round(per * 0.62); const yZip = H * 0.34;
   pc('body', 'Front panel', tomb(W + 2 * SA, H + 2 * SA, rb, ht), 1, `${SA} cm seam allowance. Front pocket placement and logo marked.`);
   pc('back', 'Back panel (outer, 3D air mesh)', tomb(W + 2 * SA, H + 2 * SA, rb, ht), 1, 'Quilted down the spine channel; edge bound.');
   pc('back', 'Back panel foam pad', rect(W / 2 - 2.5, H * 0.66), 2, '10 mm closed-cell EVA, left and right of a 5 cm spine channel.');
   pc('back', 'Lumbar pad foam', rect(W - 6, H * 0.18), 1, '6 mm EVA, low on the back panel.');
-  pc('body', 'Zip panel (two strips)', rect(zipLen + 2 * SA, (D * 0.58) / 2 + 1.5), 2, `A ${zipLen} cm two-way No. 8 coil zip is set between the two strips; zip garages at each end.`);
-  pc('gusset', 'Side gusset', rect(D + 2 * SA, yZip + 2 * SA), 2, 'Bottle-pocket and compression-strap tabs sewn into its edges.');
+  const ruck = s.style === 'rucksack';
+  if (ruck) { pc('throat', 'Throat (extension collar)', rect(2 * W + 2 * D + 2 * SA, 15), 1, 'Drawcord channel folded at the top edge, two 10 mm eyelets at the front.'); pc('flap', 'Lid (outer and lining)', rrect(W + 2 * SA, H * (s.flap || 0.42) + D + 16, 3), 2, 'Bound edge; sewn along the top of the back panel.'); pc('webbing', 'Lid strap webbing 20 mm', rect(30, 2), 2, ''); pc('webbing', 'Lid buckle tab webbing 20 mm', rect(10, 2), 2, ''); }
+  else pc('body', 'Zip panel (two strips)', rect(zipLen + 2 * SA, (D * 0.58) / 2 + 1.5), 2, `A ${zipLen} cm two-way No. 8 coil zip is set between the two strips; zip garages at each end.`);
+  pc('gusset', ruck ? 'Side gusset (base to top edge)' : 'Side gusset', rect(D + 2 * SA, (ruck ? H : yZip) + 2 * SA), 2, 'Bottle-pocket and compression-strap tabs sewn into its edges.');
   pc('base', 'Base', rect(W * 2 - 2 * rb + Math.PI * rb + 2 * SA, D + 2 * SA), 2, 'Two layers; the shoulder-strap anchor tabs are caught in the back seam at each corner.');
   pc('base', 'Anchor reinforcement triangle', [[0, 0], [7, 0], [0, 7]], 2, 'Folded twice round the 25 mm anchor webbing, bar-tacked.');
   pc('handle', 'Shoulder strap shell', [[0, 0], [7.2, 0], [6.6, 14], [5.2, 30], [4.6, 44], [0.8, 44], [0.2, 30], [0.6, 14]], 2, 'S-curve: the left and right straps are mirror images.');
   pc('back', 'Shoulder strap underside (air mesh)', [[0, 0], [7.2, 0], [6.6, 14], [5.2, 30], [4.6, 44], [0.8, 44], [0.2, 30], [0.6, 14]], 2, '');
   pc('handle', 'Shoulder strap foam', [[0.5, 0], [6.7, 0], [6.1, 14], [4.7, 30], [4.1, 43], [1.3, 43], [0.7, 30], [1.1, 14]], 2, '10 mm EVA, 1 cm in from the edge so the binding has room.');
   pc('body', 'Yoke (strap reinforcement)', [[0, 0], [15, 0], [11, 7.5], [4, 7.5]], 1, 'Over the strap tops and the haul loop; box-stitched.');
-  if (s.pockets !== 'none') { pc('pocket', 'Front pocket panel', tomb(W * 0.74 + 2 * SA, H * 0.5 + 2 * SA, Math.min(3, rb), Math.min(H * 0.5 * 0.42, W * 0.37)), 1, ''); pc('pocket', 'Front pocket gusset', rect(Math.round(per * 0.62), 3 + 2 * SA), 1, `With a ${Math.round(per * 0.42)} cm No. 5 coil zip over the top.`); }
-  if (s.bottle) pc('mesh', 'Bottle pocket (stretch mesh)', rect(D + 6, H * 0.42 + 2 * SA), 2, 'Gathered into the base seam; 15 mm elastic bound into the top edge.');
+  if (ruck && s.pockets !== 'none') { pc('pocket', 'Side pocket front', rect(D * 0.8 + 2 * SA, H * 0.42 + 2 * SA), 2, ''); pc('pocket', 'Side pocket bellows gusset', rect(H * 0.84 + D * 0.8 + 2 * SA, 3.4 + 2 * SA), 2, ''); pc('pocket', 'Side pocket flap', rrect(D * 0.84 + 2 * SA, 8, 1.5), 4, 'Outer and lining.'); }
+  else if (s.pockets !== 'none') { pc('pocket', 'Front pocket panel', tomb(W * 0.74 + 2 * SA, H * 0.5 + 2 * SA, Math.min(3, rb), Math.min(H * 0.5 * 0.42, W * 0.37)), 1, ''); pc('pocket', 'Front pocket gusset', rect(Math.round(per * 0.62), 3 + 2 * SA), 1, `With a ${Math.round(per * 0.42)} cm No. 5 coil zip over the top.`); }
+  if (s.bottle && !ruck) pc('mesh', 'Bottle pocket (stretch mesh)', rect(D + 6, H * 0.42 + 2 * SA), 2, 'Gathered into the base seam; 15 mm elastic bound into the top edge.');
   const web = [['Shoulder strap adjusting webbing 25 mm', 2, 70], ['Anchor tab webbing 25 mm', 2, 10], ['Haul loop webbing 25 mm', 1, 22]];
   if (s.sternum) web.push(['Sternum strap webbing 20 mm', 2, 16]);
-  if (s.compress) web.push(['Compression strap webbing 20 mm', 2, D + 18]);
+  if (s.compress && !ruck) web.push(['Compression strap webbing 20 mm', 2, D + 18]);
   if (s.lifters) web.push(['Load lifter webbing 20 mm', 2, 30]);
   for (const [n, c, l] of web) pc('webbing', n, rect(l, /20 mm/.test(n) ? 2 : 2.5), c, 'Ends heat-sealed; folded end on every tail.');
   pc('piping', 'Binding tape 25 mm', rect(Math.round(per * 2 + 2 * 50 * 2 + 40), 2.5), 1, 'Every inside seam, both edges of each shoulder strap, the back-panel edge.');
-  if (o?.lining !== 'unlined') { pc('lining', 'Lining: front and back', tomb(W + 2 * SA, H + 2 * SA, rb, ht), 2, ''); pc('lining', 'Laptop sleeve (padded)', rect(W - 4, H * 0.82), 2, '6 mm foam between; hook-and-loop or elastic closure.'); }
+  if (o?.lining !== 'unlined') { pc('lining', 'Lining: front and back', tomb(W + 2 * SA, H + 2 * SA, rb, ht), 2, ''); if (!ruck) pc('lining', 'Laptop sleeve (padded)', rect(W - 4, H * 0.82), 2, '6 mm foam between; hook-and-loop or elastic closure.'); }
   return [];
 }
 
@@ -191,7 +195,7 @@ export function bagSheet(s, fabricName, o) {
   if (s.attach === 'rings' && (s.handles === 'top-handles' || s.handles === 'shoulder-straps')) hwN.push(`${n} rings (D or rectangular, 25 mm)`);
   if (s.handles === 'crossbody' || s.extraStrap) hwN.push('2 D-rings 20 mm, 2 trigger snap hooks, 1 slide adjuster');
   if (s.handles === 'chain') hwN.push('110 cm curb chain, 2 jump rings, 2 eyelets or D-rings');
-  if (s.pack) { hwN.push('2 ladder-lock adjusters 25 mm (shoulder straps)'); if (s.sternum) hwN.push('1 side-release buckle 20 mm and 2 sternum sliders on rails'); if (s.compress) hwN.push('2 side-release buckles 20 mm (compression)'); if (s.lifters) hwN.push('2 ladder-locks 20 mm (load lifters)'); hwN.push(`1 two-way No. 8 coil zip with 2 sliders and cord pullers${s.pockets !== 'none' ? '; 1 No. 5 coil zip with 1 slider (front pocket)' : ''}`); }
+  if (s.pack) { hwN.push('2 ladder-lock adjusters 25 mm (shoulder straps)'); if (s.sternum) hwN.push('1 side-release buckle 20 mm and 2 sternum sliders on rails'); if (s.compress && s.style !== 'rucksack') hwN.push('2 side-release buckles 20 mm (compression)'); if (s.lifters) hwN.push('2 ladder-locks 20 mm (load lifters)'); if (s.style === 'rucksack') hwN.push(`2 side-release buckles 20 mm (lid straps); 1 cord lock, 2 eyelets 10 mm, 130 cm drawcord 4 mm${s.pockets !== 'none' ? '; 2 side-release buckles 16 mm (side pocket flaps)' : ''}`); else hwN.push(`1 two-way No. 8 coil zip with 2 sliders and cord pullers${s.pockets !== 'none' ? '; 1 No. 5 coil zip with 1 slider (front pocket)' : ''}`); }
   else if (s.handles === 'backpack' && !s.cordStraps) hwN.push('2 ladder-lock adjusters 25 mm');
   if (s.handles === 'waist-belt') hwN.push('1 side-release buckle 38 mm, 1 slide');
   if (s.closure === 'zip' && !s.pack) hwN.push(`1 zip No. 5, ${r1(s.width - (s.barrel ? 6 : 2))} cm, ${s.barrel || s.archZip ? 'two sliders' : 'one slider'}`);
@@ -199,14 +203,14 @@ export function bagSheet(s, fabricName, o) {
   if (s.closure === 'turn-lock') hwN.push('1 turn lock with eyelet plate');
   if (s.closure === 'flap-buckle') hwN.push('2 roller buckles 20 mm (or 2 concealed push locks)');
   if (s.closure === 'frame-clasp') hwN.push(`1 kiss-lock frame ${r1(s.width - 2)} cm`);
-  if (s.closure === 'drawstring') hwN.push('8 to 12 eyelets 10 mm, 120 cm cord, 1 cord stop');
+  if (s.closure === 'drawstring' && !s.pack) hwN.push('8 to 12 eyelets 10 mm, 120 cm cord, 1 cord stop');
   if (s.feet) hwN.push('4 or 5 base studs 12 mm');
   if (!s.pack && (s.attach === 'rivets' || s.attach === 'rings' || s.attach === 'stitched-tabs')) hwN.push(`${n * 2} double-cap rivets 9 mm`);
   return [
     ['Style', s.name], ['Size', `${s.width} x ${s.height} x ${s.depth} cm (W x H x D) · about ${bagVolumeL(s).toFixed(1)} litres`],
     ['Outer', fabricName], ['Construction', `${s.base === 'structured' ? 'Structured: panels backed with bag stiffener, base board' : 'Soft: unstiffened or foam-backed panels'} · seams: ${s.piping}`],
     ['Handles', s.handles === 'none' ? 'none' : `${s.handles}, ${s.handleStyle}, ${s.drop ? `${s.drop} cm drop, ` : ''}attached by ${s.attach}`],
-    ['Closure', s.closure], ['Lining', o?.lining || 'cotton-twill'], ['Hardware', `${s.pack ? 'moulded acetal (buckles, ladder-locks, sliders), zip sliders in ' + s.hardware : s.hardware}: ${hwN.join('; ') || 'none'}`],
+    ['Closure', s.closure], ['Lining', o?.lining || 'cotton-twill'], ['Hardware', `${s.pack ? (s.style === 'rucksack' ? 'moulded acetal (buckles, ladder-locks, cord lock), eyelets in ' : 'moulded acetal (buckles, ladder-locks, sliders), zip sliders in ') + s.hardware : s.hardware}: ${hwN.join('; ') || 'none'}`],
     ['Thread and edges', 'Bonded nylon Tex 135 (No. 20) for leather at 3 stitches per cm, Tex 70 for fabric; leather edges bevelled, sanded and painted in 2 to 3 coats or turned'],
     ['Order of work', s.pack ? 'Cut → make the shoulder straps (shell, foam, mesh, bind the edges, ladder-lock tab bar-tacked) → make anchor triangles and webbing tabs → front pocket and bottle pockets onto their panels → set the main zip between the zip-panel strips, garages on → join zip panel, gussets and base into one strip (tabs caught in the seams) → sew the strip to the front panel → quilt and pad the back panel, sew the strap tops and haul loop on under the yoke → sew the strip to the back panel → bind every inside seam → sternum strap and buckles → inspection' : 'Cut and skive → prepare pockets and lining → make handles and tabs → attach hardware to panels on the flat → close gussets to panels (piping or binding in the seam) → set base → drop in lining and close the top edge / zip → edge finish → final inspection'],
   ];

@@ -73,7 +73,7 @@ function place(geo, p, along, n) {
 }
 
 export function buildBackpack(spec, mats) {
-  const group = new THREE.Group();
+  const group = new THREE.Group(); const ruck = spec.style === 'rucksack';
   const W = spec.width / 200; const H = spec.height / 100; const D = spec.depth / 100; const soft = spec.soft ?? 0.35;
   const col = (id) => mats.colorOf(id); const has = (id) => spec.parts.some((q) => q.id === id);
   const bodyCol = new THREE.Color(col('body'));
@@ -94,10 +94,11 @@ export function buildBackpack(spec, mats) {
   const dashed = (pts) => { if (pts.length < 2) return; const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: thread, dashSize: 0.0028, gapSize: 0.0013 })); ln.computeLineDistances(); group.add(ln); };
 
   // ---------- the body ----------
-  const rb = Math.min(0.045, W * 0.3); const Ht = Math.min(H * 0.38, W * 1.05); const N = 160;
-  const { pts: O } = outline(W, H, rb, Ht, 0.06, N);
+  // a rucksack is squarer, its top a straight edge with rounded corners where the throat is sewn on
+  const rb = Math.min(0.045, W * 0.3); const Ht = ruck ? 0.055 : Math.min(H * 0.38, W * 1.05); const N = 160;
+  const { pts: O } = outline(W, H, rb, Ht, ruck ? 0.02 : 0.06, N);
   const zb = (y) => -D / 2 - 0.006 * Math.sin(Math.PI * clamp(y / H, 0, 1)); // the back panel: a slight curve into the small of the back
-  const gw = (y) => D * (1 - 0.42 * sstep(0.42, 1, y / H)); // the strip (gusset / zip panel) narrows towards the top
+  const gw = (y) => D * (1 - (ruck ? 0.12 * sstep(0.7, 1, y / H) : 0.42 * sstep(0.42, 1, y / H))); // the strip (gusset / zip panel) narrows towards the top
   const bulge = (u, y) => soft * 0.014 * Math.sin(Math.PI * u) * (0.6 + 0.4 * Math.sin(Math.PI * clamp(y / H, 0, 1)));
   const MU = 12; const stripAt = (k, u, extra = 0) => { const o = O[k]; const b = bulge(u, o.y) + extra; return V(o.x + o.nx * b, o.y + o.ny * b, zb(o.y) + gw(o.y) * u); };
   // the outline seen from the centre, for the domed faces
@@ -109,11 +110,11 @@ export function buildBackpack(spec, mats) {
   const padT = 0.011;
   const backZ = (x, y) => { const r = clamp(rOf(x, y), 0, 1); const v = y / H; let pad = padT * (1 - sstep(0.84, 0.95, r)); pad *= 1 - (1 - sstep(0.012, 0.03, Math.abs(x))) * sstep(0.14, 0.2, v) * (1 - sstep(0.8, 0.86, v)); pad += 0.006 * sstep(0.06, 0.14, v) * (1 - sstep(0.26, 0.34, v)) * (1 - sstep(0.75, 0.9, r)); return zb(y) - pad; };
   // strip pieces: base across the bottom, gussets up the sides, the zip panel over the top
-  const yZip = H * 0.34; const regionOf = (o) => (o.y < rb * 0.75 ? 'base' : o.y < yZip ? 'gusset' : 'body');
+  const yZip = H * 0.34; const regionOf = (o) => (o.y < rb * 0.75 ? 'base' : ruck ? (o.y > H - 0.035 && o.ny > 0.45 ? 'open' : 'gusset') : o.y < yZip ? 'gusset' : 'body');
   const runs = []; { let cur = null; for (let k = 0; k <= N; k++) { const kk = k % N; const r = regionOf(O[kk]); if (!cur || cur.r !== r) { if (cur) cur.ks.push(kk); cur = { r, ks: [kk] }; runs.push(cur); } else cur.ks.push(kk); } }
-  for (const run of runs) { if (run.ks.length < 2) continue; const rows = run.ks.map((k) => { const row = []; for (let j = 0; j <= MU; j++) row.push(stripAt(k, j / MU)); return row; }); group.add(new THREE.Mesh(gridGeo(rows), M(run.r))); }
+  for (const run of runs) { if (run.ks.length < 2 || run.r === 'open') continue; const rows = run.ks.map((k) => { const row = []; for (let j = 0; j <= MU; j++) row.push(stripAt(k, j / MU)); return row; }); group.add(new THREE.Mesh(gridGeo(rows), M(run.r))); }
   // cross seams where base, gusset and zip panel meet
-  for (let i = 0; i < runs.length; i++) { const k = runs[i].ks[0]; if (i === 0 && regionOf(O[(k + N - 1) % N]) === runs[i].r) continue; const p = []; const nr = []; for (let j = 0; j <= MU; j++) { p.push(stripAt(k, j / MU, 0.0012)); nr.push(V(O[k].nx, O[k].ny, 0)); } group.add(new THREE.Mesh(strand(p, nr, 0.004, 0.003, true), M('body'))); }
+  for (let i = 0; i < runs.length; i++) { const k = runs[i].ks[0]; if ((i === 0 && regionOf(O[(k + N - 1) % N]) === runs[i].r) || runs[i].r === 'open' || regionOf(O[(k + N - 1) % N]) === 'open') continue; const p = []; const nr = []; for (let j = 0; j <= MU; j++) { p.push(stripAt(k, j / MU, 0.0012)); nr.push(V(O[k].nx, O[k].ny, 0)); } group.add(new THREE.Mesh(strand(p, nr, 0.004, 0.003, true), M('body'))); }
   // front panel and back panel, each filling the outline
   const NR = 18; const faceRows = (zf, r0 = 0, r1 = 1) => { const rows = []; for (let i = 0; i <= NR; i++) { const r = lerp(r0, r1, i / NR); const row = []; for (let k = 0; k < N; k++) { const o = O[k]; const x = lerp(C.x, o.x, r); const y = lerp(C.y, o.y, r); row.push(V(x, y, zf(x, y, r, k))); } rows.push(row); } return rows; };
   const edgeFront = (x, y, r, k) => (r >= 0.999 ? stripAt(k, 1).z : frontZ(x, y));
@@ -135,19 +136,18 @@ export function buildBackpack(spec, mats) {
       const g = new THREE.CylinderGeometry(0.0011, 0.0011, 0.0056, 6); g.rotateX(Math.PI / 2); teeth.push(place(g, q.clone().addScaledVector(n, 0.0017).addScaledVector(across, (t % 2 ? 1 : -1) * 0.0009), along, n)); }
     if (teeth.length) group.add(new THREE.Mesh(merge(teeth), coilM)); return { p, nr }; };
   const zn = (k) => V(O[k].nx, O[k].ny, 0);
-  const mainZip = zipLine(zipped, (k) => stripAt(k, 0.5, 0.0012), zn);
   const slider = (p, n, along, puller = true, pullDir = 1) => { const g = new THREE.BoxGeometry(0.016, 0.006, 0.012); plast.push(place(g, p.clone().addScaledVector(n, 0.004), along, n)); const tab = new THREE.BoxGeometry(0.004, 0.003, 0.006); metalG.push(place(tab, p.clone().addScaledVector(n, 0.008), along, n));
     if (puller) { // a cord loop through the slider's pull tab, lying on the panel and trailing away from the slider, a moulded tip on its end
       const dir = along.clone().normalize().multiplyScalar(pullDir); const across = new THREE.Vector3().crossVectors(dir, n).normalize(); const a = p.clone().addScaledVector(n, 0.0075);
       const lp = [a, a.clone().addScaledVector(dir, 0.012).addScaledVector(across, 0.0032).addScaledVector(n, -0.002), a.clone().addScaledVector(dir, 0.04).addScaledVector(across, 0.0026).addScaledVector(n, -0.0035), a.clone().addScaledVector(dir, 0.046).addScaledVector(n, -0.0035), a.clone().addScaledVector(dir, 0.04).addScaledVector(across, -0.0026).addScaledVector(n, -0.0035), a.clone().addScaledVector(dir, 0.012).addScaledVector(across, -0.0032).addScaledVector(n, -0.002), a];
       const c = new THREE.CatmullRomCurve3(lp).getPoints(30); group.add(new THREE.Mesh(strand(c, c.map(() => n), 0.0026, 0.0026, true), M('webbing')));
       const tip = new THREE.CylinderGeometry(0.0036, 0.0044, 0.017, 10); tip.rotateZ(Math.PI / 2); plast.push(place(tip, a.clone().addScaledVector(dir, 0.034).addScaledVector(n, -0.003), dir, n)); } };
-  { const m = Math.floor(mainZip.p.length / 2); for (const d of [-3, 3]) { const i = m + d; slider(mainZip.p[i], mainZip.nr[i], mainZip.p[i + 1].clone().sub(mainZip.p[i - 1]), true, Math.sign(d)); } } // the two sliders meet at the top, each pull trailing away from the other
-  for (const end of [zipK.slice(0, 7), zipK.slice(-7)]) { // zip garages: a small hood of the panel fabric over each end of the zip
+  if (!ruck) { const mainZip = zipLine(zipped, (k) => stripAt(k, 0.5, 0.0012), zn); const m = Math.floor(mainZip.p.length / 2); for (const d of [-3, 3]) { const i = m + d; slider(mainZip.p[i], mainZip.nr[i], mainZip.p[i + 1].clone().sub(mainZip.p[i - 1]), true, Math.sign(d)); } } // the two sliders meet at the top, each pull trailing away from the other
+  if (!ruck) for (const end of [zipK.slice(0, 7), zipK.slice(-7)]) { // zip garages: a small hood of the panel fabric over each end of the zip
     const ks = end; const rows = []; for (let i = 0; i < ks.length; i++) { const k = ks[i]; const row = []; for (let j = 0; j <= 8; j++) { const a = Math.PI * (j / 8); const u = 0.5 + Math.cos(a) * (0.016 / gw(O[k].y)); row.push(stripAt(k, clamp(u, 0, 1), 0.0016 + Math.sin(a) * 0.0055 * Math.min(1, i / 2, (ks.length - 1 - i) / 2 + 0.6))); } rows.push(row); }
     group.add(new THREE.Mesh(gridGeo(rows), M('body'))); }
   // ---------- front pocket: its own outline, gusset and zip, sewn onto the front panel ----------
-  if (spec.pockets !== 'none') {
+  if (spec.pockets !== 'none' && !ruck) {
     const pw = W * 0.74; const ph = H * 0.5; const y0 = H * 0.05; const NP = 110;
     const { pts: Q } = outline(pw, ph, Math.min(0.03, rb), Math.min(ph * 0.42, pw * 0.9), 0.04, NP); for (const q of Q) q.y += y0;
     const pg = (y) => 0.03 * (1 - 0.35 * sstep(y0 + ph * 0.5, y0 + ph, y)); const pb = (u) => soft * 0.008 * Math.sin(Math.PI * u);
@@ -160,7 +160,7 @@ export function buildBackpack(spec, mats) {
   }
   // ---------- side bottle pockets: stretch mesh, elastic-bound top ----------
   const sideK = (s, y) => { let best = 0; let bd = 9; for (let k = 0; k < N; k++) { const o = O[k]; if (Math.sign(o.x) !== s || Math.abs(o.nx) < 0.7) continue; const d = Math.abs(o.y - y); if (d < bd) { bd = d; best = k; } } return best; };
-  if (spec.bottle) for (const s of [-1, 1]) {
+  if (spec.bottle && !ruck) for (const s of [-1, 1]) {
     const ks = []; for (let k = 0; k < N; k++) { const o = O[k]; if (Math.sign(o.x) === s && o.y > rb * 0.3 && o.y < H * 0.42 && (Math.abs(o.nx) > 0.5 || o.y < rb)) ks.push(k); }
     ks.sort((a, b) => O[a].y - O[b].y); if (ks.length < 3) continue;
     const full = (y) => 0.01 + 0.014 * sstep(0, H * 0.25, y) * (1 - sstep(H * 0.36, H * 0.42, y));
@@ -169,11 +169,54 @@ export function buildBackpack(spec, mats) {
     const top = rows[rows.length - 1]; const kt = ks[ks.length - 1]; group.add(new THREE.Mesh(strand(top, top.map(() => V(O[kt].nx, O[kt].ny, 0)), 0.012, 0.004, true), M('piping')));
   }
   // ---------- side compression straps ----------
-  if (spec.compress) for (const s of [-1, 1]) {
+  if (spec.compress && !ruck) for (const s of [-1, 1]) {
     const k = sideK(s, H * 0.6); const n = V(O[k].nx, O[k].ny, 0); const p = []; for (let j = 0; j <= 20; j++) p.push(stripAt(k, 0.02 + 0.96 * (j / 20), 0.0034));
     const bi = 13; group.add(new THREE.Mesh(strand(p.slice(0, bi), p.slice(0, bi).map(() => n), 0.02, 0.0016), M('webbing'))); group.add(new THREE.Mesh(strand(p.slice(bi + 2), p.slice(bi + 2).map(() => n), 0.02, 0.0016), M('webbing')));
     plast.push(place(releaseBuckle(0.02), p[bi + 1].clone().addScaledVector(n, 0.003), p[bi + 2].clone().sub(p[bi]), n));
     for (const q of [p[0], p[p.length - 1]]) bartack(q, V(0, 1, 0), n, 0.016);
+  }
+  // ---------- rucksack: throat with drawcord, lid hinged at the back, lid straps, bellows side pockets ----------
+  if (ruck) {
+    // the throat (extension collar): a tube of lighter cloth sewn to the open top, gathered by a cord in a channel
+    const topK = []; for (let k = 0; k < N; k++) if (regionOf(O[k]) === 'open') topK.push(k); topK.sort((a, b) => a - b);
+    const rim = [...topK.map((k) => stripAt(k, 1)), ...[0.75, 0.5, 0.25].map((u) => stripAt(topK[topK.length - 1], u)), ...topK.slice().reverse().map((k) => stripAt(k, 0)), ...[0.25, 0.5, 0.75].map((u) => stripAt(topK[0], u))];
+    const NM = 96; const rl = [0]; for (let i = 1; i <= rim.length; i++) rl.push(rl[i - 1] + rim[i % rim.length].distanceTo(rim[i - 1])); const ring0 = []; { let j = 0; for (let q = 0; q < NM; q++) { const s0 = (q / NM) * rl[rl.length - 1]; while (rl[j + 1] < s0) j++; ring0.push(rim[j].clone().lerp(rim[(j + 1) % rim.length], (s0 - rl[j]) / (rl[j + 1] - rl[j] || 1))); } }
+    const cen = ring0.reduce((a, p) => a.add(p), V(0, 0, 0)).multiplyScalar(1 / NM); const thH = 0.13; const cinch = 0.8;
+    const thAt = (q, t) => { const p = ring0[q]; const g = 1 - 0.62 * sstep(0.45, cinch, t) + 0.18 * sstep(cinch + 0.02, 1, t); const a = (q / NM) * Math.PI * 2; const rip = 1 + (0.05 + 0.1 * sstep(0.5, cinch, t)) * Math.sin(a * 14) * sstep(0.1, 0.6, t);
+      return V(cen.x + (p.x - cen.x) * g * rip, p.y + thH * t, cen.z + (p.z - cen.z) * g * rip); };
+    const thRows = []; for (let i = 0; i <= 20; i++) { const t = i / 20; const row = []; for (let q = 0; q < NM; q++) row.push(thAt(q, t)); thRows.push(row); }
+    group.add(new THREE.Mesh(gridGeo(thRows, true), M(has('throat') ? 'throat' : 'lining')));
+    const chan = []; for (let q = 0; q <= NM; q++) chan.push(thAt(q % NM, cinch)); group.add(new THREE.Mesh(strand(chan, chan.map((p) => V(p.x - cen.x, 0, p.z - cen.z).normalize()), 0.016, 0.006, true), M(has('throat') ? 'throat' : 'lining')));
+    // the drawcord leaves the channel at the front through two eyelets, through a cord lock, and ends in knots
+    const qF = topK.length >> 1; const eye = chan[qF].clone(); const outN = V(0, 0, 1);
+    for (const dx of [-0.008, 0.008]) metalG.push(place(new THREE.TorusGeometry(0.0042, 0.0012, 6, 14).rotateX(Math.PI / 2), eye.clone().add(V(dx, 0, 0.004)), V(1, 0, 0), outN));
+    const lockP = eye.clone().add(V(0, -0.045, 0.03)); for (const dx of [-0.008, 0.008]) { const c = new THREE.CatmullRomCurve3([eye.clone().add(V(dx, 0, 0.004)), eye.clone().add(V(dx * 0.6, -0.02, 0.022)), lockP.clone().add(V(dx * 0.25, 0, 0)), lockP.clone().add(V(dx * 0.8, -0.045, 0.004)), lockP.clone().add(V(dx * 1.2, -0.075, -0.002))]).getPoints(30); group.add(new THREE.Mesh(strand(c, c.map(() => outN), 0.0045, 0.0045, true), M('webbing'))); const kn = new THREE.SphereGeometry(0.0055, 10, 8); kn.translate(c[c.length - 1].x, c[c.length - 1].y, c[c.length - 1].z); plast.push(kn); }
+    { const cl = new THREE.CylinderGeometry(0.008, 0.009, 0.022, 14); cl.translate(lockP.x, lockP.y, lockP.z); plast.push(cl); const btn = new THREE.CylinderGeometry(0.004, 0.004, 0.006, 10); btn.rotateZ(Math.PI / 2); btn.translate(lockP.x + 0.01, lockP.y + 0.004, lockP.z); plast.push(btn); }
+    // the lid: sewn on along the top of the back panel, over the gathered throat, down the front, its edge bound
+    const lidLen = H * (spec.flap || 0.42); const zBt = zb(H); const zFt = zb(H) + gw(H);
+    const prof = new THREE.CatmullRomCurve3([V(0, H - 0.012, zBt - 0.004), V(0, H + 0.075, zBt - 0.006), V(0, H + thH + 0.012, zBt + gw(H) * 0.25), V(0, H + thH + 0.018, zBt + gw(H) * 0.6), V(0, H + thH - 0.01, zFt + 0.018), V(0, H + 0.03, zFt + 0.022), V(0, H - lidLen, frontZ(0, H - lidLen) + 0.012)], false, 'centripetal').getSpacedPoints(40);
+    const NL = 26; const lidW = (v) => W * (0.97 - 0.06 * v); const lidRows = [];
+    for (let i = 0; i <= NL; i++) { const u = -1 + (2 * i) / NL; const endCut = 1 - 0.1 * Math.pow(Math.abs(u), 5); const row = []; for (let j = 0; j <= 40; j++) { const v = Math.min(j / 40, endCut); const pp = prof[Math.round(v * 40)]; const x = u * lidW(v); let z = pp.z; if (pp.y < H - 0.005) z = Math.max(z, frontZ(x, pp.y) + 0.009); const sag = (1 - u * u) * 0.006 * Math.sin(Math.PI * v); row.push(V(x, pp.y + (pp.y > H ? sag : 0), z + (pp.y <= H ? sag : 0))); } lidRows.push(row); }
+    const lidT = lidRows[0].map((_, j) => lidRows.map((r) => r[j])); group.add(new THREE.Mesh(gridGeo(lidT), M(has('flap') ? 'flap' : 'body')));
+    const edge = [...lidRows[0], ...lidRows.map((r) => r[r.length - 1]), ...lidRows[NL].slice().reverse()]; group.add(new THREE.Mesh(strand(edge, edge.map((p) => V(0, p.y > H ? 1 : 0, p.y > H ? 0 : 1).normalize()), 0.007, 0.005, true), M('piping')));
+    dashed(lidRows.map((r) => r[r.length - 1].clone().add(V(0, 0.008, 0.0012))));
+    // lid straps: from the end of the lid down to side-release buckles on tabs sewn to the front
+    for (const sx of [-1, 1]) { const x = sx * W * 0.45; const iRow = Math.round((x / lidW(1) + 1) * NL / 2); const r = lidRows[clamp(iRow, 0, NL)]; const top = r[Math.round(r.length * 0.72)]; const end = r[r.length - 1]; const yB = H - lidLen - 0.05;
+      const sp = [top, end.clone().add(V(0, 0, 0.003))]; for (let y = end.y - 0.01; y >= yB; y -= 0.01) sp.push(V(x, y, frontZ(x, y) + 0.004));
+      const nF = V(0, 0, 1); group.add(new THREE.Mesh(strand(sp, sp.map(() => nF), 0.02, 0.0016), M('webbing'))); bartack(top, V(1, 0, 0), nF, 0.016);
+      const bP = V(x, yB - 0.016, frontZ(x, yB - 0.016) + 0.008); plast.push(place(releaseBuckle(0.02), bP, V(0, -1, 0), nF));
+      const tab = []; for (let y = yB - 0.035; y >= yB - 0.075; y -= 0.008) tab.push(V(x, y, frontZ(x, y) + 0.0025)); group.add(new THREE.Mesh(strand(tab, tab.map(() => nF), 0.02, 0.0016), M('webbing'))); bartack(tab[tab.length - 1], V(1, 0, 0), nF, 0.016); }
+    // bellows side pockets: a box pocket on each side gusset, its flap closed by a strap and buckle
+    if (spec.pockets !== 'none') for (const sgn of [-1, 1]) {
+      const ks = []; for (let k = 0; k < N; k++) { const o = O[k]; if (Math.sign(o.x) === sgn && Math.abs(o.nx) > 0.8 && o.y > 0.05 && o.y < H * 0.48) ks.push(k); } ks.sort((a, b) => O[a].y - O[b].y); if (ks.length < 4) continue;
+      const y0 = O[ks[0]].y; const y1 = O[ks[ks.length - 1]].y; const box = (u) => sstep(0.1, 0.2, u) * (1 - sstep(0.8, 0.9, u)); const dep = (y) => 0.034 * sstep(y0, y0 + 0.02, y) * (1 - sstep(y1 - 0.012, y1, y) * 0.35);
+      const rows = ks.map((k) => { const row = []; for (let j = 0; j <= 12; j++) { const u = 0.1 + 0.8 * (j / 12); row.push(stripAt(k, u, 0.002 + dep(O[k].y) * box(u))); } return row; });
+      group.add(new THREE.Mesh(gridGeo(rows), M('pocket'))); const nS = V(sgn, 0, 0);
+      for (const j of [0, 12]) { const e = rows.map((r) => r[j]); group.add(new THREE.Mesh(strand(e, e.map(() => nS), 0.004, 0.003, true), M('pocket'))); }
+      const kT = ks[ks.length - 1]; const flap = []; for (let i = 0; i <= 6; i++) { const t = i / 6; const row = []; for (let j = 0; j <= 12; j++) { const u = 0.08 + 0.84 * (j / 12); const base = stripAt(kT, u, 0.003); row.push(base.clone().add(V(sgn * (0.004 + 0.036 * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2)), 0.018 - t * 0.07, 0))); } flap.push(row); }
+      group.add(new THREE.Mesh(gridGeo(flap), M('pocket'))); const fe = flap[flap.length - 1]; group.add(new THREE.Mesh(strand(fe, fe.map(() => nS), 0.005, 0.004, true), M('piping')));
+      const mid = fe[6]; const strap = [mid.clone().add(V(sgn * 0.002, 0.03, 0)), mid.clone().add(V(sgn * 0.003, 0, 0)), mid.clone().add(V(sgn * 0.0032, -0.04, 0))]; group.add(new THREE.Mesh(strand(strap, strap.map(() => nS), 0.016, 0.0016), M('webbing'))); plast.push(place(releaseBuckle(0.016), mid.clone().add(V(sgn * 0.007, -0.018, 0)), V(0, -1, 0), nS));
+    }
   }
   // ---------- top: yoke, haul loop ----------
   const topY = H; const zT = zb(topY);
