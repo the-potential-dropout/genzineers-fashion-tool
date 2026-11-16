@@ -47,14 +47,25 @@ site stays fully static.
   bound edges), ladder-locks, adjusting webbing from folded anchor triangles at the base corners, sternum strap on
   rails, load lifters on larger packs. Real 23-piece cut list and hardware list.
 
+### Shoes made like lasted shoes (v0.11.1)
+- Last: every cross-section convex (leather bridges toes and joints), the whole last faired round and along.
+- Insole drawn, not traced: flat heel seat, one shank curve to the ball, toe spring. The upper is lasted down onto it.
+- Sole: the feather edge (lowest 6 mm of the upper at each station), median-filtered, drawn as one smooth curve over
+  6 cm, set out by a real edge projection (about 4 mm cemented, 5 to 6 mm welted), read as monotone edges.
+  Curvature steps along the outline are now 0.2 to 0.6 mm (were 2 to 60 mm). Heel block matches the heel seat.
+- Laces rest on the leather (lifted along the surface normal, then smoothed), never snapped to mesh points.
+- Rucksack built on the backpack body and harness: throat with drawcord, eyelets and cord lock; lid draped over it
+  with bound edge and two straps to buckles; bellows side pockets with flaps.
+
 ### Tests (`npm test`)
 `jitter-test` (settled cloth is still), `layer-test` (layers never cross, tucked or not), `pull-test` (seams hold,
 garment returns to the body) run with the existing suites.
 
 ## Open, in order
 
-1. **Audit every other bag and assembly** the same way as the backpack: rucksack (reuse the backpack harness and
-   body, add the drawstring throat, lid/flap with buckles), duffel, tote, messenger and crossbody strap hardware,
+1. **Shoes, continued:** open shoes (sandals, slides, mules, slingbacks) and moulded sneakers checked for the same
+   smoothness; toe shapes compared against real lasts (round, almond, square, chisel).
+2. **Audit every other bag and assembly** the same way as the backpack: duffel, tote, messenger and crossbody strap hardware,
    hats (sweatband, crown seams, bill), shoe laces through every eyelet. Look for anything floating or
    disconnected and anything simplified.
 2. **Backpack options:** hip belt, laptop sleeve shown open, reflective tab, interior organiser when opened.
