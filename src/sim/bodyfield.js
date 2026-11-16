@@ -156,10 +156,41 @@ export function bodyField(body, cell = 0.0125) {
   }
   const data = new Float32Array(N);
   for (let q = 0; q < N; q++) data[q] = Math.min(dist[q], 1) * sgn[q];
+  if (CLOSE_R > 0) closeGaps(data, nx, ny, nz, cell, CLOSE_R);
   const field = { data, nx, ny, nz, ox, oy, oz, inv, cell };
   if (fields.size > 3) fields.clear();
   fields.set(key, field);
   return field;
+}
+
+const CLOSE_R = 0.012;
+/**
+ * Morphological closing of the body for cloth contact: creases narrower than 2r (armpit, between the thumb and
+ * the hand, between fingers, skin folds) are bridged, as cloth lies across them instead of being pinched inside.
+ * B = body grown by r; the closed body is B shrunk back by r: inside B its distance is r - (distance to the outside
+ * of B), outside B it is unchanged. Smooth surfaces are untouched; only narrow gaps fill in.
+ */
+function closeGaps(data, nx, ny, nz, cell, r) {
+  const N = data.length; const inB = new Uint8Array(N); for (let q = 0; q < N; q++) inB[q] = data[q] < r ? 1 : 0;
+  const din = new Float32Array(N).fill(1e9);
+  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const q = i + nx * (j + ny * k); if (!inB[q]) continue;
+    const edge = (i > 0 && !inB[q - 1]) || (i < nx - 1 && !inB[q + 1]) || (j > 0 && !inB[q - nx]) || (j < ny - 1 && !inB[q + nx]) || (k > 0 && !inB[q - nx * ny]) || (k < nz - 1 && !inB[q + nx * ny]);
+    if (edge) din[q] = Math.max(0, r - data[q]);
+  }
+  const sweep = (dir) => {
+    const ks = dir > 0 ? 0 : nz - 1; const js = dir > 0 ? 0 : ny - 1; const is = dir > 0 ? 0 : nx - 1;
+    for (let k = ks; k >= 0 && k < nz; k += dir) for (let j = js; j >= 0 && j < ny; j += dir) for (let i = is; i >= 0 && i < nx; i += dir) {
+      const q = i + nx * (j + ny * k); if (!inB[q]) continue; let best = din[q];
+      for (let dk = -1; dk <= 0; dk++) for (let dj = -1; dj <= (dk < 0 ? 1 : 0); dj++) for (let di = -1; di <= (dk < 0 || dj < 0 ? 1 : -1); di++) {
+        const ii = i + di * dir; const jj = j + dj * dir; const kk = k + dk * dir; if (ii < 0 || jj < 0 || kk < 0 || ii >= nx || jj >= ny || kk >= nz) continue;
+        const rr = ii + nx * (jj + ny * kk); if (!inB[rr]) continue; const dd = din[rr] + cell * Math.sqrt(di * di + dj * dj + dk * dk); if (dd < best) best = dd;
+      }
+      din[q] = best;
+    }
+  };
+  sweep(1); sweep(-1); sweep(1);
+  for (let q = 0; q < N; q++) if (inB[q] && din[q] < 1e8) data[q] = Math.min(data[q], r - din[q]);
 }
 
 /** Trilinear sample: [distance, gx, gy, gz] or null outside the grid (JS mirror of the Rust solver). */

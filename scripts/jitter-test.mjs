@@ -6,7 +6,7 @@ import { buildCloth, initSolver } from '../src/sim/cloth.js';
 globalThis.fetch = async () => ({ arrayBuffer: async () => readFileSync(new URL('../public/atelier_sim.wasm', import.meta.url)) });
 await initSolver('x');
 { const { loadBodyMesh } = await import('../src/sim/cloth.js'); await loadBodyMesh('male'); await loadBodyMesh('female'); }
-const CASES = (process.argv[2] ? process.argv.slice(2).map((s) => s.split('+')) : [['jeans-straight'], ['chinos'], ['sweatpants'], ['jeans-straight', 'oxford-shirt'], ['jeans-skinny'], ['skirt-pencil']]);
+const CASES = (process.argv[2] ? process.argv.slice(2).map((s) => s.split('+')) : [['jeans-straight'], ['chinos'], ['sweatpants'], ['jeans-straight', 'oxford-shirt'], ['jeans-skinny'], ['skirt-pencil'], ['oxford-shirt'], ['crew-tee'], ['chinos', 'crew-tee']]);
 let bad = 0;
 for (const list of CASES) {
   let p = createProject(list[0]); for (const t of list.slice(1)) p = applyAction(p, { type: 'add_garment', template: t }).project || p;

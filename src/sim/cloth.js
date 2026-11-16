@@ -113,6 +113,7 @@ export function buildCloth(project) {
   const fric = [];
   const gar = []; // garment of each particle
   const thk = []; // per-particle collision margin: outer garment layers rest over inner ones
+  const rankMargin = []; // the blanket extra clearance of an outer layer, only used without the body field
   const C = []; // constraint pairs
   const R = []; // rest lengths
   const K = []; // stiffness per substep
@@ -153,7 +154,7 @@ export function buildCloth(project) {
       inv.push(1 / ((fab.weightGsm / 1000) * (Math.max(area[q], h * h * 0.4) / 1e4)));
       fric.push(Math.min(0.95, fab.mech ? fab.mech.mu * 1.1 : fab.friction * 0.6));
       // collision margin: skin clearance + half the cloth thickness (thick coatings and leathers stand further off)
-      thk.push(0.0045 + Math.min(0.02, ((fab.thicknessMm || 0.5) / 1000) / scale) + rank * 0.009 + (panel.zBias ? 0.0035 : 0));
+      thk.push(0.0045 + Math.min(0.02, ((fab.thicknessMm || 0.5) / 1000) / scale) + rank * 0.009 + (panel.zBias ? 0.0035 : 0)); rankMargin.push(rank * 0.009);
       gar.push(panel.garment);
     }
 
@@ -378,6 +379,9 @@ export function buildCloth(project) {
   const field = project.display?.avatar === false ? null : bodyField(bodyFor(project));
   // with the body field, layers are kept apart cloth to cloth (layerPass below), so an inner garment is never yanked onto the body where it bridges a hollow
   if (field) for (let i = 0; i < n; i++) thk[n + i] = 0;
+  // with the body field the outer layer stands off the inner one exactly where they overlap (layerPass), so it needs no
+  // blanket extra clearance everywhere else (that jams sleeves in the armpit and lifts cloth off the body where nothing is under it)
+  if (field) for (let i = 0; i < n; i++) thk[i] -= rankMargin[i];
   const body = project.display?.avatar === false || field ? [] : buildAvatar(bodyFor(project));
   const colliders = packColliders([...body, ...(project.colliders || [])]);
   const bins = binColliders(colliders);
@@ -397,7 +401,7 @@ export function buildCloth(project) {
     const belt = anyLow ? (project.belts || [])[0] : null; const beltW = belt ? belt.width / 1000 : 0; const beltT = belt ? belt.thick / 1000 + 0.004 : 0;
     const TB = 16384; const head = new Int32Array(TB); const next = new Int32Array(n); const sd = new Float32Array(n); const cap = new Float32Array(n); const gx = new Float32Array(n); const gy = new Float32Array(n); const gz = new Float32Array(n); const ok = new Uint8Array(n); const o4 = [0, 0, 0, 0];
     const CELL = 0.02; const key = (ix, iy, iz) => (((ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)) >>> 0) & (TB - 1);
-    const base = sim.step.bind(sim);
+    const base = sim.step.bind(sim); const base0 = Float32Array.from(thk.slice(0, n));
     sim.layerPass = () => {
       const P = sim.pos; const Q = sim.prev; head.fill(-1);
       const NB = 48; const topB = new Float32Array(NB).fill(-1e9); const binB = (x, z) => ((Math.round((Math.atan2(x, z) / (Math.PI * 2)) * NB) % NB) + NB) % NB;
@@ -417,20 +421,25 @@ export function buildCloth(project) {
         for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
           for (let q = head[key(ix + a, iy + b, iz + c)]; q >= 0; q = next[q]) {
             if (rankP[q] >= r) continue;
-            if (gx[i] * gx[q] + gy[i] * gy[q] + gz[i] * gz[q] < 0.7) continue; /* the two layers must face the same way: not cloth on the other side of a leg or across the crotch */
+            const fdot = gx[i] * gx[q] + gy[i] * gy[q] + gz[i] * gz[q]; if (fdot < 0.6) continue; /* the two layers must face the same way: not cloth on the other side of a leg or across the crotch */
             const dx = px - P[q * 3]; const dy = py - P[q * 3 + 1]; const dz = pz - P[q * 3 + 2]; const along = dx * gx[q] + dy * gy[q] + dz * gz[q]; if (along < -0.025) continue;
             const lat2 = dx * dx + dy * dy + dz * dz - along * along; if (lat2 > 0.00026) continue; // within about 1.6 cm sideways
-            const g2 = 0.0028 * Math.min(2, r - rankP[q] + 0.5); const want = sd[q] + g2; if (want > need) need = want; if (sd[i] - g2 < cap[q]) cap[q] = sd[i] - g2;
+            /* the demand fades smoothly with sideways distance and with how differently the layers face, so a neighbour
+               coming into or leaving the search never makes the layer jump */
+            const wl = 1 - lat2 / 0.00026; const wf = Math.min(1, (fdot - 0.6) / 0.25); const w = wl * wf;
+            const g2 = 0.0028 * Math.min(2, r - rankP[q] + 0.5); const want = sd[q] + g2 * w - (1 - w) * 0.006; if (want > need) need = want; const lim = sd[i] - g2 * w + (1 - w) * 0.006; if (lim < cap[q]) cap[q] = lim;
           }
         }
-        const lack = (need - sd[i]) * 0.3; // the outer layer gives way by less than half: the inner one is pressed in for the rest
-        if (lack > 0) { const mv = Math.min(lack, 0.004); P[i * 3] += gx[i] * mv; P[i * 3 + 1] += gy[i] * mv; P[i * 3 + 2] += gz[i] * mv; Q[i * 3] += gx[i] * mv; Q[i * 3 + 1] += gy[i] * mv; Q[i * 3 + 2] += gz[i] * mv; }
+        /* the gap is handed to the solver as this point's contact distance from the body, enforced in every substep
+           (a correction after the step is undone by the cloth springs in the next one: a two-frame flicker) */
+        const tgt = Math.min(base0[i] + 0.04, Math.max(base0[i], need)); const T = sim.thk; T[i] += (tgt - T[i]) * 0.35;
       }
     };
     sim.layerPass = ((outerPass) => () => {
       outerPass();
-      const P = sim.pos; const Q = sim.prev;
-      for (let q = 0; q < n; q++) { if (!ok[q] || cap[q] > 1e8 || sim.inv[q] === 0) continue; const over = sd[q] - cap[q]; if (over <= 0) continue; const mv = Math.min(over * 0.35, Math.max(0, sd[q] - 0.004), 0.004); if (mv <= 0) continue; P[q * 3] -= gx[q] * mv; P[q * 3 + 1] -= gy[q] * mv; P[q * 3 + 2] -= gz[q] * mv; Q[q * 3] -= gx[q] * mv; Q[q * 3 + 1] -= gy[q] * mv; Q[q * 3 + 2] -= gz[q] * mv; }
+      /* the inner layer, where an outer one lies on it, is held no further from the body than the outer one allows */
+      const T = sim.thk;
+      for (let q = 0; q < n; q++) { if (rankP[q] >= maxRank) continue; const m = ok[q] && cap[q] < 1e8 ? Math.max(base0[q] + 0.002, cap[q]) : 0; T[n + q] = m && T[n + q] ? T[n + q] + (m - T[n + q]) * 0.35 : m; }
     })(sim.layerPass);
     sim.step = (dt) => { const mv = base(dt); sim.layerPass(); sim.computeNormals?.(); return mv; };
   }
